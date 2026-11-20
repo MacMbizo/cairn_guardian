@@ -1,0 +1,1297 @@
+//! Action batches, Simulator dry-run, Policy-gated Execution, Pre-flight Rollback & Reports (`B4 v2.3.1`, `C1 v1.2`, `C4 v1.1`).
+
+use crate::contracts::{
+    ActionItem, ActionStatus, ActionType, BatchStatus, CacheDirEntry, ConflictResolutionChoice,
+    DiskRescueReport, DupeCluster, DupeReport, ExecuteResult, FileDetail, HealthBreakdown,
+    HealthDimension, RefilePlan, RollbackConflictItem, RollbackConflictKind, RollbackResult,
+    Simulation, SimulationItem, TargetKind,
+};
+use crate::db::SqliteStore;
+use crate::db::audit::append_audit_in_tx;
+use crate::db::files::normalize_path;
+use crate::error::{AegisError, Result};
+use crate::policy::{PolicyAction, PolicyContext, PolicyVerdict, evaluate_policy};
+use crate::quarantine::{
+    build_quarantine_dest, calculate_reclaimable_bytes, default_ttl_ms, move_to_quarantine_fs,
+    space_summary,
+};
+use crate::scanner::os_adapter::inspect_path_metadata;
+use crate::{new_id, now_ms};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+fn hash_file_blake3(path: &Path) -> Result<Option<Vec<u8>>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let mut f = File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(Some(hasher.finalize().as_bytes().to_vec()))
+}
+
+fn capture_state_json(path: &Path) -> String {
+    match inspect_path_metadata(path) {
+        Ok(Some(st)) => serde_json::json!({
+            "existed": true,
+            "is_dir": st.is_dir,
+            "size": st.size,
+            "mtime": st.mtime,
+            "nlink": st.nlink,
+            "cloud_state": st.cloud_state
+        })
+        .to_string(),
+        _ => serde_json::json!({ "existed": false }).to_string(),
+    }
+}
+
+fn non_overwriting_dest(path: &Path) -> (PathBuf, bool) {
+    if !path.exists() {
+        return (path.to_path_buf(), false);
+    }
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let ext = path.extension().map(|e| e.to_string_lossy().to_string());
+    let mut n = 1usize;
+    loop {
+        let candidate_name = match &ext {
+            Some(e) => format!("{stem} ({n}).{e}"),
+            None => format!("{stem} ({n})"),
+        };
+        let candidate = path.with_file_name(candidate_name);
+        if !candidate.exists() {
+            return (candidate, true);
+        }
+        n += 1;
+    }
+}
+
+pub fn build_policy_context(store: &SqliteStore) -> Result<PolicyContext> {
+    let active_roots = store
+        .list_roots()?
+        .into_iter()
+        .filter(|r| r.enabled)
+        .map(|r| PathBuf::from(r.path))
+        .collect();
+    let volume_quarantine_dirs = store
+        .list_volumes()?
+        .into_iter()
+        .filter_map(|v| v.quarantine_dir.map(PathBuf::from))
+        .collect();
+    Ok(PolicyContext {
+        mvp_mode: true,
+        active_roots,
+        volume_quarantine_dirs,
+        dials: HashMap::new(),
+    })
+}
+
+struct DbActionRow {
+    id: String,
+    batch_id: String,
+    agent: Option<String>,
+    action_type: ActionType,
+    target_kind: TargetKind,
+    file_id: Option<String>,
+    atomic_unit_id: Option<String>,
+    from_path: String,
+    to_path: Option<String>,
+    post_blake3: Option<Vec<u8>>,
+    reason: String,
+    confidence: f64,
+    status: ActionStatus,
+    rollback_conflict: Option<RollbackConflictKind>,
+    error_message: Option<String>,
+}
+
+impl DbActionRow {
+    fn to_item(&self) -> ActionItem {
+        ActionItem {
+            id: self.id.clone(),
+            batch_id: self.batch_id.clone(),
+            agent: self.agent.clone(),
+            action_type: self.action_type,
+            target_kind: self.target_kind,
+            file_id: self.file_id.clone(),
+            atomic_unit_id: self.atomic_unit_id.clone(),
+            from_path: self.from_path.clone(),
+            to_path: self.to_path.clone(),
+            reason: self.reason.clone(),
+            confidence: self.confidence,
+            status: self.status,
+            rollback_conflict: self.rollback_conflict,
+            error_message: self.error_message.clone(),
+        }
+    }
+}
+
+fn load_batch_actions(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
+                from_path, to_path, post_blake3, reason, confidence,
+                status, rollback_conflict, error_message
+         FROM actions WHERE batch_id = ?1 ORDER BY created_at ASC, id ASC",
+    )?;
+    let rows = stmt.query_map(params![batch_id], |r| {
+        let at_str: String = r.get(3)?;
+        let tk_str: String = r.get(4)?;
+        let st_str: String = r.get(12)?;
+        let rc_str: Option<String> = r.get(13)?;
+        Ok(DbActionRow {
+            id: r.get(0)?,
+            batch_id: r.get(1)?,
+            agent: r.get(2)?,
+            action_type: ActionType::from_db(&at_str).unwrap_or(ActionType::Move),
+            target_kind: TargetKind::from_db(&tk_str),
+            file_id: r.get(5)?,
+            atomic_unit_id: r.get(6)?,
+            from_path: r.get(7)?,
+            to_path: r.get(8)?,
+            post_blake3: r.get(9)?,
+            reason: r.get(10)?,
+            confidence: r.get(11)?,
+            status: ActionStatus::from_db(&st_str),
+            rollback_conflict: rc_str.as_deref().and_then(RollbackConflictKind::from_db),
+            error_message: r.get(14)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+struct PolicyTargetMeta {
+    atomic_unit_root: Option<PathBuf>,
+    unit_allow_split: bool,
+    file_unit_split: bool,
+    is_cache_dir: bool,
+}
+
+fn resolve_policy_target_meta(conn: &Connection, row: &DbActionRow) -> Result<PolicyTargetMeta> {
+    let mut unit_id = row.atomic_unit_id.clone();
+    let mut file_unit_split = false;
+
+    if let Some(ref fid) = row.file_id
+        && let Some((au_id, split)) = conn
+            .query_row(
+                "SELECT atomic_unit_id, unit_split_override FROM files WHERE id = ?1",
+                params![fid],
+                |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i32>(1)? != 0)),
+            )
+            .optional()?
+    {
+        if unit_id.is_none() {
+            unit_id = au_id;
+        }
+        file_unit_split = split;
+    }
+
+    let mut is_cache_dir = false;
+    if row.target_kind == TargetKind::Dir {
+        let (_, ph) = normalize_path(Path::new(&row.from_path), false);
+        if let Some(au_id) = conn
+            .query_row(
+                "SELECT atomic_unit_id FROM cache_dirs WHERE path_hash = ?1 AND state = 'active'",
+                params![ph.as_slice()],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+        {
+            is_cache_dir = true;
+            if unit_id.is_none() {
+                unit_id = au_id;
+            }
+        }
+    }
+
+    let (atomic_unit_root, unit_allow_split) = if let Some(ref au) = unit_id {
+        conn.query_row(
+            "SELECT root_path, allow_split_override FROM atomic_units WHERE id = ?1",
+            params![au],
+            |r| Ok((Some(PathBuf::from(r.get::<_, String>(0)?)), r.get::<_, i32>(1)? != 0)),
+        )
+        .optional()?
+        .unwrap_or((None, false))
+    } else {
+        (None, false)
+    };
+
+    Ok(PolicyTargetMeta {
+        atomic_unit_root,
+        unit_allow_split,
+        file_unit_split,
+        is_cache_dir,
+    })
+}
+
+fn resolve_volume_for_action(conn: &Connection, from_path: &Path) -> Result<(String, String, bool)> {
+    let mut stmt = conn.prepare(
+        "SELECT id, mount_point, quarantine_dir, case_sensitive FROM volumes WHERE status = 'online'",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, i32>(3)? != 0,
+        ))
+    })?;
+
+    let from_str = from_path.to_string_lossy().to_lowercase();
+    let mut best: Option<(usize, String, String, bool)> = None;
+    for r in rows {
+        let (vid, mount, qdir_opt, cs) = r?;
+        let mount_low = mount.to_lowercase();
+        if from_str.starts_with(&mount_low) {
+            let qdir = qdir_opt.unwrap_or_else(|| {
+                Path::new(&mount)
+                    .join(".aegis-quarantine")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            if best.as_ref().is_none_or(|b| mount.len() > b.0) {
+                best = Some((mount.len(), vid, qdir, cs));
+            }
+        }
+    }
+    best.map(|(_, vid, qdir, cs)| (vid, qdir, cs)).ok_or_else(|| {
+        AegisError::QuarantineUnavailable(format!(
+            "No online volume matched {}",
+            from_path.display()
+        ))
+    })
+}
+
+/// Proposes an `action_batches` + `actions` draft (`C1` `actions.propose`).
+pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<String> {
+    let batch_id = new_id();
+    let now = now_ms();
+
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "INSERT INTO action_batches (id, origin, status, total_actions, created_at)
+             VALUES (?1, ?2, 'draft', ?3, ?4)",
+            params![batch_id, plan.origin, plan.actions.len() as i64, now],
+        )?;
+
+        for item in &plan.actions {
+            let action_id = new_id();
+            let effective_to = if item.action_type == ActionType::Quarantine && item.to_path.is_none()
+            {
+                let (_, qdir, _) = resolve_volume_for_action(tx, Path::new(&item.from_path))?;
+                Some(
+                    build_quarantine_dest(
+                        Path::new(&qdir),
+                        &batch_id,
+                        &action_id,
+                        Path::new(&item.from_path),
+                    )
+                    .to_string_lossy()
+                    .to_string(),
+                )
+            } else {
+                item.to_path.clone()
+            };
+
+            tx.execute(
+                "INSERT INTO actions (
+                    id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
+                    from_path, to_path, reason, confidence, evidence_json, status, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'proposed', ?13)",
+                params![
+                    action_id,
+                    batch_id,
+                    item.agent,
+                    item.action_type.as_str(),
+                    item.target_kind.as_str(),
+                    item.file_id,
+                    item.atomic_unit_id,
+                    item.from_path,
+                    effective_to,
+                    item.reason,
+                    item.confidence,
+                    item.evidence_json,
+                    now
+                ],
+            )?;
+        }
+        Ok(())
+    })?;
+
+    Ok(batch_id)
+}
+
+/// Dry-run Simulator evaluating collisions and `C4 v1.1` Policy verdicts (`C1` `actions.simulate`).
+pub fn simulate_batch(store: &SqliteStore, batch_id: &str) -> Result<Simulation> {
+    let ctx = build_policy_context(store)?;
+    let rows = load_batch_actions(store.conn(), batch_id)?;
+    if rows.is_empty() {
+        return Err(AegisError::NotFound(format!("batch {batch_id}")));
+    }
+
+    let mut items = Vec::with_capacity(rows.len());
+    let mut blocked_count = 0usize;
+    let mut review_count = 0usize;
+    let mut ready_count = 0usize;
+
+    for row in rows {
+        let meta = resolve_policy_target_meta(store.conn(), &row)?;
+        let pa = PolicyAction {
+            action_type: row.action_type,
+            target_kind: row.target_kind,
+            agent: row.agent.as_deref(),
+            from_path: Path::new(&row.from_path),
+            to_path: row.to_path.as_deref().map(Path::new),
+            confidence: row.confidence,
+            atomic_unit_root: meta.atomic_unit_root.as_deref(),
+            unit_allow_split_override: meta.unit_allow_split,
+            file_unit_split_override: meta.file_unit_split,
+            is_registered_cache_dir: meta.is_cache_dir,
+        };
+        let verdict = evaluate_policy(&pa, &ctx);
+        let policy_allowed = verdict.is_allowed_to_stage();
+        let atomic_unit_protected = verdict == PolicyVerdict::Block("atomic_unit_boundary");
+
+        match verdict {
+            PolicyVerdict::Block(_) => blocked_count += 1,
+            PolicyVerdict::HoldLowConfidence => review_count += 1,
+            PolicyVerdict::RequireApproval(_) | PolicyVerdict::RequireExplicitPermanentConfirm => {
+                if row.confidence >= 0.90 {
+                    ready_count += 1;
+                } else {
+                    review_count += 1;
+                }
+            }
+            PolicyVerdict::AutoEligible => ready_count += 1,
+        }
+
+        let (effective_to_path, collision_renamed) = match row.action_type {
+            ActionType::Move | ActionType::Copy | ActionType::Rename => match &row.to_path {
+                Some(dest) => {
+                    let (eff, renamed) = non_overwriting_dest(Path::new(dest));
+                    (Some(eff.to_string_lossy().to_string()), renamed)
+                }
+                None => (None, false),
+            },
+            _ => (row.to_path.clone(), false),
+        };
+
+        items.push(SimulationItem {
+            action_id: row.id,
+            from_path: row.from_path,
+            to_path: row.to_path,
+            effective_to_path,
+            collision_renamed,
+            confidence: row.confidence,
+            reason: row.reason,
+            policy_verdict: verdict.code().to_string(),
+            policy_allowed,
+            atomic_unit_protected,
+        });
+    }
+
+    Ok(Simulation {
+        batch_id: batch_id.to_string(),
+        items,
+        blocked_count,
+        review_count,
+        ready_count,
+    })
+}
+
+pub fn approve_batch(
+    store: &mut SqliteStore,
+    batch_id: &str,
+    selection: Option<&[String]>,
+) -> Result<()> {
+    store.with_full_sync_tx(|tx| {
+        match selection {
+            Some(ids) => {
+                for id in ids {
+                    tx.execute(
+                        "UPDATE actions SET status = 'approved'
+                         WHERE batch_id = ?1 AND id = ?2 AND status = 'proposed'",
+                        params![batch_id, id],
+                    )?;
+                }
+            }
+            None => {
+                tx.execute(
+                    "UPDATE actions SET status = 'approved'
+                     WHERE batch_id = ?1 AND status = 'proposed'",
+                    params![batch_id],
+                )?;
+            }
+        }
+        tx.execute(
+            "UPDATE action_batches SET status = 'approved' WHERE id = ?1",
+            params![batch_id],
+        )?;
+        Ok(())
+    })
+}
+
+pub fn reject_batch(store: &mut SqliteStore, batch_id: &str, reason: Option<&str>) -> Result<()> {
+    let msg = reason.unwrap_or("Rejected by user");
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "UPDATE actions SET status = 'rejected', error_message = ?1
+             WHERE batch_id = ?2 AND status IN ('proposed','approved')",
+            params![msg, batch_id],
+        )?;
+        tx.execute(
+            "UPDATE action_batches SET status = 'failed' WHERE id = ?1",
+            params![batch_id],
+        )?;
+        append_audit_in_tx(tx, "user", "actions.reject", batch_id, msg)?;
+        Ok(())
+    })
+}
+
+/// Executes all `approved` actions in `batch_id` through `C4 v1.1` Policy Engine (`C1` `actions.execute`).
+pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteResult> {
+    let ctx = build_policy_context(store)?;
+    let rows = load_batch_actions(store.conn(), batch_id)?;
+    if rows.is_empty() {
+        return Err(AegisError::NotFound(format!("batch {batch_id}")));
+    }
+    let mut metas = HashMap::new();
+    let mut vol_lookup = HashMap::new();
+    for r in &rows {
+        metas.insert(r.id.clone(), resolve_policy_target_meta(store.conn(), r)?);
+        if let Ok(v) = resolve_volume_for_action(store.conn(), Path::new(&r.from_path)) {
+            vol_lookup.insert(r.id.clone(), v);
+        }
+    }
+
+    let now = now_ms();
+    let mut executed_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut skipped_count = 0usize;
+
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "UPDATE action_batches SET status = 'executing' WHERE id = ?1",
+            params![batch_id],
+        )?;
+
+        for row in &rows {
+            if row.status != ActionStatus::Approved {
+                skipped_count += 1;
+                continue;
+            }
+            let meta = &metas[&row.id];
+            let pa = PolicyAction {
+                action_type: row.action_type,
+                target_kind: row.target_kind,
+                agent: row.agent.as_deref(),
+                from_path: Path::new(&row.from_path),
+                to_path: row.to_path.as_deref().map(Path::new),
+                confidence: row.confidence,
+                atomic_unit_root: meta.atomic_unit_root.as_deref(),
+                unit_allow_split_override: meta.unit_allow_split,
+                file_unit_split_override: meta.file_unit_split,
+                is_registered_cache_dir: meta.is_cache_dir,
+            };
+            let verdict = evaluate_policy(&pa, &ctx);
+            if let PolicyVerdict::Block(rule) = verdict {
+                failed_count += 1;
+                let msg = format!("policy_blocked:{rule}");
+                tx.execute(
+                    "UPDATE actions SET status = 'failed', error_message = ?1 WHERE id = ?2",
+                    params![msg, row.id],
+                )?;
+                continue;
+            }
+            if verdict == PolicyVerdict::HoldLowConfidence {
+                skipped_count += 1;
+                tx.execute(
+                    "UPDATE actions SET status = 'skipped', error_message = 'hold_low_confidence' WHERE id = ?1",
+                    params![row.id],
+                )?;
+                continue;
+            }
+
+            let from = Path::new(&row.from_path);
+            let pre_blake3 = if row.target_kind == TargetKind::File {
+                hash_file_blake3(from).ok().flatten()
+            } else {
+                None
+            };
+            let pre_state_json = capture_state_json(from);
+
+            let exec_res: Result<(Option<String>, Option<Vec<u8>>, String)> = (|| {
+                match row.action_type {
+                    ActionType::Quarantine => {
+                        let dest_str = row.to_path.clone().ok_or_else(|| {
+                            AegisError::QuarantineUnavailable("Missing quarantine to_path".into())
+                        })?;
+                        let dest = Path::new(&dest_str);
+                        let size_bytes = if from.is_dir() {
+                            0i64
+                        } else {
+                            std::fs::metadata(from).map(|m| m.len() as i64).unwrap_or(0)
+                        };
+                        move_to_quarantine_fs(from, dest)?;
+                        let (vid, _, _) = vol_lookup.get(&row.id).cloned().ok_or_else(|| {
+                            AegisError::QuarantineUnavailable("Volume unavailable".into())
+                        })?;
+                        let qid = new_id();
+                        tx.execute(
+                            "INSERT INTO quarantine_entries (
+                                id, action_id, target_kind, file_id, atomic_unit_id, volume_id,
+                                original_path, quarantine_path, size_bytes, blake3,
+                                quarantined_at, expires_at
+                             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                            params![
+                                qid,
+                                row.id,
+                                row.target_kind.as_str(),
+                                row.file_id,
+                                row.atomic_unit_id,
+                                vid,
+                                row.from_path,
+                                dest_str,
+                                size_bytes,
+                                pre_blake3.as_deref(),
+                                now,
+                                now + default_ttl_ms()
+                            ],
+                        )?;
+                        if let Some(ref fid) = row.file_id {
+                            tx.execute(
+                                "UPDATE files SET state = 'quarantine', updated_at = ?1 WHERE id = ?2",
+                                params![now, fid],
+                            )?;
+                            tx.execute(
+                                "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                                 VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"quarantine\"}', ?2)",
+                                params![fid, now],
+                            )?;
+                        }
+                        if row.target_kind == TargetKind::Dir {
+                            tx.execute(
+                                "UPDATE cache_dirs SET state = 'quarantine', updated_at = ?1 WHERE path = ?2",
+                                params![now, row.from_path],
+                            )?;
+                        }
+                        let post_hash = if row.target_kind == TargetKind::File {
+                            hash_file_blake3(dest).ok().flatten()
+                        } else {
+                            None
+                        };
+                        Ok((Some(dest_str.clone()), post_hash, capture_state_json(dest)))
+                    }
+                    ActionType::Move | ActionType::Rename => {
+                        let raw_to = row.to_path.as_deref().ok_or_else(|| {
+                            AegisError::InvalidInput("Missing to_path for move/rename".into())
+                        })?;
+                        let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
+                        if let Some(parent) = eff_to.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        std::fs::rename(from, &eff_to)?;
+                        let eff_str = eff_to.to_string_lossy().to_string();
+                        if let Some(ref fid) = row.file_id {
+                            let case_sensitive = vol_lookup
+                                .get(&row.id)
+                                .map(|v| v.2)
+                                .unwrap_or(false);
+                            let (disp, ph) = normalize_path(&eff_to, case_sensitive);
+                            let name = eff_to
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            tx.execute(
+                                "UPDATE files SET path = ?1, path_hash = ?2, name = ?3, updated_at = ?4 WHERE id = ?5",
+                                params![disp, ph.as_slice(), name, now, fid],
+                            )?;
+                        }
+                        let post_hash = if row.target_kind == TargetKind::File {
+                            hash_file_blake3(&eff_to).ok().flatten()
+                        } else {
+                            None
+                        };
+                        Ok((Some(eff_str), post_hash, capture_state_json(&eff_to)))
+                    }
+                    ActionType::Copy => {
+                        let raw_to = row.to_path.as_deref().ok_or_else(|| {
+                            AegisError::InvalidInput("Missing to_path for copy".into())
+                        })?;
+                        let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
+                        if let Some(parent) = eff_to.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        std::fs::copy(from, &eff_to)?;
+                        let eff_str = eff_to.to_string_lossy().to_string();
+                        let post_hash = hash_file_blake3(&eff_to).ok().flatten();
+                        Ok((Some(eff_str), post_hash, capture_state_json(&eff_to)))
+                    }
+                    ActionType::Archive => {
+                        if let Some(ref fid) = row.file_id {
+                            tx.execute(
+                                "UPDATE files SET state = 'archive', updated_at = ?1 WHERE id = ?2",
+                                params![now, fid],
+                            )?;
+                        }
+                        Ok((None, pre_blake3.clone(), pre_state_json.clone()))
+                    }
+                    ActionType::Purge | ActionType::Restore => Err(AegisError::InvalidInput(
+                        "Use quarantine.restore/purge commands for quarantine lifecycle ops".into(),
+                    )),
+                }
+            })();
+
+            match exec_res {
+                Ok((eff_to, post_blake3, post_state_json)) => {
+                    executed_count += 1;
+                    tx.execute(
+                        "UPDATE actions
+                         SET to_path = COALESCE(?1, to_path), pre_blake3 = ?2, post_blake3 = ?3,
+                             pre_state_json = ?4, post_state_json = ?5, status = 'executed', executed_at = ?6
+                         WHERE id = ?7",
+                        params![
+                            eff_to,
+                            pre_blake3.as_deref(),
+                            post_blake3.as_deref(),
+                            pre_state_json,
+                            post_state_json,
+                            now,
+                            row.id
+                        ],
+                    )?;
+                    append_audit_in_tx(
+                        tx,
+                        row.agent.as_deref().unwrap_or("user"),
+                        &format!("actions.{}", row.action_type.as_str()),
+                        &row.from_path,
+                        &serde_json::json!({
+                            "action_id": row.id,
+                            "batch_id": batch_id,
+                            "to_path": eff_to
+                        })
+                        .to_string(),
+                    )?;
+                }
+                Err(e) => {
+                    failed_count += 1;
+                    let ipc = e.to_ipc();
+                    tx.execute(
+                        "UPDATE actions SET status = 'failed', error_message = ?1 WHERE id = ?2",
+                        params![format!("{}: {}", ipc.code, ipc.message), row.id],
+                    )?;
+                }
+            }
+        }
+
+        let batch_status = if failed_count == 0 && executed_count > 0 {
+            BatchStatus::Executed
+        } else if executed_count > 0 {
+            BatchStatus::Partial
+        } else {
+            BatchStatus::Failed
+        };
+        tx.execute(
+            "UPDATE action_batches SET status = ?1, executed_at = ?2 WHERE id = ?3",
+            params![batch_status.as_str(), now, batch_id],
+        )?;
+        Ok(())
+    })?;
+
+    let updated = load_batch_actions(store.conn(), batch_id)?
+        .into_iter()
+        .map(|r| r.to_item())
+        .collect();
+    let batch_status = if failed_count == 0 && executed_count > 0 {
+        BatchStatus::Executed
+    } else if executed_count > 0 {
+        BatchStatus::Partial
+    } else {
+        BatchStatus::Failed
+    };
+
+    Ok(ExecuteResult {
+        batch_id: batch_id.to_string(),
+        status: batch_status,
+        executed_count,
+        failed_count,
+        skipped_count,
+        actions: updated,
+    })
+}
+
+fn check_single_action_preflight(row: &DbActionRow) -> Option<RollbackConflictItem> {
+    if !matches!(
+        row.action_type,
+        ActionType::Move | ActionType::Rename | ActionType::Quarantine | ActionType::Copy
+    ) {
+        return None;
+    }
+    let to_str = row.to_path.as_deref()?;
+    let to_path = Path::new(to_str);
+    let from_path = Path::new(&row.from_path);
+
+    if !to_path.exists() {
+        return Some(RollbackConflictItem {
+            action_id: row.id.clone(),
+            from_path: row.from_path.clone(),
+            to_path: row.to_path.clone(),
+            conflict: RollbackConflictKind::MissingTarget,
+            detail: format!("Target missing at {to_str}"),
+            recommended_choice: ConflictResolutionChoice::Skip,
+        });
+    }
+
+    if row.target_kind == TargetKind::File
+        && let Some(expected) = &row.post_blake3
+        && let Ok(Some(actual)) = hash_file_blake3(to_path)
+        && &actual != expected
+    {
+        return Some(RollbackConflictItem {
+            action_id: row.id.clone(),
+            from_path: row.from_path.clone(),
+            to_path: row.to_path.clone(),
+            conflict: RollbackConflictKind::Modified,
+            detail: format!("File at {to_str} was modified after Aegis moved it"),
+            recommended_choice: ConflictResolutionChoice::CopyBackKeepingBoth,
+        });
+    }
+
+    if row.action_type != ActionType::Copy && from_path.exists() {
+        return Some(RollbackConflictItem {
+            action_id: row.id.clone(),
+            from_path: row.from_path.clone(),
+            to_path: row.to_path.clone(),
+            conflict: RollbackConflictKind::Collision,
+            detail: format!("Original location {} is now occupied", row.from_path),
+            recommended_choice: ConflictResolutionChoice::RestoreAsRename,
+        });
+    }
+
+    None
+}
+
+fn revert_clean_action_in_tx(
+    tx: &Transaction<'_>,
+    row: &DbActionRow,
+    target_from_override: Option<&Path>,
+    copy_instead_of_move: bool,
+    now: i64,
+) -> Result<()> {
+    let dest = target_from_override.unwrap_or_else(|| Path::new(&row.from_path));
+    match row.action_type {
+        ActionType::Copy => {
+            if let Some(ref to_str) = row.to_path {
+                let p = Path::new(to_str);
+                if p.exists() {
+                    std::fs::remove_file(p)?;
+                }
+            }
+        }
+        ActionType::Move | ActionType::Rename | ActionType::Quarantine => {
+            let to_str = row.to_path.as_deref().ok_or_else(|| {
+                AegisError::InvalidInput("Executed action missing to_path".into())
+            })?;
+            let src = Path::new(to_str);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if copy_instead_of_move {
+                std::fs::copy(src, dest)?;
+            } else {
+                std::fs::rename(src, dest)?;
+            }
+            let dest_str = dest.to_string_lossy().to_string();
+            if let Some(ref fid) = row.file_id {
+                let (_, ph) = normalize_path(dest, false);
+                let name = dest
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                tx.execute(
+                    "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, name = ?3, updated_at = ?4
+                     WHERE id = ?5",
+                    params![dest_str, ph.as_slice(), name, now, fid],
+                )?;
+                if row.action_type == ActionType::Quarantine {
+                    tx.execute(
+                        "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                         VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"active\"}', ?2)",
+                        params![fid, now],
+                    )?;
+                }
+            }
+            if row.action_type == ActionType::Quarantine {
+                tx.execute(
+                    "UPDATE quarantine_entries SET restored_at = ?1 WHERE action_id = ?2 AND restored_at IS NULL",
+                    params![now, row.id],
+                )?;
+                if row.target_kind == TargetKind::Dir {
+                    tx.execute(
+                        "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2",
+                        params![now, row.from_path],
+                    )?;
+                }
+            }
+        }
+        ActionType::Archive => {
+            if let Some(ref fid) = row.file_id {
+                tx.execute(
+                    "UPDATE files SET state = 'active', updated_at = ?1 WHERE id = ?2",
+                    params![now, fid],
+                )?;
+            }
+        }
+        _ => {}
+    }
+
+    tx.execute(
+        "UPDATE actions SET status = 'rolled_back', rollback_conflict = NULL, rolled_back_at = ?1 WHERE id = ?2",
+        params![now, row.id],
+    )?;
+    append_audit_in_tx(
+        tx,
+        "user",
+        "actions.rollback",
+        &dest.to_string_lossy(),
+        &serde_json::json!({ "action_id": row.id, "batch_id": row.batch_id }).to_string(),
+    )?;
+    Ok(())
+}
+
+/// Pre-flights ALL `executed` actions in `batch_id` before mutating disk (`C1 v1.2` §4).
+pub fn rollback_batch(store: &mut SqliteStore, batch_id: &str) -> Result<RollbackResult> {
+    let mut rows = load_batch_actions(store.conn(), batch_id)?;
+    rows.reverse();
+    let executed: Vec<DbActionRow> = rows
+        .into_iter()
+        .filter(|r| r.status == ActionStatus::Executed)
+        .collect();
+
+    if executed.is_empty() {
+        return Err(AegisError::NotFound(format!(
+            "No executed actions to roll back in batch {batch_id}"
+        )));
+    }
+
+    let mut conflicts = Vec::new();
+    for row in &executed {
+        if let Some(conflict) = check_single_action_preflight(row) {
+            conflicts.push(conflict);
+        }
+    }
+
+    let now = now_ms();
+    if !conflicts.is_empty() {
+        store.with_full_sync_tx(|tx| {
+            for c in &conflicts {
+                tx.execute(
+                    "UPDATE actions SET rollback_conflict = ?1 WHERE id = ?2",
+                    params![c.conflict.as_str(), c.action_id],
+                )?;
+            }
+            tx.execute(
+                "UPDATE action_batches SET status = 'partial' WHERE id = ?1",
+                params![batch_id],
+            )?;
+            Ok(())
+        })?;
+        return Ok(RollbackResult {
+            batch_id: batch_id.to_string(),
+            status: BatchStatus::Partial,
+            reverted_count: 0,
+            conflicts,
+        });
+    }
+
+    let count = executed.len();
+    store.with_full_sync_tx(|tx| {
+        for row in &executed {
+            revert_clean_action_in_tx(tx, row, None, false, now)?;
+        }
+        tx.execute(
+            "UPDATE action_batches SET status = 'rolled_back', rolled_back_at = ?1 WHERE id = ?2",
+            params![now, batch_id],
+        )?;
+        Ok(())
+    })?;
+
+    Ok(RollbackResult {
+        batch_id: batch_id.to_string(),
+        status: BatchStatus::RolledBack,
+        reverted_count: count,
+        conflicts: Vec::new(),
+    })
+}
+
+/// Resolves a pre-flight rollback conflict on one action (`C1 v1.2` §4).
+pub fn resolve_rollback_conflict(
+    store: &mut SqliteStore,
+    action_id: &str,
+    choice: ConflictResolutionChoice,
+) -> Result<RollbackResult> {
+    let batch_id: String = store
+        .conn()
+        .query_row(
+            "SELECT batch_id FROM actions WHERE id = ?1",
+            params![action_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| AegisError::NotFound(format!("action {action_id}")))?;
+
+    let rows = load_batch_actions(store.conn(), &batch_id)?;
+    let target = rows
+        .into_iter()
+        .find(|r| r.id == action_id)
+        .ok_or_else(|| AegisError::NotFound(format!("action {action_id}")))?;
+
+    let now = now_ms();
+    let mut reverted_count = 0usize;
+
+    store.with_full_sync_tx(|tx| {
+        match choice {
+            ConflictResolutionChoice::AbortBatch => {
+                tx.execute(
+                    "UPDATE actions SET rollback_conflict = NULL WHERE batch_id = ?1 AND status = 'executed'",
+                    params![batch_id],
+                )?;
+                tx.execute(
+                    "UPDATE action_batches SET status = 'executed' WHERE id = ?1",
+                    params![batch_id],
+                )?;
+                append_audit_in_tx(tx, "user", "actions.rollback_aborted", &batch_id, "{}")?;
+            }
+            ConflictResolutionChoice::Skip => {
+                let next_status = if target.rollback_conflict == Some(RollbackConflictKind::MissingTarget) {
+                    "unrecoverable_missing"
+                } else {
+                    "skipped"
+                };
+                tx.execute(
+                    "UPDATE actions SET status = ?1, rollback_conflict = NULL WHERE id = ?2",
+                    params![next_status, action_id],
+                )?;
+                append_audit_in_tx(
+                    tx,
+                    "user",
+                    "actions.rollback_skipped",
+                    action_id,
+                    &serde_json::json!({ "status": next_status }).to_string(),
+                )?;
+            }
+            ConflictResolutionChoice::RevertKeepingEdits => {
+                revert_clean_action_in_tx(tx, &target, None, false, now)?;
+                reverted_count += 1;
+            }
+            ConflictResolutionChoice::CopyBackKeepingBoth => {
+                revert_clean_action_in_tx(tx, &target, None, true, now)?;
+                reverted_count += 1;
+            }
+            ConflictResolutionChoice::RestoreAsRename => {
+                let orig = PathBuf::from(&target.from_path);
+                let stem = orig
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "restored".to_string());
+                let renamed_name = match orig.extension().and_then(|e| e.to_str()) {
+                    Some(ext) => format!("{stem}.restored-{now}.{ext}"),
+                    None => format!("{stem}.restored-{now}"),
+                };
+                let renamed_dest = orig.with_file_name(renamed_name);
+                revert_clean_action_in_tx(tx, &target, Some(&renamed_dest), false, now)?;
+                reverted_count += 1;
+            }
+        }
+        Ok(())
+    })?;
+
+    let remaining_rows = load_batch_actions(store.conn(), &batch_id)?;
+    let remaining_conflicts: Vec<RollbackConflictItem> = remaining_rows
+        .iter()
+        .filter(|r| r.status == ActionStatus::Executed && r.rollback_conflict.is_some())
+        .filter_map(check_single_action_preflight)
+        .collect();
+
+    let status = if remaining_conflicts.is_empty() {
+        BatchStatus::RolledBack
+    } else {
+        BatchStatus::Partial
+    };
+
+    Ok(RollbackResult {
+        batch_id,
+        status,
+        reverted_count,
+        conflicts: remaining_conflicts,
+    })
+}
+
+pub fn list_actions(conn: &Connection, status: Option<ActionStatus>) -> Result<Vec<ActionItem>> {
+    let sql = match status {
+        Some(_) => {
+            "SELECT id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
+                    from_path, to_path, pre_blake3, post_blake3, reason, confidence,
+                    status, rollback_conflict, error_message
+             FROM actions WHERE status = ?1 ORDER BY created_at DESC"
+        }
+        None => {
+            "SELECT id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
+                    from_path, to_path, pre_blake3, post_blake3, reason, confidence,
+                    status, rollback_conflict, error_message
+             FROM actions ORDER BY created_at DESC LIMIT 200"
+        }
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<ActionItem> {
+        let at: String = r.get(3)?;
+        let tk: String = r.get(4)?;
+        let st: String = r.get(13)?;
+        let rc: Option<String> = r.get(14)?;
+        Ok(ActionItem {
+            id: r.get(0)?,
+            batch_id: r.get(1)?,
+            agent: r.get(2)?,
+            action_type: ActionType::from_db(&at).unwrap_or(ActionType::Move),
+            target_kind: TargetKind::from_db(&tk),
+            file_id: r.get(5)?,
+            atomic_unit_id: r.get(6)?,
+            from_path: r.get(7)?,
+            to_path: r.get(8)?,
+            reason: r.get(11)?,
+            confidence: r.get(12)?,
+            status: ActionStatus::from_db(&st),
+            rollback_conflict: rc.as_deref().and_then(RollbackConflictKind::from_db),
+            error_message: r.get(15)?,
+        })
+    };
+
+    let mut out = Vec::new();
+    if let Some(st) = status {
+        for r in stmt.query_map(params![st.as_str()], map_row)? {
+            out.push(r?);
+        }
+    } else {
+        for r in stmt.query_map([], map_row)? {
+            out.push(r?);
+        }
+    }
+    Ok(out)
+}
+
+/// Generates an exact-duplicate report adjusted honestly for hardlinks (`ADR-003`).
+pub fn exact_dedupe_report(conn: &Connection) -> Result<DupeReport> {
+    let mut stmt = conn.prepare(
+        "SELECT id, volume_id, file_index, nlink, size, blake3, path, last_access
+         FROM files
+         WHERE deleted_at IS NULL AND state != 'quarantine' AND blake3 IS NOT NULL AND size > 0
+         ORDER BY blake3, length(path) ASC, COALESCE(last_access, mtime) DESC",
+    )?;
+
+    #[allow(clippy::type_complexity)]
+    let mut groups: HashMap<Vec<u8>, Vec<(String, String, Option<Vec<u8>>, i64, i64)>> =
+        HashMap::new();
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<Vec<u8>>>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, i64>(4)?,
+            r.get::<_, Vec<u8>>(5)?,
+        ))
+    })?;
+
+    for row in rows {
+        let (id, vol, fi, nlink, size, hash) = row?;
+        groups
+            .entry(hash)
+            .or_default()
+            .push((id, vol, fi, nlink, size));
+    }
+
+    let mut clusters = Vec::new();
+    let mut total_reclaimable: u64 = 0;
+
+    for (hash, members) in groups {
+        if members.len() < 2 {
+            continue;
+        }
+        let keeper_file_id = members[0].0.clone();
+        let member_file_ids: Vec<String> = members.iter().map(|m| m.0.clone()).collect();
+        let total_bytes: u64 = members.iter().map(|m| m.4.max(0) as u64).sum();
+        let tuples: Vec<(String, Option<Vec<u8>>, i64, i64)> = members
+            .iter()
+            .map(|(_, v, fi, nl, sz)| (v.clone(), fi.clone(), *nl, *sz))
+            .collect();
+        let (reclaimable_bytes, hardlink_adjusted) = calculate_reclaimable_bytes(&tuples, 0);
+        total_reclaimable = total_reclaimable.saturating_add(reclaimable_bytes);
+
+        let key = hash.iter().take(8).map(|b| format!("{b:02x}")).collect();
+        clusters.push(DupeCluster {
+            cluster_key: key,
+            keeper_file_id,
+            member_file_ids,
+            total_bytes,
+            reclaimable_bytes,
+            hardlink_adjusted,
+        });
+    }
+
+    Ok(DupeReport {
+        group_by: "exact".to_string(),
+        clusters,
+        total_reclaimable_bytes: total_reclaimable,
+    })
+}
+
+pub fn disk_rescue_report(store: &SqliteStore) -> Result<DiskRescueReport> {
+    let conn = store.conn();
+    let dupes = exact_dedupe_report(conn)?;
+
+    let mut cstmt = conn.prepare(
+        "SELECT id, volume_id, atomic_unit_id, path, cache_kind, size_bytes, file_count, source_max_mtime, state
+         FROM cache_dirs WHERE state = 'active' ORDER BY size_bytes DESC",
+    )?;
+    let mut cache_dirs = Vec::new();
+    for r in cstmt.query_map([], |r| {
+        Ok(CacheDirEntry {
+            id: r.get(0)?,
+            volume_id: r.get(1)?,
+            atomic_unit_id: r.get(2)?,
+            path: r.get(3)?,
+            cache_kind: r.get(4)?,
+            size_bytes: r.get(5)?,
+            file_count: r.get(6)?,
+            source_max_mtime: r.get(7)?,
+            state: r.get(8)?,
+        })
+    })? {
+        cache_dirs.push(r?);
+    }
+
+    let stale_cutoff = now_ms() - 180i64 * 24 * 60 * 60 * 1000;
+    let oversized_threshold = 500i64 * 1024 * 1024;
+    let mut fstmt = conn.prepare(
+        "SELECT id, volume_id, path, name, ext, size, mtime, nlink, state, cloud_state,
+                sensitivity, atomic_unit_id, unit_split_override
+         FROM files
+         WHERE deleted_at IS NULL AND state = 'active'
+           AND size >= ?1 AND mtime <= ?2
+         ORDER BY size DESC LIMIT 50",
+    )?;
+    let mut stale_oversized_files = Vec::new();
+    for r in fstmt.query_map(params![oversized_threshold, stale_cutoff], |r| {
+        Ok(FileDetail {
+            id: r.get(0)?,
+            volume_id: r.get(1)?,
+            path: r.get(2)?,
+            name: r.get(3)?,
+            ext: r.get(4)?,
+            size: r.get(5)?,
+            mtime: r.get(6)?,
+            nlink: r.get(7)?,
+            state: r.get(8)?,
+            cloud_state: r.get(9)?,
+            sensitivity: r.get(10)?,
+            atomic_unit_id: r.get(11)?,
+            unit_split_override: r.get::<_, i32>(12)? != 0,
+            chunks_preview: Vec::new(),
+        })
+    })? {
+        stale_oversized_files.push(r?);
+    }
+
+    let space_summary = space_summary(store, None)?;
+    Ok(DiskRescueReport {
+        exact_dupe_clusters: dupes.clusters,
+        cache_dirs,
+        stale_oversized_files,
+        space_summary,
+    })
+}
+
+pub fn health_breakdown(conn: &Connection) -> Result<HealthBreakdown> {
+    let dupes = exact_dedupe_report(conn)?;
+    let dupe_offenders = dupes.clusters.len();
+    let cache_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM cache_dirs WHERE state = 'active'",
+        [],
+        |r| r.get(0),
+    )?;
+    let open_findings: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM security_findings WHERE status = 'open'",
+        [],
+        |r| r.get(0),
+    )?;
+    let unindexed_placeholders: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND cloud_state = 'placeholder_remote'",
+        [],
+        |r| r.get(0),
+    )?;
+    let pending_actions: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM actions WHERE status = 'proposed'",
+        [],
+        |r| r.get(0),
+    )?;
+
+    let dup_score = (100.0 - (dupe_offenders as f64) * 5.0).max(20.0);
+    let hygiene_score = (100.0 - (cache_count as f64) * 4.0).max(30.0);
+    let sec_score = (100.0 - (open_findings as f64) * 15.0).max(10.0);
+    let cov_score = (100.0 - (unindexed_placeholders as f64) * 0.5).max(50.0);
+    let org_score = (100.0 - (pending_actions as f64) * 2.0).max(40.0);
+
+    let overall = ((dup_score + hygiene_score + sec_score + cov_score + org_score) / 5.0 * 10.0)
+        .round()
+        / 10.0;
+
+    Ok(HealthBreakdown {
+        overall_score: overall,
+        dimensions: vec![
+            HealthDimension {
+                id: "duplication".into(),
+                label: "Duplication Hygiene".into(),
+                score: dup_score,
+                offenders_count: dupe_offenders,
+            },
+            HealthDimension {
+                id: "caches".into(),
+                label: "Build Caches & Junk".into(),
+                score: hygiene_score,
+                offenders_count: cache_count.max(0) as usize,
+            },
+            HealthDimension {
+                id: "security".into(),
+                label: "Secrets & PII Posture".into(),
+                score: sec_score,
+                offenders_count: open_findings.max(0) as usize,
+            },
+            HealthDimension {
+                id: "coverage".into(),
+                label: "Index Coverage".into(),
+                score: cov_score,
+                offenders_count: unindexed_placeholders.max(0) as usize,
+            },
+            HealthDimension {
+                id: "organization".into(),
+                label: "Refiling Queue".into(),
+                score: org_score,
+                offenders_count: pending_actions.max(0) as usize,
+            },
+        ],
+    })
+}

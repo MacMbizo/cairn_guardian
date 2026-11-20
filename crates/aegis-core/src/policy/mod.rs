@@ -1,0 +1,349 @@
+//! Deterministic 6-step Policy Engine, Autonomy Dials & Rule Precedence (`C4 v1.1`).
+
+use crate::contracts::{ActionClass, ActionType, AutonomyDial, TargetKind};
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
+
+/// Scope specificity tier (`project` > `root` > `global`) for rule tie-breaking (`C4` §3.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RuleScopeKind {
+    Global = 1,
+    Root = 2,
+    Project = 3,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleCandidate {
+    pub id: String,
+    pub priority: i32,
+    pub scope: RuleScopeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuleResolution {
+    Selected(RuleCandidate),
+    Conflict(Vec<RuleCandidate>),
+    NoMatch,
+}
+
+/// Resolves competing matching rules deterministically:
+/// lower `priority` wins; ties break by `project > root > global`; remaining ties surface `Conflict`.
+pub fn resolve_rule_conflicts(mut matches: Vec<RuleCandidate>) -> RuleResolution {
+    if matches.is_empty() {
+        return RuleResolution::NoMatch;
+    }
+    matches.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| b.scope.cmp(&a.scope))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    if matches.len() >= 2
+        && matches[0].priority == matches[1].priority
+        && matches[0].scope == matches[1].scope
+    {
+        let top_prio = matches[0].priority;
+        let top_scope = matches[0].scope;
+        let tied = matches
+            .into_iter()
+            .take_while(|r| r.priority == top_prio && r.scope == top_scope)
+            .collect();
+        return RuleResolution::Conflict(tied);
+    }
+    RuleResolution::Selected(matches.into_iter().next().unwrap())
+}
+
+/// Evaluation input representing a single action proposal (`C4` §3–§4).
+#[derive(Debug, Clone)]
+pub struct PolicyAction<'a> {
+    pub action_type: ActionType,
+    pub target_kind: TargetKind,
+    pub agent: Option<&'a str>,
+    pub from_path: &'a Path,
+    pub to_path: Option<&'a Path>,
+    pub confidence: f64,
+    pub atomic_unit_root: Option<&'a Path>,
+    pub unit_allow_split_override: bool,
+    pub file_unit_split_override: bool,
+    pub is_registered_cache_dir: bool,
+}
+
+/// Execution context supplied to `evaluate_policy`.
+#[derive(Debug, Clone)]
+pub struct PolicyContext {
+    pub mvp_mode: bool,
+    pub active_roots: Vec<PathBuf>,
+    pub volume_quarantine_dirs: Vec<PathBuf>,
+    pub dials: HashMap<ActionClass, AutonomyDial>,
+}
+
+impl Default for PolicyContext {
+    fn default() -> Self {
+        Self {
+            mvp_mode: true,
+            active_roots: Vec::new(),
+            volume_quarantine_dirs: Vec::new(),
+            dials: HashMap::new(),
+        }
+    }
+}
+
+/// Policy verdict matching `C4` §4 pseudocode and §3 precedence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PolicyVerdict {
+    Block(&'static str),
+    RequireExplicitPermanentConfirm,
+    HoldLowConfidence,
+    RequireApproval(&'static str),
+    AutoEligible,
+}
+
+impl PolicyVerdict {
+    pub fn is_allowed_to_stage(&self) -> bool {
+        !matches!(self, Self::Block(_))
+    }
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Block(reason) => reason,
+            Self::RequireExplicitPermanentConfirm => "require_explicit_permanent_confirm",
+            Self::HoldLowConfidence => "hold_low_confidence",
+            Self::RequireApproval(reason) => reason,
+            Self::AutoEligible => "auto_eligible",
+        }
+    }
+}
+
+/// Canonicalizes `path` even if its leaf filename/subdir does not exist yet, rejecting `..` traversal.
+pub fn canonicalize_safe(path: &Path) -> Option<PathBuf> {
+    let mut existing = path.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+
+    while !existing.exists() {
+        let name = existing.file_name()?.to_os_string();
+        tail.push(name);
+        if !existing.pop() {
+            return None;
+        }
+    }
+
+    for part in &tail {
+        let p = Path::new(part);
+        if matches!(p.components().next(), Some(Component::ParentDir)) {
+            return None;
+        }
+    }
+    for comp in path.components() {
+        if matches!(comp, Component::ParentDir) {
+            return None;
+        }
+    }
+
+    let mut base = std::fs::canonicalize(&existing).ok()?;
+    for part in tail.into_iter().rev() {
+        base.push(part);
+    }
+    Some(base)
+}
+
+fn path_starts_with_ci(candidate: &Path, root: &Path) -> bool {
+    let c_str = candidate
+        .to_string_lossy()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&candidate.to_string_lossy())
+        .replace('\\', "/");
+    let r_str = root
+        .to_string_lossy()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&root.to_string_lossy())
+        .replace('\\', "/");
+
+    if cfg!(windows) {
+        let c_low = c_str.trim_end_matches('/').to_lowercase();
+        let r_low = r_str.trim_end_matches('/').to_lowercase();
+        c_low == r_low || c_low.starts_with(&format!("{r_low}/"))
+    } else {
+        let c_trim = c_str.trim_end_matches('/');
+        let r_trim = r_str.trim_end_matches('/');
+        c_trim == r_trim || c_trim.starts_with(&format!("{r_trim}/"))
+    }
+}
+
+fn contains_component_ci(path: &Path, target: &str) -> bool {
+    path.components().any(|c| match c {
+        Component::Normal(s) => s.to_string_lossy().eq_ignore_ascii_case(target),
+        _ => false,
+    })
+}
+
+impl PolicyContext {
+    pub fn dial_for(&self, action_type: ActionType) -> AutonomyDial {
+        let class = match action_type {
+            ActionType::Move | ActionType::Copy | ActionType::Rename => ActionClass::Refile,
+            ActionType::Archive => ActionClass::Archive,
+            ActionType::Quarantine | ActionType::Restore => ActionClass::Quarantine,
+            ActionType::Purge => ActionClass::Purge,
+        };
+        self.dials
+            .get(&class)
+            .copied()
+            .unwrap_or(AutonomyDial::Suggest)
+    }
+
+    fn is_in_active_roots(&self, path: &Path) -> bool {
+        let Some(canon) = canonicalize_safe(path) else {
+            return false;
+        };
+        self.active_roots.iter().any(|root| {
+            canonicalize_safe(root)
+                .map(|r| path_starts_with_ci(&canon, &r))
+                .unwrap_or(false)
+        })
+    }
+
+    fn is_in_quarantine_dir(&self, path: &Path) -> bool {
+        let Some(canon) = canonicalize_safe(path) else {
+            return false;
+        };
+        if !self.volume_quarantine_dirs.is_empty() {
+            self.volume_quarantine_dirs.iter().any(|q| {
+                canonicalize_safe(q)
+                    .map(|qr| path_starts_with_ci(&canon, &qr))
+                    .unwrap_or(false)
+            })
+        } else {
+            contains_component_ci(&canon, ".aegis-quarantine")
+        }
+    }
+
+    pub fn within_active_roots(&self, action: &PolicyAction<'_>) -> bool {
+        let from_ok = match action.action_type {
+            ActionType::Restore | ActionType::Purge => {
+                self.is_in_quarantine_dir(action.from_path)
+                    || self.is_in_active_roots(action.from_path)
+            }
+            _ => self.is_in_active_roots(action.from_path),
+        };
+        if !from_ok {
+            return false;
+        }
+        match (action.action_type, action.to_path) {
+            (ActionType::Quarantine, Some(to)) => self.is_in_quarantine_dir(to),
+            (_, Some(to)) => self.is_in_active_roots(to),
+            (ActionType::Move | ActionType::Copy | ActionType::Rename | ActionType::Restore, None) => {
+                false
+            }
+            (_, None) => true,
+        }
+    }
+
+    /// Checks BOTH `from_path` and `to_path` against `.aegis` / `.aegis-quarantine` internals (`C4` §3.2).
+    pub fn is_protected_internal_for(&self, action: &PolicyAction<'_>) -> bool {
+        let Some(canon_from) = canonicalize_safe(action.from_path) else {
+            return true;
+        };
+        if contains_component_ci(&canon_from, ".aegis") {
+            return true;
+        }
+        if contains_component_ci(&canon_from, ".aegis-quarantine")
+            && !matches!(action.action_type, ActionType::Restore | ActionType::Purge)
+        {
+            return true;
+        }
+
+        if let Some(to) = action.to_path {
+            let Some(canon_to) = canonicalize_safe(to) else {
+                return true;
+            };
+            if contains_component_ci(&canon_to, ".aegis") {
+                return true;
+            }
+            if contains_component_ci(&canon_to, ".aegis-quarantine")
+                && action.action_type != ActionType::Quarantine
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn crosses_atomic_unit(&self, action: &PolicyAction<'_>) -> bool {
+        let Some(unit_root) = action.atomic_unit_root else {
+            return false;
+        };
+        if action.target_kind == TargetKind::AtomicUnit {
+            // Moving/quarantining the entire unit root is permitted (`ADR-004`).
+            if let (Some(cf), Some(cu)) = (
+                canonicalize_safe(action.from_path),
+                canonicalize_safe(unit_root),
+            ) {
+                return !path_starts_with_ci(&cu, &cf);
+            }
+        }
+        // Interior file or dir: Quarantine/Purge leaves the unit, Move/Rename leaves if to_path exits unit_root.
+        match action.action_type {
+            ActionType::Quarantine | ActionType::Purge => true,
+            ActionType::Move | ActionType::Rename => match action.to_path {
+                Some(to) => match (canonicalize_safe(to), canonicalize_safe(unit_root)) {
+                    (Some(ct), Some(cu)) => !path_starts_with_ci(&ct, &cu),
+                    _ => true,
+                },
+                None => true,
+            },
+            _ => false,
+        }
+    }
+
+    pub fn split_override_enabled(&self, action: &PolicyAction<'_>) -> bool {
+        action.unit_allow_split_override || action.file_unit_split_override
+    }
+
+    /// `C4 v1.1` §3.3 explicit `safe_build_cache` carve-out.
+    pub fn is_safe_build_cache_quarantine(&self, action: &PolicyAction<'_>) -> bool {
+        action.target_kind == TargetKind::Dir
+            && action.is_registered_cache_dir
+            && action.action_type == ActionType::Quarantine
+    }
+
+    pub fn is_agent_capped_suggest(&self, agent: Option<&str>) -> bool {
+        match agent {
+            Some(a) => {
+                let lower = a.to_ascii_lowercase();
+                lower.contains("housekeeper") || lower.contains("security")
+            }
+            None => false,
+        }
+    }
+}
+
+/// Evaluates an `ActionProposal` against the 6-step deterministic `C4 v1.1` Policy Engine.
+pub fn evaluate_policy(action: &PolicyAction<'_>, ctx: &PolicyContext) -> PolicyVerdict {
+    if !ctx.within_active_roots(action) {
+        return PolicyVerdict::Block("outside_configured_roots");
+    }
+    if ctx.is_protected_internal_for(action) {
+        return PolicyVerdict::Block("protected_aegis_internal");
+    }
+    if ctx.crosses_atomic_unit(action)
+        && !ctx.split_override_enabled(action)
+        && !ctx.is_safe_build_cache_quarantine(action)
+    {
+        return PolicyVerdict::Block("atomic_unit_boundary");
+    }
+    if action.action_type == ActionType::Purge {
+        return PolicyVerdict::RequireExplicitPermanentConfirm;
+    }
+    if action.action_type == ActionType::Quarantine {
+        return PolicyVerdict::RequireApproval("quarantine_never_auto");
+    }
+    if ctx.is_agent_capped_suggest(action.agent) {
+        return PolicyVerdict::RequireApproval("agent_ceiling_suggest");
+    }
+    if action.confidence < 0.60 {
+        return PolicyVerdict::HoldLowConfidence;
+    }
+    if ctx.mvp_mode || ctx.dial_for(action.action_type) != AutonomyDial::Auto || action.confidence < 0.90 {
+        return PolicyVerdict::RequireApproval("manual_or_review_gate");
+    }
+    PolicyVerdict::AutoEligible
+}
