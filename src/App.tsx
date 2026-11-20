@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   Archive,
   CheckCircle2,
+  Copy,
   Cpu,
   FolderGit2,
+  FolderOpen,
   HardDrive,
   Lock,
   Play,
@@ -20,9 +23,12 @@ import {
 } from "lucide-react";
 import {
   aegis,
+  errorMessage,
   isTauriRuntime,
+  onAegisEvent,
   type ActionItem,
   type CacheDirEntry,
+  type DupeCluster,
   type ConflictResolutionChoice,
   type CoverageReport,
   type DiskRescueReport,
@@ -33,6 +39,7 @@ import {
   type QuarantineEntry,
   type QuarantineSpaceSummary,
   type RollbackConflictItem,
+  type RollbackResult,
   type RootConfig,
   type ScanStatus,
   type SearchPage,
@@ -90,24 +97,39 @@ export default function App() {
     Record<string, ConflictResolutionChoice>
   >({});
 
+  // Per-batch selection of proposed actions for partial approval
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+
   // Doctor
   const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
+
+  const tabRef = useRef<TabId>(tab);
+  tabRef.current = tab;
+
+  // The Disk Rescue report runs the full duplicate analysis, so it is only loaded while
+  // that tab is open instead of on every refresh.
+  const refreshRescue = useCallback(async () => {
+    if (!desktop) return;
+    try {
+      setRescue(await aegis.playbook.diskRescue());
+    } catch (err) {
+      setStatusMsg(`Could not load Disk Rescue: ${errorMessage(err)}`);
+    }
+  }, [desktop]);
 
   const refreshAll = useCallback(async () => {
     if (!desktop) return;
     try {
-      const [prof, rts, stats, latestScan, h, spaces, act, qList, rescueRep] =
-        await Promise.all([
-          aegis.hw.profile(),
-          aegis.roots.list(),
-          aegis.index.stats(),
-          aegis.scan.status(),
-          aegis.health.get(),
-          aegis.quarantine.spaceSummary(),
-          aegis.actions.list(),
-          aegis.quarantine.list(),
-          aegis.playbook.diskRescue(),
-        ]);
+      const [prof, rts, stats, latestScan, h, spaces, act, qList] = await Promise.all([
+        aegis.hw.profile(),
+        aegis.roots.list(),
+        aegis.index.stats(),
+        aegis.scan.status(),
+        aegis.health.get(),
+        aegis.quarantine.spaceSummary(),
+        aegis.actions.list(),
+        aegis.quarantine.list(),
+      ]);
       setHwProfile(prof);
       setRoots(rts);
       setIndexStats(stats);
@@ -116,15 +138,50 @@ export default function App() {
       setSpaceSummaries(spaces);
       setActions(act);
       setQuarantineEntries(qList);
-      setRescue(rescueRep);
+      if (tabRef.current === "rescue") await refreshRescue();
     } catch (err) {
-      setStatusMsg(`Error refreshing state: ${String(err)}`);
+      setStatusMsg(`Error refreshing state: ${errorMessage(err)}`);
     }
-  }, [desktop]);
+  }, [desktop, refreshRescue]);
 
   useEffect(() => {
     void refreshAll();
   }, [refreshAll]);
+
+  useEffect(() => {
+    if (tab === "rescue") void refreshRescue();
+  }, [tab, refreshRescue]);
+
+  // Live scan progress from the backend (scans run off the UI thread).
+  useEffect(() => {
+    const unlisten = onAegisEvent((ev) => {
+      if (ev.event === "ScanProgress") {
+        setStatusMsg(
+          `Scanning… ${ev.payload.files_seen.toLocaleString()} files seen, ${ev.payload.files_indexed.toLocaleString()} indexed`
+        );
+      }
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  /** Runs one user action with a busy guard and a readable error in the status bar. */
+  const run = useCallback(
+    async (label: string, fn: () => Promise<string | void>, refresh = true) => {
+      setBusy(true);
+      try {
+        const msg = await fn();
+        if (msg) setStatusMsg(msg);
+        if (refresh) await refreshAll();
+      } catch (err) {
+        setStatusMsg(`${label} failed: ${errorMessage(err)}`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshAll]
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -136,43 +193,41 @@ export default function App() {
       if (e.key === "Escape") {
         setCoverageModal(null);
         setPurgeConfirmOpen(false);
-        setConflicts([]);
+        closeConflictsRef.current();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const handleAddRoot = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newRootPath.trim()) return;
-    setBusy(true);
-    try {
-      const added = await aegis.roots.add(newRootPath.trim());
+  const addRoot = (path: string) =>
+    run("Add root", async () => {
+      const added = await aegis.roots.add(path);
       setNewRootPath("");
-      setStatusMsg(`Added root ${added.path}`);
-      await refreshAll();
+      return `Added root ${added.path}`;
+    });
+
+  const handleAddRoot = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newRootPath.trim()) void addRoot(newRootPath.trim());
+  };
+
+  const handleBrowseRoot = async () => {
+    try {
+      const picked = await openDialog({ directory: true, multiple: false });
+      if (typeof picked === "string" && picked) void addRoot(picked);
     } catch (err) {
-      setStatusMsg(`Failed to add root: ${String(err)}`);
-    } finally {
-      setBusy(false);
+      setStatusMsg(`Folder picker failed: ${errorMessage(err)}`);
     }
   };
 
-  const handleStartScan = async () => {
-    setBusy(true);
-    setStatusMsg("Running Tier-1 & Tier-2 progressive scan...");
-    try {
+  const handleStartScan = () =>
+    run("Scan", async () => {
+      setStatusMsg("Starting scan…");
       const results = await aegis.scan.start(undefined, [1, 2]);
       const seen = results.reduce((acc, s) => acc + s.files_seen, 0);
-      setStatusMsg(`Scan completed across ${results.length} root(s): ${seen} files seen.`);
-      await refreshAll();
-    } catch (err) {
-      setStatusMsg(`Scan failed: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+      return `Scan completed across ${results.length} root(s): ${seen.toLocaleString()} files seen.`;
+    });
 
   const handleOpenCoverage = async () => {
     if (!scanStatus) return;
@@ -180,38 +235,52 @@ export default function App() {
       const report = await aegis.scan.coverageReport(scanStatus.job_id);
       setCoverageModal(report);
     } catch (err) {
-      setStatusMsg(`Could not load coverage report: ${String(err)}`);
+      setStatusMsg(`Could not load coverage report: ${errorMessage(err)}`);
     }
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
-    try {
-      const page = await aegis.search.query(
-        query,
-        {
-          project_id: null,
-          ext: null,
-          after_ts: null,
-          before_ts: null,
-          sensitivity: null,
-          include_quarantined: includeQuarantined,
-        },
-        30
-      );
-      setSearchPage(page);
-      setStatusMsg(`Search found ${page.total_hits} match(es) in ${page.took_ms}ms.`);
-    } catch (err) {
-      setStatusMsg(`Search failed: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
+    void run(
+      "Search",
+      async () => {
+        const page = await aegis.search.query(
+          query,
+          {
+            project_id: null,
+            ext: null,
+            after_ts: null,
+            before_ts: null,
+            sensitivity: null,
+            include_quarantined: includeQuarantined,
+          },
+          30
+        );
+        setSearchPage(page);
+        return `Search found ${page.total_hits} match(es) in ${page.took_ms}ms.`;
+      },
+      false
+    );
   };
 
-  const handleStageCacheQuarantine = async (cache: CacheDirEntry) => {
-    setBusy(true);
-    try {
+  /** Simulates a freshly proposed batch and opens it in the Simulator tab. */
+  const openInSimulator = async (batchId: string) => {
+    setSimulation(await aegis.actions.simulate(batchId));
+    setTab("simulator");
+  };
+
+  const handleProposeDupes = (cluster: DupeCluster) =>
+    run("Duplicate proposal", async () => {
+      const batchId = await aegis.dedupe.proposeQuarantine(
+        cluster.keeper_file_id,
+        cluster.member_file_ids
+      );
+      await openInSimulator(batchId);
+      return `Staged ${cluster.member_file_ids.length - 1} duplicate(s) for quarantine in batch ${batchId.slice(0, 8)}. Review, approve, then execute.`;
+    });
+
+  const handleStageCacheQuarantine = (cache: CacheDirEntry) =>
+    run("Proposal", async () => {
       const batchId = await aegis.actions.propose({
         origin: "dedupe",
         actions: [
@@ -229,37 +298,62 @@ export default function App() {
           },
         ],
       });
-      const sim = await aegis.actions.simulate(batchId);
-      setSimulation(sim);
-      setTab("simulator");
-      setStatusMsg(`Staged cache quarantine batch ${batchId.slice(0, 8)} in Simulator.`);
-      await refreshAll();
-    } catch (err) {
-      setStatusMsg(`Proposal failed: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+      await openInSimulator(batchId);
+      return `Staged cache quarantine batch ${batchId.slice(0, 8)} in Simulator. Review, approve, then execute.`;
+    });
 
-  const handlePurgeAllQuarantine = async () => {
-    const ids = quarantineEntries.map((q) => q.id);
-    if (ids.length === 0) return;
-    setBusy(true);
-    try {
-      await aegis.quarantine.purge(ids, true);
+  const handlePurgeAllQuarantine = () =>
+    run("Purge", async () => {
+      const ids = quarantineEntries.map((q) => q.id);
+      if (ids.length === 0) return;
       setPurgeConfirmOpen(false);
-      setStatusMsg(`Permanently purged ${ids.length} quarantined item(s). Disk space freed.`);
-      await refreshAll();
-    } catch (err) {
-      setStatusMsg(`Purge failed: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+      await aegis.quarantine.purge(ids, true);
+      return `Permanently purged ${ids.length} quarantined item(s). Disk space freed.`;
+    });
 
-  const handleRollbackBatch = async (batchId: string) => {
-    setBusy(true);
-    try {
+  const handleRestore = (entry: QuarantineEntry) =>
+    run("Restore", async () => {
+      await aegis.quarantine.restore([entry.id]);
+      return `Restored ${entry.original_path} from quarantine.`;
+    });
+
+  const handleSimulate = (batchId: string) =>
+    run(
+      "Simulate",
+      async () => {
+        setSimulation(await aegis.actions.simulate(batchId));
+      },
+      false
+    );
+
+  const handleApprove = (batchId: string, selection?: string[]) =>
+    run("Approve", async () => {
+      await aegis.actions.approve(batchId, selection);
+      setSelected((prev) => ({ ...prev, [batchId]: [] }));
+      return selection
+        ? `Approved ${selection.length} selected action(s) in batch ${batchId.slice(0, 8)}.`
+        : `Approved batch ${batchId.slice(0, 8)}.`;
+    });
+
+  const handleReject = (batchId: string) =>
+    run("Reject", async () => {
+      await aegis.actions.reject(batchId);
+      return `Rejected pending actions in batch ${batchId.slice(0, 8)}.`;
+    });
+
+  const handleExecute = (batchId: string) =>
+    run("Execute", async () => {
+      const r = await aegis.actions.execute(batchId);
+      return `Executed ${r.executed_count} action(s), ${r.failed_count} failed, ${r.skipped_count} skipped.`;
+    });
+
+  const describeRollback = (res: RollbackResult) =>
+    res.status === "rolled_back"
+      ? `Rollback complete: ${res.reverted_count} action(s) reverted in batch ${res.batch_id.slice(0, 8)}.`
+      : `Rollback finished with ${res.reverted_count} action(s) reverted; some items were skipped or unrecoverable (batch is partial).`;
+
+  const handleRollbackBatch = (batchId: string) =>
+    run("Rollback", async () => {
       const res = await aegis.actions.rollback(batchId);
       if (res.conflicts.length > 0) {
         const defaults: Record<string, ConflictResolutionChoice> = {};
@@ -268,53 +362,45 @@ export default function App() {
         }
         setConflictChoices(defaults);
         setConflicts(res.conflicts);
-        setStatusMsg(
-          `Pre-rollback halted: ${res.conflicts.length} conflict(s) require resolution.`
-        );
-      } else {
-        setStatusMsg(`Rolled back ${res.reverted_count} action(s) in batch ${batchId.slice(0, 8)}.`);
-        await refreshAll();
+        return `Rollback paused before touching disk: ${res.conflicts.length} conflict(s) need a decision.`;
       }
-    } catch (err) {
-      setStatusMsg(`Rollback error: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+      return describeRollback(res);
+    });
 
-  const handleResolveConflict = async (actionId: string) => {
+  const handleResolveConflict = (actionId: string) => {
     const choice = conflictChoices[actionId];
     if (!choice) return;
-    setBusy(true);
-    try {
+    void run("Conflict resolution", async () => {
       const res = await aegis.actions.resolveConflict(actionId, choice);
       setConflicts(res.conflicts);
-      setStatusMsg(`Applied ${choice} to action ${actionId.slice(0, 8)}.`);
-      await refreshAll();
-    } catch (err) {
-      setStatusMsg(`Conflict resolution error: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
+      if (choice === "abort_batch") return "Rollback aborted; remaining actions stay executed.";
+      if (res.conflicts.length > 0) {
+        return `Applied ${choice.replace(/_/g, " ")}. ${res.conflicts.length} conflict(s) left; the rest of the batch reverts once they are resolved.`;
+      }
+      return describeRollback(res);
+    });
   };
 
-  const handleRunDoctor = async (repair: boolean) => {
-    setBusy(true);
-    try {
+  const closeConflicts = () => {
+    if (conflicts.length > 0) {
+      setStatusMsg(
+        "Rollback paused with unresolved conflicts. Click Rollback on the batch to resume."
+      );
+    }
+    setConflicts([]);
+  };
+
+  const closeConflictsRef = useRef(closeConflicts);
+  closeConflictsRef.current = closeConflicts;
+
+  const handleRunDoctor = (repair: boolean) =>
+    run("Doctor", async () => {
       const rep = await aegis.doctor.run(repair);
       setDoctorReport(rep);
-      setStatusMsg(
-        rep.healthy
-          ? "Doctor passed all 8 integrity checks."
-          : "Doctor flagged integrity issues requiring attention."
-      );
-      await refreshAll();
-    } catch (err) {
-      setStatusMsg(`Doctor failed: ${String(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+      return rep.healthy
+        ? "Doctor passed all 8 integrity checks."
+        : "Doctor flagged integrity issues requiring attention.";
+    });
 
   const totalStagedBytes = spaceSummaries.reduce((a, s) => a + s.staged_bytes, 0);
   const totalFreedBytes = spaceSummaries.reduce((a, s) => a + s.freed_bytes, 0);
@@ -332,7 +418,7 @@ export default function App() {
 
   const navItems: { id: TabId; label: string; icon: typeof ShieldCheck }[] = [
     { id: "dashboard", label: "Dashboard & Coverage", icon: HardDrive },
-    { id: "search", label: "Hybrid Search (Ctrl+K)", icon: Search },
+    { id: "search", label: "Keyword Search (Ctrl+K)", icon: Search },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
     { id: "doctor", label: "Aegis Doctor", icon: Stethoscope },
@@ -544,10 +630,19 @@ export default function App() {
                     type="text"
                     value={newRootPath}
                     onChange={(e) => setNewRootPath(e.target.value)}
-                    placeholder="e.g. C:\Users\Mac\Documents"
+                    placeholder="e.g. C:\Users\you\Documents"
                     aria-label="New root folder path"
                     className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                   />
+                  <button
+                    type="button"
+                    disabled={!desktop || busy}
+                    onClick={() => void handleBrowseRoot()}
+                    className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                    Browse…
+                  </button>
                   <button
                     type="submit"
                     disabled={!desktop || busy || !newRootPath.trim()}
@@ -574,12 +669,13 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
+                            disabled={busy}
                             onClick={() =>
-                              void aegis.roots
-                                .toggle(r.path, !r.enabled)
-                                .then(refreshAll)
+                              void run("Toggle root", () =>
+                                aegis.roots.toggle(r.path, !r.enabled)
+                              )
                             }
-                            className={`rounded px-2 py-0.5 text-xs font-medium ${
+                            className={`rounded px-2 py-0.5 text-xs font-medium disabled:opacity-40 ${
                               r.enabled
                                 ? "bg-emerald-500/20 text-emerald-300"
                                 : "bg-slate-800 text-slate-400"
@@ -589,10 +685,14 @@ export default function App() {
                           </button>
                           <button
                             type="button"
+                            disabled={busy}
                             onClick={() =>
-                              void aegis.roots.remove(r.path).then(refreshAll)
+                              void run("Remove root", async () => {
+                                await aegis.roots.remove(r.path);
+                                return `Removed root ${r.path} (indexed data is kept).`;
+                              })
                             }
-                            className="rounded px-2 py-0.5 text-xs text-rose-400 hover:bg-rose-950/40"
+                            className="rounded px-2 py-0.5 text-xs text-rose-400 hover:bg-rose-950/40 disabled:opacity-40"
                           >
                             Remove
                           </button>
@@ -714,8 +814,9 @@ export default function App() {
                         </div>
                         <button
                           type="button"
+                          disabled={busy}
                           onClick={() => void handleStageCacheQuarantine(c)}
-                          className="rounded bg-amber-600/80 px-3 py-1 font-medium text-white hover:bg-amber-500"
+                          className="rounded bg-amber-600/80 px-3 py-1 font-medium text-white hover:bg-amber-500 disabled:opacity-40"
                         >
                           Propose Quarantine
                         </button>
@@ -746,8 +847,19 @@ export default function App() {
                             </span>
                           )}
                         </span>
-                        <span className="font-semibold text-emerald-400">
-                          {formatBytes(cl.reclaimable_bytes)} reclaimable
+                        <span className="flex items-center gap-3">
+                          <span className="font-semibold text-emerald-400">
+                            {formatBytes(cl.reclaimable_bytes)} reclaimable
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleProposeDupes(cl)}
+                            className="flex items-center gap-1 rounded bg-amber-600/80 px-2.5 py-1 font-medium text-white hover:bg-amber-500 disabled:opacity-40"
+                          >
+                            <Copy className="h-3 w-3" aria-hidden="true" />
+                            Quarantine extra copies
+                          </button>
                         </span>
                       </div>
                     ))}
@@ -774,15 +886,9 @@ export default function App() {
                         </div>
                         <button
                           type="button"
-                          onClick={() =>
-                            void aegis.quarantine
-                              .restore([q.id])
-                              .then(() => {
-                                setStatusMsg("Restored item from quarantine.");
-                                return refreshAll();
-                              })
-                          }
-                          className="flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-slate-200 hover:bg-slate-700"
+                          disabled={busy}
+                          onClick={() => void handleRestore(q)}
+                          className="flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-slate-200 hover:bg-slate-700 disabled:opacity-40"
                         >
                           <RotateCcw className="h-3 w-3" /> Restore
                         </button>
@@ -850,78 +956,124 @@ export default function App() {
                 {groupedBatches.length === 0 ? (
                   <p className="text-xs text-slate-400">No proposed or executed batches.</p>
                 ) : (
-                  groupedBatches.map(([batchId, items]) => (
-                    <div
-                      key={batchId}
-                      className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
-                    >
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-mono text-xs text-slate-300">
-                          Batch {batchId.slice(0, 8)} ({items.length} action(s))
-                        </span>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void aegis.actions
-                                .simulate(batchId)
-                                .then(setSimulation)
-                            }
-                            className="rounded bg-slate-800 px-2.5 py-1 hover:bg-slate-700"
-                          >
-                            Simulate
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void aegis.actions.approve(batchId).then(refreshAll)
-                            }
-                            className="rounded bg-emerald-700 px-2.5 py-1 text-white hover:bg-emerald-600"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void aegis.actions
-                                .execute(batchId)
-                                .then((r) => {
-                                  setStatusMsg(
-                                    `Executed ${r.executed_count} action(s), ${r.failed_count} failed.`
-                                  );
-                                  return refreshAll();
-                                })
-                            }
-                            className="rounded bg-emerald-600 px-2.5 py-1 font-semibold text-white hover:bg-emerald-500"
-                          >
-                            Execute
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleRollbackBatch(batchId)}
-                            className="rounded bg-amber-700 px-2.5 py-1 text-white hover:bg-amber-600"
-                          >
-                            Rollback
-                          </button>
+                  groupedBatches.map(([batchId, items]) => {
+                    const count = (s: ActionItem["status"]) =>
+                      items.filter((a) => a.status === s).length;
+                    const proposed = count("proposed");
+                    const approved = count("approved");
+                    const executed = count("executed");
+                    const sel = selected[batchId] ?? [];
+                    const btn =
+                      "rounded px-2.5 py-1 disabled:cursor-not-allowed disabled:opacity-35";
+                    return (
+                      <div
+                        key={batchId}
+                        className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                      >
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-slate-300">
+                            Batch {batchId.slice(0, 8)} ({items.length} action(s))
+                          </span>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void handleSimulate(batchId)}
+                              className={`${btn} bg-slate-800 hover:bg-slate-700`}
+                            >
+                              Simulate
+                            </button>
+                            {sel.length > 0 ? (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void handleApprove(batchId, sel)}
+                                className={`${btn} bg-emerald-700 text-white hover:bg-emerald-600`}
+                              >
+                                Approve selected ({sel.length})
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy || proposed === 0}
+                                title={proposed === 0 ? "Nothing awaiting approval" : undefined}
+                                onClick={() => void handleApprove(batchId)}
+                                className={`${btn} bg-emerald-700 text-white hover:bg-emerald-600`}
+                              >
+                                Approve all
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={busy || proposed + approved === 0}
+                              onClick={() => void handleReject(batchId)}
+                              className={`${btn} border border-slate-700 hover:bg-slate-800`}
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy || approved === 0}
+                              title={approved === 0 ? "Approve actions first" : undefined}
+                              onClick={() => void handleExecute(batchId)}
+                              className={`${btn} bg-emerald-600 font-semibold text-white hover:bg-emerald-500`}
+                            >
+                              Execute{approved > 0 ? ` (${approved})` : ""}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy || executed === 0}
+                              onClick={() => void handleRollbackBatch(batchId)}
+                              className={`${btn} bg-amber-700 text-white hover:bg-amber-600`}
+                            >
+                              Rollback
+                            </button>
+                          </div>
                         </div>
+                        <ul className="space-y-1.5 text-xs">
+                          {items.map((a) => (
+                            <li
+                              key={a.id}
+                              className="rounded bg-slate-950/60 px-3 py-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="flex min-w-0 items-center gap-2">
+                                  {a.status === "proposed" && (
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Select ${a.from_path}`}
+                                      checked={sel.includes(a.id)}
+                                      onChange={(e) =>
+                                        setSelected((prev) => {
+                                          const cur = prev[batchId] ?? [];
+                                          return {
+                                            ...prev,
+                                            [batchId]: e.target.checked
+                                              ? [...cur, a.id]
+                                              : cur.filter((x) => x !== a.id),
+                                          };
+                                        })
+                                      }
+                                      className="rounded border-slate-700 bg-slate-900"
+                                    />
+                                  )}
+                                  <span className="truncate font-mono text-slate-300">
+                                    [{a.action_type}] {a.from_path}
+                                  </span>
+                                </label>
+                                <span className="ml-2 shrink-0 rounded bg-slate-800 px-2 py-0.5 text-slate-200">
+                                  {a.status}
+                                </span>
+                              </div>
+                              {a.error_message && (
+                                <div className="mt-1 text-rose-300">{a.error_message}</div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                      <ul className="space-y-1.5 text-xs">
-                        {items.map((a) => (
-                          <li
-                            key={a.id}
-                            className="flex items-center justify-between rounded bg-slate-950/60 px-3 py-2"
-                          >
-                            <span className="truncate font-mono text-slate-300">
-                              [{a.action_type}] {a.from_path}
-                            </span>
-                            <span className="ml-2 shrink-0 rounded bg-slate-800 px-2 py-0.5 text-slate-200">
-                              {a.status}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </section>
             </div>
@@ -1083,10 +1235,25 @@ export default function App() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
         >
           <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-amber-500/40 bg-slate-900 p-5">
-            <h2 className="text-sm font-semibold text-amber-300">
-              Cannot cleanly revert {conflicts.length} file(s) — external changes
-              detected
-            </h2>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-amber-300">
+                  Cannot cleanly revert {conflicts.length} file(s) — external changes
+                  detected
+                </h2>
+                <p className="mt-1 text-xs text-slate-400">
+                  Unaffected items stay where they are until every conflict below is
+                  resolved; then the rest of the batch is rolled back automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeConflicts}
+                className="shrink-0 text-xs text-slate-400 hover:text-white"
+              >
+                Close (Esc)
+              </button>
+            </div>
             <div className="mt-4 space-y-3">
               {conflicts.map((c) => {
                 const options: { value: ConflictResolutionChoice; label: string }[] =
@@ -1146,8 +1313,9 @@ export default function App() {
                       </select>
                       <button
                         type="button"
-                        onClick={() => void handleResolveConflict(c.action_id)}
-                        className="rounded bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-500"
+                        disabled={busy}
+                        onClick={() => handleResolveConflict(c.action_id)}
+                        className="rounded bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
                       >
                         Apply
                       </button>

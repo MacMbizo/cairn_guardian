@@ -8,3 +8,4 @@ dist/
 .aegis-quarantine/
 .DS_Store
 Thumbs.db
+.playwright-mcp/

@@ -8,6 +8,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -38,6 +39,7 @@ pub fn run() {
             commands::atomic_unit_list,
             commands::atomic_unit_override,
             commands::dedupe_report,
+            commands::dedupe_propose_quarantine,
             commands::actions_propose,
             commands::actions_simulate,
             commands::actions_approve,

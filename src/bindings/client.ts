@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ActionItem,
+  AegisEvent,
   ActionStatus,
   AtomicUnit,
   AuditEntry,
@@ -43,6 +45,22 @@ function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     );
   }
   return invoke<T>(cmd, args);
+}
+
+/** Channel the backend emits `AegisEvent`s on (scan progress, index updates). */
+export const AEGIS_EVENT = "aegis://event";
+
+export function onAegisEvent(cb: (event: AegisEvent) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => {});
+  return listen<AegisEvent>(AEGIS_EVENT, (e) => cb(e.payload));
+}
+
+/** Extracts the human-readable message from an `IpcError` or any thrown value. */
+export function errorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return String(err);
 }
 
 export const aegis = {
@@ -95,6 +113,8 @@ export const aegis = {
   },
   dedupe: {
     report: () => call<DupeReport>("dedupe_report"),
+    proposeQuarantine: (keeperFileId: string, memberFileIds: string[]) =>
+      call<string>("dedupe_propose_quarantine", { keeperFileId, memberFileIds }),
   },
   actions: {
     propose: (plan: RefilePlan) => call<string>("actions_propose", { plan }),
