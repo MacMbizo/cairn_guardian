@@ -1,23 +1,29 @@
 //! Action batches, Simulator dry-run, Policy-gated Execution, Pre-flight Rollback & Reports (`B4 v2.3.1`, `C1 v1.2`, `C4 v1.1`).
+//!
+//! Disk/DB consistency model: every disk mutation happens OUTSIDE a database transaction and is
+//! followed by ONE short transaction recording exactly that action. If the commit fails, the disk
+//! change is undone (compensated) so the index never disagrees with the filesystem because of a
+//! rolled-back transaction spanning several already-applied disk operations.
 
 use crate::contracts::{
     ActionItem, ActionStatus, ActionType, BatchStatus, CacheDirEntry, ConflictResolutionChoice,
     DiskRescueReport, DupeCluster, DupeReport, ExecuteResult, FileDetail, HealthBreakdown,
-    HealthDimension, RefilePlan, RollbackConflictItem, RollbackConflictKind, RollbackResult,
-    Simulation, SimulationItem, TargetKind,
+    HealthDimension, ProposedActionInput, RefilePlan, RollbackConflictItem, RollbackConflictKind,
+    RollbackResult, Simulation, SimulationItem, TargetKind,
 };
 use crate::db::SqliteStore;
 use crate::db::audit::append_audit_in_tx;
-use crate::db::files::normalize_path;
+use crate::db::files::{normalize_path, resolve_online_volume, volume_case_sensitive_for};
 use crate::error::{AegisError, Result};
 use crate::policy::{PolicyAction, PolicyContext, PolicyVerdict, evaluate_policy};
 use crate::quarantine::{
     build_quarantine_dest, calculate_reclaimable_bytes, default_ttl_ms, move_to_quarantine_fs,
     space_summary,
 };
+use crate::scanner::dir_size_and_count;
 use crate::scanner::os_adapter::inspect_path_metadata;
 use crate::{new_id, now_ms};
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -53,6 +59,11 @@ fn capture_state_json(path: &Path) -> String {
         .to_string(),
         _ => serde_json::json!({ "existed": false }).to_string(),
     }
+}
+
+fn display_string(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
 }
 
 fn non_overwriting_dest(path: &Path) -> (PathBuf, bool) {
@@ -179,6 +190,7 @@ struct PolicyTargetMeta {
     unit_allow_split: bool,
     file_unit_split: bool,
     is_cache_dir: bool,
+    cache_size_bytes: Option<i64>,
 }
 
 fn resolve_policy_target_meta(conn: &Connection, row: &DbActionRow) -> Result<PolicyTargetMeta> {
@@ -201,17 +213,20 @@ fn resolve_policy_target_meta(conn: &Connection, row: &DbActionRow) -> Result<Po
     }
 
     let mut is_cache_dir = false;
+    let mut cache_size_bytes = None;
     if row.target_kind == TargetKind::Dir {
-        let (_, ph) = normalize_path(Path::new(&row.from_path), false);
-        if let Some(au_id) = conn
+        let cs = volume_case_sensitive_for(conn, Path::new(&row.from_path));
+        let (_, ph) = normalize_path(Path::new(&row.from_path), cs);
+        if let Some((au_id, size)) = conn
             .query_row(
-                "SELECT atomic_unit_id FROM cache_dirs WHERE path_hash = ?1 AND state = 'active'",
+                "SELECT atomic_unit_id, size_bytes FROM cache_dirs WHERE path_hash = ?1 AND state = 'active'",
                 params![ph.as_slice()],
-                |r| r.get::<_, Option<String>>(0),
+                |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?)),
             )
             .optional()?
         {
             is_cache_dir = true;
+            cache_size_bytes = Some(size);
             if unit_id.is_none() {
                 unit_id = au_id;
             }
@@ -235,40 +250,12 @@ fn resolve_policy_target_meta(conn: &Connection, row: &DbActionRow) -> Result<Po
         unit_allow_split,
         file_unit_split,
         is_cache_dir,
+        cache_size_bytes,
     })
 }
 
 fn resolve_volume_for_action(conn: &Connection, from_path: &Path) -> Result<(String, String, bool)> {
-    let mut stmt = conn.prepare(
-        "SELECT id, mount_point, quarantine_dir, case_sensitive FROM volumes WHERE status = 'online'",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Option<String>>(2)?,
-            r.get::<_, i32>(3)? != 0,
-        ))
-    })?;
-
-    let from_str = from_path.to_string_lossy().to_lowercase();
-    let mut best: Option<(usize, String, String, bool)> = None;
-    for r in rows {
-        let (vid, mount, qdir_opt, cs) = r?;
-        let mount_low = mount.to_lowercase();
-        if from_str.starts_with(&mount_low) {
-            let qdir = qdir_opt.unwrap_or_else(|| {
-                Path::new(&mount)
-                    .join(".aegis-quarantine")
-                    .to_string_lossy()
-                    .to_string()
-            });
-            if best.as_ref().is_none_or(|b| mount.len() > b.0) {
-                best = Some((mount.len(), vid, qdir, cs));
-            }
-        }
-    }
-    best.map(|(_, vid, qdir, cs)| (vid, qdir, cs)).ok_or_else(|| {
+    resolve_online_volume(conn, from_path)?.ok_or_else(|| {
         AegisError::QuarantineUnavailable(format!(
             "No online volume matched {}",
             from_path.display()
@@ -276,8 +263,26 @@ fn resolve_volume_for_action(conn: &Connection, from_path: &Path) -> Result<(Str
     })
 }
 
+fn policy_action_for<'a>(row: &'a DbActionRow, meta: &'a PolicyTargetMeta) -> PolicyAction<'a> {
+    PolicyAction {
+        action_type: row.action_type,
+        target_kind: row.target_kind,
+        agent: row.agent.as_deref(),
+        from_path: Path::new(&row.from_path),
+        to_path: row.to_path.as_deref().map(Path::new),
+        confidence: row.confidence,
+        atomic_unit_root: meta.atomic_unit_root.as_deref(),
+        unit_allow_split_override: meta.unit_allow_split,
+        file_unit_split_override: meta.file_unit_split,
+        is_registered_cache_dir: meta.is_cache_dir,
+    }
+}
+
 /// Proposes an `action_batches` + `actions` draft (`C1` `actions.propose`).
 pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<String> {
+    if plan.actions.is_empty() {
+        return Err(AegisError::InvalidInput("Plan contains no actions".into()));
+    }
     let batch_id = new_id();
     let now = now_ms();
 
@@ -335,6 +340,46 @@ pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<Strin
     Ok(batch_id)
 }
 
+/// Proposes quarantining every non-keeper member of an exact-duplicate cluster.
+pub fn propose_dupe_quarantine(
+    store: &mut SqliteStore,
+    keeper_file_id: &str,
+    member_file_ids: &[String],
+) -> Result<String> {
+    let mut actions = Vec::new();
+    for fid in member_file_ids.iter().filter(|f| f.as_str() != keeper_file_id) {
+        let (path, atomic_unit_id): (String, Option<String>) = store
+            .conn()
+            .query_row(
+                "SELECT path, atomic_unit_id FROM files
+                 WHERE id = ?1 AND deleted_at IS NULL AND state != 'quarantine'",
+                params![fid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| AegisError::NotFound(format!("file {fid}")))?;
+        actions.push(ProposedActionInput {
+            agent: Some("Housekeeper".into()),
+            action_type: ActionType::Quarantine,
+            target_kind: TargetKind::File,
+            file_id: Some(fid.clone()),
+            atomic_unit_id,
+            from_path: path,
+            to_path: None,
+            reason: "Exact duplicate (identical BLAKE3) of the kept copy".into(),
+            confidence: 0.99,
+            evidence_json: serde_json::json!([{ "keeper_file_id": keeper_file_id }]).to_string(),
+        });
+    }
+    propose_batch(
+        store,
+        &RefilePlan {
+            origin: "dedupe".into(),
+            actions,
+        },
+    )
+}
+
 /// Dry-run Simulator evaluating collisions and `C4 v1.1` Policy verdicts (`C1` `actions.simulate`).
 pub fn simulate_batch(store: &SqliteStore, batch_id: &str) -> Result<Simulation> {
     let ctx = build_policy_context(store)?;
@@ -350,19 +395,7 @@ pub fn simulate_batch(store: &SqliteStore, batch_id: &str) -> Result<Simulation>
 
     for row in rows {
         let meta = resolve_policy_target_meta(store.conn(), &row)?;
-        let pa = PolicyAction {
-            action_type: row.action_type,
-            target_kind: row.target_kind,
-            agent: row.agent.as_deref(),
-            from_path: Path::new(&row.from_path),
-            to_path: row.to_path.as_deref().map(Path::new),
-            confidence: row.confidence,
-            atomic_unit_root: meta.atomic_unit_root.as_deref(),
-            unit_allow_split_override: meta.unit_allow_split,
-            file_unit_split_override: meta.file_unit_split,
-            is_registered_cache_dir: meta.is_cache_dir,
-        };
-        let verdict = evaluate_policy(&pa, &ctx);
+        let verdict = evaluate_policy(&policy_action_for(&row, &meta), &ctx);
         let policy_allowed = verdict.is_allowed_to_stage();
         let atomic_unit_protected = verdict == PolicyVerdict::Block("atomic_unit_boundary");
 
@@ -419,10 +452,11 @@ pub fn approve_batch(
     selection: Option<&[String]>,
 ) -> Result<()> {
     store.with_full_sync_tx(|tx| {
+        let mut changed = 0usize;
         match selection {
             Some(ids) => {
                 for id in ids {
-                    tx.execute(
+                    changed += tx.execute(
                         "UPDATE actions SET status = 'approved'
                          WHERE batch_id = ?1 AND id = ?2 AND status = 'proposed'",
                         params![batch_id, id],
@@ -430,16 +464,28 @@ pub fn approve_batch(
                 }
             }
             None => {
-                tx.execute(
+                changed += tx.execute(
                     "UPDATE actions SET status = 'approved'
                      WHERE batch_id = ?1 AND status = 'proposed'",
                     params![batch_id],
                 )?;
             }
         }
+        if changed == 0 {
+            return Err(AegisError::InvalidInput(format!(
+                "Batch {batch_id} has no proposed actions to approve"
+            )));
+        }
         tx.execute(
-            "UPDATE action_batches SET status = 'approved' WHERE id = ?1",
+            "UPDATE action_batches SET status = 'approved' WHERE id = ?1 AND status = 'draft'",
             params![batch_id],
+        )?;
+        append_audit_in_tx(
+            tx,
+            "user",
+            "actions.approve",
+            batch_id,
+            &serde_json::json!({ "approved": changed }).to_string(),
         )?;
         Ok(())
     })
@@ -448,13 +494,21 @@ pub fn approve_batch(
 pub fn reject_batch(store: &mut SqliteStore, batch_id: &str, reason: Option<&str>) -> Result<()> {
     let msg = reason.unwrap_or("Rejected by user");
     store.with_full_sync_tx(|tx| {
-        tx.execute(
+        let changed = tx.execute(
             "UPDATE actions SET status = 'rejected', error_message = ?1
              WHERE batch_id = ?2 AND status IN ('proposed','approved')",
             params![msg, batch_id],
         )?;
+        if changed == 0 {
+            return Err(AegisError::InvalidInput(format!(
+                "Batch {batch_id} has no pending actions to reject"
+            )));
+        }
+        // Only a batch that never touched disk becomes 'failed'; executed history is preserved.
         tx.execute(
-            "UPDATE action_batches SET status = 'failed' WHERE id = ?1",
+            "UPDATE action_batches SET status = 'failed'
+             WHERE id = ?1 AND NOT EXISTS (
+                SELECT 1 FROM actions WHERE batch_id = ?1 AND executed_at IS NOT NULL)",
             params![batch_id],
         )?;
         append_audit_in_tx(tx, "user", "actions.reject", batch_id, msg)?;
@@ -462,13 +516,238 @@ pub fn reject_batch(store: &mut SqliteStore, batch_id: &str, reason: Option<&str
     })
 }
 
+/// A disk mutation that has been applied and can be undone if its DB commit fails.
+enum FsOutcome {
+    Moved { src: PathBuf, dest: PathBuf },
+    Quarantined { src: PathBuf, dest: PathBuf, size_bytes: i64 },
+    Copied { dest: PathBuf },
+    MetadataOnly,
+}
+
+impl FsOutcome {
+    fn dest(&self) -> Option<&Path> {
+        match self {
+            Self::Moved { dest, .. } | Self::Quarantined { dest, .. } | Self::Copied { dest } => {
+                Some(dest)
+            }
+            Self::MetadataOnly => None,
+        }
+    }
+
+    fn undo(&self) -> std::io::Result<()> {
+        match self {
+            Self::Moved { src, dest } | Self::Quarantined { src, dest, .. } => {
+                std::fs::rename(dest, src)
+            }
+            Self::Copied { dest } => std::fs::remove_file(dest),
+            Self::MetadataOnly => Ok(()),
+        }
+    }
+}
+
+fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOutcome> {
+    let from = Path::new(&row.from_path);
+    match row.action_type {
+        ActionType::Quarantine => {
+            let dest = PathBuf::from(row.to_path.as_deref().ok_or_else(|| {
+                AegisError::QuarantineUnavailable("Missing quarantine to_path".into())
+            })?);
+            let size_bytes = if from.is_dir() {
+                meta.cache_size_bytes
+                    .filter(|s| *s > 0)
+                    .unwrap_or_else(|| dir_size_and_count(from).0)
+            } else {
+                std::fs::metadata(from).map(|m| m.len() as i64).unwrap_or(0)
+            };
+            move_to_quarantine_fs(from, &dest)?;
+            Ok(FsOutcome::Quarantined {
+                src: from.to_path_buf(),
+                dest,
+                size_bytes,
+            })
+        }
+        ActionType::Move | ActionType::Rename => {
+            let raw_to = row.to_path.as_deref().ok_or_else(|| {
+                AegisError::InvalidInput("Missing to_path for move/rename".into())
+            })?;
+            if !from.exists() {
+                return Err(AegisError::NotFound(row.from_path.clone()));
+            }
+            let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
+            if let Some(parent) = eff_to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::rename(from, &eff_to)?;
+            Ok(FsOutcome::Moved {
+                src: from.to_path_buf(),
+                dest: eff_to,
+            })
+        }
+        ActionType::Copy => {
+            let raw_to = row
+                .to_path
+                .as_deref()
+                .ok_or_else(|| AegisError::InvalidInput("Missing to_path for copy".into()))?;
+            let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
+            if let Some(parent) = eff_to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(from, &eff_to)?;
+            Ok(FsOutcome::Copied { dest: eff_to })
+        }
+        ActionType::Archive => Ok(FsOutcome::MetadataOnly),
+        ActionType::Purge | ActionType::Restore => Err(AegisError::InvalidInput(
+            "Use quarantine.restore/purge commands for quarantine lifecycle ops".into(),
+        )),
+    }
+}
+
+struct ExecutionRecord<'a> {
+    batch_id: &'a str,
+    volume: Option<&'a (String, String, bool)>,
+    pre_blake3: Option<Vec<u8>>,
+    pre_state_json: String,
+    post_blake3: Option<Vec<u8>>,
+    post_state_json: String,
+    now: i64,
+}
+
+fn record_executed_in_tx(
+    tx: &Connection,
+    row: &DbActionRow,
+    outcome: &FsOutcome,
+    rec: &ExecutionRecord<'_>,
+) -> Result<()> {
+    let now = rec.now;
+    let eff_to = outcome.dest().map(display_string);
+    match outcome {
+        FsOutcome::Quarantined { dest, size_bytes, .. } => {
+            let (vid, _, _) = rec.volume.ok_or_else(|| {
+                AegisError::QuarantineUnavailable("Volume unavailable".into())
+            })?;
+            tx.execute(
+                "INSERT INTO quarantine_entries (
+                    id, action_id, target_kind, file_id, atomic_unit_id, volume_id,
+                    original_path, quarantine_path, size_bytes, blake3,
+                    quarantined_at, expires_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    new_id(),
+                    row.id,
+                    row.target_kind.as_str(),
+                    row.file_id,
+                    row.atomic_unit_id,
+                    vid,
+                    row.from_path,
+                    display_string(dest),
+                    size_bytes,
+                    rec.pre_blake3.as_deref(),
+                    now,
+                    now + default_ttl_ms()
+                ],
+            )?;
+            if let Some(ref fid) = row.file_id {
+                tx.execute(
+                    "UPDATE files SET state = 'quarantine', updated_at = ?1 WHERE id = ?2",
+                    params![now, fid],
+                )?;
+                tx.execute(
+                    "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                     VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"quarantine\"}', ?2)",
+                    params![fid, now],
+                )?;
+            }
+            if row.target_kind == TargetKind::Dir {
+                tx.execute(
+                    "UPDATE cache_dirs SET state = 'quarantine', updated_at = ?1 WHERE path = ?2 AND state = 'active'",
+                    params![now, row.from_path],
+                )?;
+            }
+        }
+        FsOutcome::Moved { dest, .. } => {
+            if let Some(ref fid) = row.file_id {
+                let case_sensitive = rec.volume.map(|v| v.2).unwrap_or(false);
+                let (disp, ph) = normalize_path(dest, case_sensitive);
+                let name = dest
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                tx.execute(
+                    "UPDATE files SET path = ?1, path_hash = ?2, name = ?3, updated_at = ?4 WHERE id = ?5",
+                    params![disp, ph.as_slice(), name, now, fid],
+                )?;
+            }
+        }
+        FsOutcome::Copied { .. } => {}
+        FsOutcome::MetadataOnly => {
+            if row.action_type == ActionType::Archive
+                && let Some(ref fid) = row.file_id
+            {
+                tx.execute(
+                    "UPDATE files SET state = 'archive', updated_at = ?1 WHERE id = ?2",
+                    params![now, fid],
+                )?;
+            }
+        }
+    }
+
+    tx.execute(
+        "UPDATE actions
+         SET to_path = COALESCE(?1, to_path), pre_blake3 = ?2, post_blake3 = ?3,
+             pre_state_json = ?4, post_state_json = ?5, status = 'executed', executed_at = ?6,
+             error_message = NULL
+         WHERE id = ?7",
+        params![
+            eff_to,
+            rec.pre_blake3.as_deref(),
+            rec.post_blake3.as_deref(),
+            rec.pre_state_json,
+            rec.post_state_json,
+            now,
+            row.id
+        ],
+    )?;
+    append_audit_in_tx(
+        tx,
+        row.agent.as_deref().unwrap_or("user"),
+        &format!("actions.{}", row.action_type.as_str()),
+        &row.from_path,
+        &serde_json::json!({
+            "action_id": row.id,
+            "batch_id": rec.batch_id,
+            "to_path": eff_to
+        })
+        .to_string(),
+    )?;
+    Ok(())
+}
+
+fn mark_action(store: &mut SqliteStore, action_id: &str, status: &str, msg: &str) -> Result<()> {
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "UPDATE actions SET status = ?1, error_message = ?2 WHERE id = ?3",
+            params![status, msg, action_id],
+        )?;
+        Ok(())
+    })
+}
+
 /// Executes all `approved` actions in `batch_id` through `C4 v1.1` Policy Engine (`C1` `actions.execute`).
+///
+/// Each action is applied to disk and then committed in its own short transaction; a failed
+/// commit undoes that action's disk change before the action is marked `failed`.
 pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteResult> {
     let ctx = build_policy_context(store)?;
     let rows = load_batch_actions(store.conn(), batch_id)?;
     if rows.is_empty() {
         return Err(AegisError::NotFound(format!("batch {batch_id}")));
     }
+    if !rows.iter().any(|r| r.status == ActionStatus::Approved) {
+        return Err(AegisError::InvalidInput(format!(
+            "Batch {batch_id} has no approved actions; approve it in the Simulator before executing"
+        )));
+    }
+
     let mut metas = HashMap::new();
     let mut vol_lookup = HashMap::new();
     for r in &rows {
@@ -478,7 +757,6 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         }
     }
 
-    let now = now_ms();
     let mut executed_count = 0usize;
     let mut failed_count = 0usize;
     let mut skipped_count = 0usize;
@@ -488,226 +766,113 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
             "UPDATE action_batches SET status = 'executing' WHERE id = ?1",
             params![batch_id],
         )?;
+        Ok(())
+    })?;
 
-        for row in &rows {
-            if row.status != ActionStatus::Approved {
-                skipped_count += 1;
-                continue;
-            }
-            let meta = &metas[&row.id];
-            let pa = PolicyAction {
-                action_type: row.action_type,
-                target_kind: row.target_kind,
-                agent: row.agent.as_deref(),
-                from_path: Path::new(&row.from_path),
-                to_path: row.to_path.as_deref().map(Path::new),
-                confidence: row.confidence,
-                atomic_unit_root: meta.atomic_unit_root.as_deref(),
-                unit_allow_split_override: meta.unit_allow_split,
-                file_unit_split_override: meta.file_unit_split,
-                is_registered_cache_dir: meta.is_cache_dir,
-            };
-            let verdict = evaluate_policy(&pa, &ctx);
-            if let PolicyVerdict::Block(rule) = verdict {
-                failed_count += 1;
-                let msg = format!("policy_blocked:{rule}");
-                tx.execute(
-                    "UPDATE actions SET status = 'failed', error_message = ?1 WHERE id = ?2",
-                    params![msg, row.id],
-                )?;
-                continue;
-            }
-            if verdict == PolicyVerdict::HoldLowConfidence {
-                skipped_count += 1;
-                tx.execute(
-                    "UPDATE actions SET status = 'skipped', error_message = 'hold_low_confidence' WHERE id = ?1",
-                    params![row.id],
-                )?;
-                continue;
-            }
-
-            let from = Path::new(&row.from_path);
-            let pre_blake3 = if row.target_kind == TargetKind::File {
-                hash_file_blake3(from).ok().flatten()
-            } else {
-                None
-            };
-            let pre_state_json = capture_state_json(from);
-
-            let exec_res: Result<(Option<String>, Option<Vec<u8>>, String)> = (|| {
-                match row.action_type {
-                    ActionType::Quarantine => {
-                        let dest_str = row.to_path.clone().ok_or_else(|| {
-                            AegisError::QuarantineUnavailable("Missing quarantine to_path".into())
-                        })?;
-                        let dest = Path::new(&dest_str);
-                        let size_bytes = if from.is_dir() {
-                            0i64
-                        } else {
-                            std::fs::metadata(from).map(|m| m.len() as i64).unwrap_or(0)
-                        };
-                        move_to_quarantine_fs(from, dest)?;
-                        let (vid, _, _) = vol_lookup.get(&row.id).cloned().ok_or_else(|| {
-                            AegisError::QuarantineUnavailable("Volume unavailable".into())
-                        })?;
-                        let qid = new_id();
-                        tx.execute(
-                            "INSERT INTO quarantine_entries (
-                                id, action_id, target_kind, file_id, atomic_unit_id, volume_id,
-                                original_path, quarantine_path, size_bytes, blake3,
-                                quarantined_at, expires_at
-                             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                            params![
-                                qid,
-                                row.id,
-                                row.target_kind.as_str(),
-                                row.file_id,
-                                row.atomic_unit_id,
-                                vid,
-                                row.from_path,
-                                dest_str,
-                                size_bytes,
-                                pre_blake3.as_deref(),
-                                now,
-                                now + default_ttl_ms()
-                            ],
-                        )?;
-                        if let Some(ref fid) = row.file_id {
-                            tx.execute(
-                                "UPDATE files SET state = 'quarantine', updated_at = ?1 WHERE id = ?2",
-                                params![now, fid],
-                            )?;
-                            tx.execute(
-                                "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
-                                 VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"quarantine\"}', ?2)",
-                                params![fid, now],
-                            )?;
-                        }
-                        if row.target_kind == TargetKind::Dir {
-                            tx.execute(
-                                "UPDATE cache_dirs SET state = 'quarantine', updated_at = ?1 WHERE path = ?2",
-                                params![now, row.from_path],
-                            )?;
-                        }
-                        let post_hash = if row.target_kind == TargetKind::File {
-                            hash_file_blake3(dest).ok().flatten()
-                        } else {
-                            None
-                        };
-                        Ok((Some(dest_str.clone()), post_hash, capture_state_json(dest)))
-                    }
-                    ActionType::Move | ActionType::Rename => {
-                        let raw_to = row.to_path.as_deref().ok_or_else(|| {
-                            AegisError::InvalidInput("Missing to_path for move/rename".into())
-                        })?;
-                        let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
-                        if let Some(parent) = eff_to.parent() {
-                            std::fs::create_dir_all(parent)?;
-                        }
-                        std::fs::rename(from, &eff_to)?;
-                        let eff_str = eff_to.to_string_lossy().to_string();
-                        if let Some(ref fid) = row.file_id {
-                            let case_sensitive = vol_lookup
-                                .get(&row.id)
-                                .map(|v| v.2)
-                                .unwrap_or(false);
-                            let (disp, ph) = normalize_path(&eff_to, case_sensitive);
-                            let name = eff_to
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_default();
-                            tx.execute(
-                                "UPDATE files SET path = ?1, path_hash = ?2, name = ?3, updated_at = ?4 WHERE id = ?5",
-                                params![disp, ph.as_slice(), name, now, fid],
-                            )?;
-                        }
-                        let post_hash = if row.target_kind == TargetKind::File {
-                            hash_file_blake3(&eff_to).ok().flatten()
-                        } else {
-                            None
-                        };
-                        Ok((Some(eff_str), post_hash, capture_state_json(&eff_to)))
-                    }
-                    ActionType::Copy => {
-                        let raw_to = row.to_path.as_deref().ok_or_else(|| {
-                            AegisError::InvalidInput("Missing to_path for copy".into())
-                        })?;
-                        let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
-                        if let Some(parent) = eff_to.parent() {
-                            std::fs::create_dir_all(parent)?;
-                        }
-                        std::fs::copy(from, &eff_to)?;
-                        let eff_str = eff_to.to_string_lossy().to_string();
-                        let post_hash = hash_file_blake3(&eff_to).ok().flatten();
-                        Ok((Some(eff_str), post_hash, capture_state_json(&eff_to)))
-                    }
-                    ActionType::Archive => {
-                        if let Some(ref fid) = row.file_id {
-                            tx.execute(
-                                "UPDATE files SET state = 'archive', updated_at = ?1 WHERE id = ?2",
-                                params![now, fid],
-                            )?;
-                        }
-                        Ok((None, pre_blake3.clone(), pre_state_json.clone()))
-                    }
-                    ActionType::Purge | ActionType::Restore => Err(AegisError::InvalidInput(
-                        "Use quarantine.restore/purge commands for quarantine lifecycle ops".into(),
-                    )),
-                }
-            })();
-
-            match exec_res {
-                Ok((eff_to, post_blake3, post_state_json)) => {
-                    executed_count += 1;
-                    tx.execute(
-                        "UPDATE actions
-                         SET to_path = COALESCE(?1, to_path), pre_blake3 = ?2, post_blake3 = ?3,
-                             pre_state_json = ?4, post_state_json = ?5, status = 'executed', executed_at = ?6
-                         WHERE id = ?7",
-                        params![
-                            eff_to,
-                            pre_blake3.as_deref(),
-                            post_blake3.as_deref(),
-                            pre_state_json,
-                            post_state_json,
-                            now,
-                            row.id
-                        ],
-                    )?;
-                    append_audit_in_tx(
-                        tx,
-                        row.agent.as_deref().unwrap_or("user"),
-                        &format!("actions.{}", row.action_type.as_str()),
-                        &row.from_path,
-                        &serde_json::json!({
-                            "action_id": row.id,
-                            "batch_id": batch_id,
-                            "to_path": eff_to
-                        })
-                        .to_string(),
-                    )?;
-                }
-                Err(e) => {
-                    failed_count += 1;
-                    let ipc = e.to_ipc();
-                    tx.execute(
-                        "UPDATE actions SET status = 'failed', error_message = ?1 WHERE id = ?2",
-                        params![format!("{}: {}", ipc.code, ipc.message), row.id],
-                    )?;
-                }
-            }
+    for row in &rows {
+        if row.status != ActionStatus::Approved {
+            skipped_count += 1;
+            continue;
+        }
+        let meta = &metas[&row.id];
+        let verdict = evaluate_policy(&policy_action_for(row, meta), &ctx);
+        if let PolicyVerdict::Block(rule) = verdict {
+            failed_count += 1;
+            mark_action(store, &row.id, "failed", &format!("policy_blocked:{rule}"))?;
+            continue;
+        }
+        if verdict == PolicyVerdict::HoldLowConfidence {
+            skipped_count += 1;
+            mark_action(store, &row.id, "skipped", "hold_low_confidence")?;
+            continue;
+        }
+        let volume = vol_lookup.get(&row.id);
+        if row.action_type == ActionType::Quarantine && volume.is_none() {
+            failed_count += 1;
+            mark_action(
+                store,
+                &row.id,
+                "failed",
+                "quarantine_unavailable: no online volume for this path",
+            )?;
+            continue;
         }
 
-        let batch_status = if failed_count == 0 && executed_count > 0 {
-            BatchStatus::Executed
-        } else if executed_count > 0 {
-            BatchStatus::Partial
+        let from = Path::new(&row.from_path);
+        let pre_blake3 = if row.target_kind == TargetKind::File {
+            hash_file_blake3(from).ok().flatten()
         } else {
-            BatchStatus::Failed
+            None
         };
+        let pre_state_json = capture_state_json(from);
+
+        // 1. Disk first, outside any transaction.
+        let outcome = match perform_execute_fs(row, meta) {
+            Ok(o) => o,
+            Err(e) => {
+                failed_count += 1;
+                let ipc = e.to_ipc();
+                mark_action(store, &row.id, "failed", &format!("{}: {}", ipc.code, ipc.message))?;
+                continue;
+            }
+        };
+
+        let (post_blake3, post_state_json) = match outcome.dest() {
+            Some(dest) => {
+                let hash = if row.target_kind == TargetKind::File {
+                    hash_file_blake3(dest).ok().flatten()
+                } else {
+                    None
+                };
+                (hash, capture_state_json(dest))
+            }
+            None => (pre_blake3.clone(), pre_state_json.clone()),
+        };
+
+        // 2. One short transaction recording exactly this action.
+        let rec = ExecutionRecord {
+            batch_id,
+            volume,
+            pre_blake3,
+            pre_state_json,
+            post_blake3,
+            post_state_json,
+            now: now_ms(),
+        };
+        let commit = store.with_full_sync_tx(|tx| record_executed_in_tx(tx, row, &outcome, &rec));
+        match commit {
+            Ok(()) => executed_count += 1,
+            Err(e) => {
+                failed_count += 1;
+                let undo_note = match outcome.undo() {
+                    Ok(()) => "disk change was undone".to_string(),
+                    Err(ue) => format!(
+                        "disk change could NOT be undone ({ue}); item remains at {}",
+                        outcome.dest().map(|d| d.display().to_string()).unwrap_or_default()
+                    ),
+                };
+                let _ = mark_action(
+                    store,
+                    &row.id,
+                    "failed",
+                    &format!("database commit failed: {e}; {undo_note}"),
+                );
+            }
+        }
+    }
+
+    let batch_status = if failed_count == 0 && executed_count > 0 {
+        BatchStatus::Executed
+    } else if executed_count > 0 {
+        BatchStatus::Partial
+    } else {
+        BatchStatus::Failed
+    };
+    let finished = now_ms();
+    store.with_full_sync_tx(|tx| {
         tx.execute(
             "UPDATE action_batches SET status = ?1, executed_at = ?2 WHERE id = ?3",
-            params![batch_status.as_str(), now, batch_id],
+            params![batch_status.as_str(), finished, batch_id],
         )?;
         Ok(())
     })?;
@@ -716,13 +881,6 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         .into_iter()
         .map(|r| r.to_item())
         .collect();
-    let batch_status = if failed_count == 0 && executed_count > 0 {
-        BatchStatus::Executed
-    } else if executed_count > 0 {
-        BatchStatus::Partial
-    } else {
-        BatchStatus::Failed
-    };
 
     Ok(ExecuteResult {
         batch_id: batch_id.to_string(),
@@ -785,78 +943,74 @@ fn check_single_action_preflight(row: &DbActionRow) -> Option<RollbackConflictIt
     None
 }
 
-fn revert_clean_action_in_tx(
-    tx: &Transaction<'_>,
+enum RevertMode {
+    /// Move the item back to its original path (which must be free).
+    Normal,
+    /// Copy the edited item back (never overwriting) and leave the moved copy in place.
+    CopyBackKeepingBoth,
+    /// Move the item back under an explicit alternative name.
+    RestoreAs(PathBuf),
+}
+
+fn db_revert_in_tx(
+    tx: &Connection,
     row: &DbActionRow,
-    target_from_override: Option<&Path>,
-    copy_instead_of_move: bool,
+    dest: &Path,
+    copy_back: bool,
+    case_sensitive: bool,
     now: i64,
 ) -> Result<()> {
-    let dest = target_from_override.unwrap_or_else(|| Path::new(&row.from_path));
-    match row.action_type {
-        ActionType::Copy => {
-            if let Some(ref to_str) = row.to_path {
-                let p = Path::new(to_str);
-                if p.exists() {
-                    std::fs::remove_file(p)?;
-                }
-            }
+    let dest_str = display_string(dest);
+    if let Some(ref fid) = row.file_id
+        && row.action_type != ActionType::Copy
+    {
+        let (_, ph) = normalize_path(dest, case_sensitive);
+        let name = dest
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        tx.execute(
+            "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, name = ?3, updated_at = ?4
+             WHERE id = ?5",
+            params![dest_str, ph.as_slice(), name, now, fid],
+        )?;
+        if row.action_type == ActionType::Quarantine {
+            tx.execute(
+                "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                 VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"active\"}', ?2)",
+                params![fid, now],
+            )?;
         }
-        ActionType::Move | ActionType::Rename | ActionType::Quarantine => {
-            let to_str = row.to_path.as_deref().ok_or_else(|| {
-                AegisError::InvalidInput("Executed action missing to_path".into())
-            })?;
-            let src = Path::new(to_str);
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            if copy_instead_of_move {
-                std::fs::copy(src, dest)?;
-            } else {
-                std::fs::rename(src, dest)?;
-            }
-            let dest_str = dest.to_string_lossy().to_string();
-            if let Some(ref fid) = row.file_id {
-                let (_, ph) = normalize_path(dest, false);
-                let name = dest
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
+    }
+    if row.action_type == ActionType::Quarantine {
+        if copy_back {
+            // The original stays staged in quarantine (and expires/purges normally), but it no
+            // longer represents the live file row, so purging it must not tombstone that row.
+            tx.execute(
+                "UPDATE quarantine_entries SET file_id = NULL
+                 WHERE action_id = ?1 AND restored_at IS NULL AND purged_at IS NULL",
+                params![row.id],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE quarantine_entries SET restored_at = ?1 WHERE action_id = ?2 AND restored_at IS NULL",
+                params![now, row.id],
+            )?;
+            if row.target_kind == TargetKind::Dir {
                 tx.execute(
-                    "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, name = ?3, updated_at = ?4
-                     WHERE id = ?5",
-                    params![dest_str, ph.as_slice(), name, now, fid],
-                )?;
-                if row.action_type == ActionType::Quarantine {
-                    tx.execute(
-                        "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
-                         VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"active\"}', ?2)",
-                        params![fid, now],
-                    )?;
-                }
-            }
-            if row.action_type == ActionType::Quarantine {
-                tx.execute(
-                    "UPDATE quarantine_entries SET restored_at = ?1 WHERE action_id = ?2 AND restored_at IS NULL",
-                    params![now, row.id],
-                )?;
-                if row.target_kind == TargetKind::Dir {
-                    tx.execute(
-                        "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2",
-                        params![now, row.from_path],
-                    )?;
-                }
-            }
-        }
-        ActionType::Archive => {
-            if let Some(ref fid) = row.file_id {
-                tx.execute(
-                    "UPDATE files SET state = 'active', updated_at = ?1 WHERE id = ?2",
-                    params![now, fid],
+                    "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2 AND state = 'quarantine'",
+                    params![now, row.from_path],
                 )?;
             }
         }
-        _ => {}
+    }
+    if row.action_type == ActionType::Archive
+        && let Some(ref fid) = row.file_id
+    {
+        tx.execute(
+            "UPDATE files SET state = 'active', updated_at = ?1 WHERE id = ?2",
+            params![now, fid],
+        )?;
     }
 
     tx.execute(
@@ -867,37 +1021,109 @@ fn revert_clean_action_in_tx(
         tx,
         "user",
         "actions.rollback",
-        &dest.to_string_lossy(),
-        &serde_json::json!({ "action_id": row.id, "batch_id": row.batch_id }).to_string(),
+        &dest_str,
+        &serde_json::json!({ "action_id": row.id, "batch_id": row.batch_id, "copy_back": copy_back })
+            .to_string(),
     )?;
     Ok(())
 }
 
-/// Pre-flights ALL `executed` actions in `batch_id` before mutating disk (`C1 v1.2` §4).
-pub fn rollback_batch(store: &mut SqliteStore, batch_id: &str) -> Result<RollbackResult> {
-    let mut rows = load_batch_actions(store.conn(), batch_id)?;
+/// Reverts one executed action: disk first, then a short transaction; a failed commit
+/// undoes the disk change. Never overwrites an occupied destination.
+fn revert_one(store: &mut SqliteStore, row: &DbActionRow, mode: RevertMode) -> Result<()> {
+    let now = now_ms();
+    let cs = volume_case_sensitive_for(store.conn(), Path::new(&row.from_path));
+    match row.action_type {
+        ActionType::Copy => {
+            if let Some(ref to_str) = row.to_path {
+                let p = Path::new(to_str);
+                if p.is_file() {
+                    std::fs::remove_file(p)?;
+                }
+            }
+            let from = PathBuf::from(&row.from_path);
+            store.with_full_sync_tx(|tx| db_revert_in_tx(tx, row, &from, false, cs, now))
+        }
+        ActionType::Move | ActionType::Rename | ActionType::Quarantine => {
+            let src = PathBuf::from(row.to_path.as_deref().ok_or_else(|| {
+                AegisError::InvalidInput("Executed action missing to_path".into())
+            })?);
+            let original = PathBuf::from(&row.from_path);
+            let copy_back = matches!(mode, RevertMode::CopyBackKeepingBoth);
+            let dest = match mode {
+                RevertMode::Normal => original,
+                RevertMode::RestoreAs(p) => p,
+                RevertMode::CopyBackKeepingBoth => non_overwriting_dest(&original).0,
+            };
+            if dest.exists() {
+                return Err(AegisError::InvalidInput(format!(
+                    "{} is occupied; choose 'restore as rename' or skip",
+                    dest.display()
+                )));
+            }
+            if copy_back && src.is_dir() {
+                return Err(AegisError::InvalidInput(
+                    "Copy-back is only supported for files".into(),
+                ));
+            }
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if copy_back {
+                std::fs::copy(&src, &dest)?;
+            } else {
+                std::fs::rename(&src, &dest)?;
+            }
+            let res = store.with_full_sync_tx(|tx| db_revert_in_tx(tx, row, &dest, copy_back, cs, now));
+            if let Err(e) = res {
+                let _ = if copy_back {
+                    std::fs::remove_file(&dest)
+                } else {
+                    std::fs::rename(&dest, &src)
+                };
+                return Err(e);
+            }
+            Ok(())
+        }
+        ActionType::Archive => {
+            let from = PathBuf::from(&row.from_path);
+            store.with_full_sync_tx(|tx| db_revert_in_tx(tx, row, &from, false, cs, now))
+        }
+        ActionType::Purge | ActionType::Restore => Err(AegisError::InvalidInput(format!(
+            "{} actions cannot be rolled back",
+            row.action_type.as_str()
+        ))),
+    }
+}
+
+fn executed_rows_reversed(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionRow>> {
+    let mut rows = load_batch_actions(conn, batch_id)?;
     rows.reverse();
-    let executed: Vec<DbActionRow> = rows
+    Ok(rows
         .into_iter()
         .filter(|r| r.status == ActionStatus::Executed)
+        .collect())
+}
+
+/// Pre-flights every still-executed action; pauses on conflicts, otherwise reverts them all
+/// and settles the batch status (`C1 v1.2` §4).
+fn continue_rollback(
+    store: &mut SqliteStore,
+    batch_id: &str,
+    mut reverted_count: usize,
+) -> Result<RollbackResult> {
+    let executed = executed_rows_reversed(store.conn(), batch_id)?;
+    let conflicts: Vec<RollbackConflictItem> = executed
+        .iter()
+        .filter_map(check_single_action_preflight)
         .collect();
 
-    if executed.is_empty() {
-        return Err(AegisError::NotFound(format!(
-            "No executed actions to roll back in batch {batch_id}"
-        )));
-    }
-
-    let mut conflicts = Vec::new();
-    for row in &executed {
-        if let Some(conflict) = check_single_action_preflight(row) {
-            conflicts.push(conflict);
-        }
-    }
-
-    let now = now_ms();
     if !conflicts.is_empty() {
         store.with_full_sync_tx(|tx| {
+            tx.execute(
+                "UPDATE actions SET rollback_conflict = NULL WHERE batch_id = ?1 AND status = 'executed'",
+                params![batch_id],
+            )?;
             for c in &conflicts {
                 tx.execute(
                     "UPDATE actions SET rollback_conflict = ?1 WHERE id = ?2",
@@ -913,32 +1139,77 @@ pub fn rollback_batch(store: &mut SqliteStore, batch_id: &str) -> Result<Rollbac
         return Ok(RollbackResult {
             batch_id: batch_id.to_string(),
             status: BatchStatus::Partial,
-            reverted_count: 0,
+            reverted_count,
             conflicts,
         });
     }
 
-    let count = executed.len();
-    store.with_full_sync_tx(|tx| {
-        for row in &executed {
-            revert_clean_action_in_tx(tx, row, None, false, now)?;
+    for row in &executed {
+        if let Err(e) = revert_one(store, row, RevertMode::Normal) {
+            let _ = store.with_full_sync_tx(|tx| {
+                tx.execute(
+                    "UPDATE action_batches SET status = 'partial' WHERE id = ?1",
+                    params![batch_id],
+                )?;
+                Ok(())
+            });
+            return Err(AegisError::InvalidInput(format!(
+                "Rollback stopped after reverting {reverted_count} action(s): {e}"
+            )));
         }
+        reverted_count += 1;
+    }
+
+    // Fully rolled back only if every action that ever executed is now rolled back.
+    let not_reverted: i64 = store.conn().query_row(
+        "SELECT COUNT(*) FROM actions
+         WHERE batch_id = ?1 AND executed_at IS NOT NULL AND rolled_back_at IS NULL",
+        params![batch_id],
+        |r| r.get(0),
+    )?;
+    let status = if not_reverted == 0 {
+        BatchStatus::RolledBack
+    } else {
+        BatchStatus::Partial
+    };
+    let now = now_ms();
+    store.with_full_sync_tx(|tx| {
         tx.execute(
-            "UPDATE action_batches SET status = 'rolled_back', rolled_back_at = ?1 WHERE id = ?2",
-            params![now, batch_id],
+            "UPDATE action_batches SET status = ?1, rolled_back_at = ?2 WHERE id = ?3",
+            params![status.as_str(), now, batch_id],
         )?;
         Ok(())
     })?;
 
     Ok(RollbackResult {
         batch_id: batch_id.to_string(),
-        status: BatchStatus::RolledBack,
-        reverted_count: count,
+        status,
+        reverted_count,
         conflicts: Vec::new(),
     })
 }
 
-/// Resolves a pre-flight rollback conflict on one action (`C1 v1.2` §4).
+/// Pre-flights ALL `executed` actions in `batch_id` before mutating disk (`C1 v1.2` §4).
+pub fn rollback_batch(store: &mut SqliteStore, batch_id: &str) -> Result<RollbackResult> {
+    let executed = executed_rows_reversed(store.conn(), batch_id)?;
+    if executed.is_empty() {
+        return Err(AegisError::NotFound(format!(
+            "No executed actions to roll back in batch {batch_id}"
+        )));
+    }
+    if executed
+        .iter()
+        .any(|r| matches!(r.action_type, ActionType::Purge | ActionType::Restore))
+    {
+        return Err(AegisError::InvalidInput(
+            "Purge/restore batches cannot be rolled back".into(),
+        ));
+    }
+    continue_rollback(store, batch_id, 0)
+}
+
+/// Resolves a pre-flight rollback conflict on one action, then resumes the batch rollback
+/// (reverting the remaining clean actions once no conflicts are left) (`C1 v1.2` §4).
 pub fn resolve_rollback_conflict(
     store: &mut SqliteStore,
     action_id: &str,
@@ -954,34 +1225,54 @@ pub fn resolve_rollback_conflict(
         .optional()?
         .ok_or_else(|| AegisError::NotFound(format!("action {action_id}")))?;
 
-    let rows = load_batch_actions(store.conn(), &batch_id)?;
-    let target = rows
+    let target = load_batch_actions(store.conn(), &batch_id)?
         .into_iter()
         .find(|r| r.id == action_id)
         .ok_or_else(|| AegisError::NotFound(format!("action {action_id}")))?;
 
-    let now = now_ms();
-    let mut reverted_count = 0usize;
+    if target.status != ActionStatus::Executed || target.rollback_conflict.is_none() {
+        return Err(AegisError::InvalidInput(format!(
+            "Action {action_id} has no pending rollback conflict"
+        )));
+    }
 
-    store.with_full_sync_tx(|tx| {
-        match choice {
-            ConflictResolutionChoice::AbortBatch => {
+    let mut reverted_count = 0usize;
+    match choice {
+        ConflictResolutionChoice::AbortBatch => {
+            store.with_full_sync_tx(|tx| {
                 tx.execute(
                     "UPDATE actions SET rollback_conflict = NULL WHERE batch_id = ?1 AND status = 'executed'",
                     params![batch_id],
                 )?;
-                tx.execute(
-                    "UPDATE action_batches SET status = 'executed' WHERE id = ?1",
+                // Actions already reverted by earlier resolutions stay reverted.
+                let any_reverted: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM actions WHERE batch_id = ?1 AND rolled_back_at IS NOT NULL",
                     params![batch_id],
+                    |r| r.get(0),
+                )?;
+                let status = if any_reverted > 0 { "partial" } else { "executed" };
+                tx.execute(
+                    "UPDATE action_batches SET status = ?1 WHERE id = ?2",
+                    params![status, batch_id],
                 )?;
                 append_audit_in_tx(tx, "user", "actions.rollback_aborted", &batch_id, "{}")?;
-            }
-            ConflictResolutionChoice::Skip => {
-                let next_status = if target.rollback_conflict == Some(RollbackConflictKind::MissingTarget) {
+                Ok(())
+            })?;
+            return Ok(RollbackResult {
+                batch_id,
+                status: BatchStatus::Executed,
+                reverted_count: 0,
+                conflicts: Vec::new(),
+            });
+        }
+        ConflictResolutionChoice::Skip => {
+            let next_status =
+                if target.rollback_conflict == Some(RollbackConflictKind::MissingTarget) {
                     "unrecoverable_missing"
                 } else {
                     "skipped"
                 };
+            store.with_full_sync_tx(|tx| {
                 tx.execute(
                     "UPDATE actions SET status = ?1, rollback_conflict = NULL WHERE id = ?2",
                     params![next_status, action_id],
@@ -993,52 +1284,35 @@ pub fn resolve_rollback_conflict(
                     action_id,
                     &serde_json::json!({ "status": next_status }).to_string(),
                 )?;
-            }
-            ConflictResolutionChoice::RevertKeepingEdits => {
-                revert_clean_action_in_tx(tx, &target, None, false, now)?;
-                reverted_count += 1;
-            }
-            ConflictResolutionChoice::CopyBackKeepingBoth => {
-                revert_clean_action_in_tx(tx, &target, None, true, now)?;
-                reverted_count += 1;
-            }
-            ConflictResolutionChoice::RestoreAsRename => {
-                let orig = PathBuf::from(&target.from_path);
-                let stem = orig
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "restored".to_string());
-                let renamed_name = match orig.extension().and_then(|e| e.to_str()) {
-                    Some(ext) => format!("{stem}.restored-{now}.{ext}"),
-                    None => format!("{stem}.restored-{now}"),
-                };
-                let renamed_dest = orig.with_file_name(renamed_name);
-                revert_clean_action_in_tx(tx, &target, Some(&renamed_dest), false, now)?;
-                reverted_count += 1;
-            }
+                Ok(())
+            })?;
         }
-        Ok(())
-    })?;
+        ConflictResolutionChoice::RevertKeepingEdits => {
+            revert_one(store, &target, RevertMode::Normal)?;
+            reverted_count += 1;
+        }
+        ConflictResolutionChoice::CopyBackKeepingBoth => {
+            revert_one(store, &target, RevertMode::CopyBackKeepingBoth)?;
+            reverted_count += 1;
+        }
+        ConflictResolutionChoice::RestoreAsRename => {
+            let orig = PathBuf::from(&target.from_path);
+            let now = now_ms();
+            let stem = orig
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "restored".to_string());
+            let renamed_name = match orig.extension().and_then(|e| e.to_str()) {
+                Some(ext) => format!("{stem}.restored-{now}.{ext}"),
+                None => format!("{stem}.restored-{now}"),
+            };
+            let renamed_dest = non_overwriting_dest(&orig.with_file_name(renamed_name)).0;
+            revert_one(store, &target, RevertMode::RestoreAs(renamed_dest))?;
+            reverted_count += 1;
+        }
+    }
 
-    let remaining_rows = load_batch_actions(store.conn(), &batch_id)?;
-    let remaining_conflicts: Vec<RollbackConflictItem> = remaining_rows
-        .iter()
-        .filter(|r| r.status == ActionStatus::Executed && r.rollback_conflict.is_some())
-        .filter_map(check_single_action_preflight)
-        .collect();
-
-    let status = if remaining_conflicts.is_empty() {
-        BatchStatus::RolledBack
-    } else {
-        BatchStatus::Partial
-    };
-
-    Ok(RollbackResult {
-        batch_id,
-        status,
-        reverted_count,
-        conflicts: remaining_conflicts,
-    })
+    continue_rollback(store, &batch_id, reverted_count)
 }
 
 pub fn list_actions(conn: &Connection, status: Option<ActionStatus>) -> Result<Vec<ActionItem>> {
@@ -1098,7 +1372,8 @@ pub fn exact_dedupe_report(conn: &Connection) -> Result<DupeReport> {
     let mut stmt = conn.prepare(
         "SELECT id, volume_id, file_index, nlink, size, blake3, path, last_access
          FROM files
-         WHERE deleted_at IS NULL AND state != 'quarantine' AND blake3 IS NOT NULL AND size > 0
+         WHERE deleted_at IS NULL AND state NOT IN ('quarantine','missing')
+           AND blake3 IS NOT NULL AND size > 0
          ORDER BY blake3, length(path) ASC, COALESCE(last_access, mtime) DESC",
     )?;
 
@@ -1151,6 +1426,11 @@ pub fn exact_dedupe_report(conn: &Connection) -> Result<DupeReport> {
             hardlink_adjusted,
         });
     }
+    clusters.sort_by(|a, b| {
+        b.reclaimable_bytes
+            .cmp(&a.reclaimable_bytes)
+            .then_with(|| a.cluster_key.cmp(&b.cluster_key))
+    });
 
     Ok(DupeReport {
         group_by: "exact".to_string(),
@@ -1226,8 +1506,16 @@ pub fn disk_rescue_report(store: &SqliteStore) -> Result<DiskRescueReport> {
 }
 
 pub fn health_breakdown(conn: &Connection) -> Result<HealthBreakdown> {
-    let dupes = exact_dedupe_report(conn)?;
-    let dupe_offenders = dupes.clusters.len();
+    // Count duplicate clusters in SQL instead of building the full dedupe report on every refresh.
+    let dupe_offenders: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT blake3 FROM files
+            WHERE deleted_at IS NULL AND state NOT IN ('quarantine','missing')
+              AND blake3 IS NOT NULL AND size > 0
+            GROUP BY blake3 HAVING COUNT(*) > 1)",
+        [],
+        |r| r.get(0),
+    )?;
     let cache_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM cache_dirs WHERE state = 'active'",
         [],
@@ -1266,7 +1554,7 @@ pub fn health_breakdown(conn: &Connection) -> Result<HealthBreakdown> {
                 id: "duplication".into(),
                 label: "Duplication Hygiene".into(),
                 score: dup_score,
-                offenders_count: dupe_offenders,
+                offenders_count: dupe_offenders.max(0) as usize,
             },
             HealthDimension {
                 id: "caches".into(),

@@ -641,6 +641,14 @@ fn quarantine_and_preflight_rollback_conflicts() {
     let mut store = SqliteStore::open_in_memory().unwrap();
     let rc = store.add_root(&root).unwrap();
     scan_root(&mut store, &root, &[1, 2]).unwrap();
+    // Keep quarantine inside the temp dir instead of the real `<volume>\.aegis-quarantine`.
+    store
+        .conn()
+        .execute(
+            "UPDATE volumes SET quarantine_dir = ?1",
+            params![tmp.path().join(".aegis-quarantine").to_string_lossy().to_string()],
+        )
+        .unwrap();
 
     // Verify space summary starts at 0 staged / 0 freed
     let sum0 = space_summary(&store, Some(&rc.volume_id)).unwrap();

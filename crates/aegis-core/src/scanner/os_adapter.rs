@@ -94,7 +94,7 @@ mod platform {
         }
 
         let is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        let is_symlink = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        let has_reparse_point = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
         let is_placeholder = (attrs
             & (FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
                 | FILE_ATTRIBUTE_RECALL_ON_OPEN
@@ -114,6 +114,11 @@ mod platform {
             }
             Err(e) => return Err(AegisError::Io(e)),
         };
+
+        // Only name-surrogate reparse points (symlinks, junctions) are links. Cloud Files
+        // (OneDrive, Dropbox, iCloud) also set FILE_ATTRIBUTE_REPARSE_POINT on ordinary folders
+        // and files; std's `is_symlink` checks the reparse tag and correctly excludes them.
+        let is_symlink = has_reparse_point && meta.file_type().is_symlink();
 
         let size = if is_dir { 0 } else { meta.file_size() as i64 };
         let mtime = meta.modified().map(system_time_to_ms).unwrap_or(0);
@@ -347,30 +352,68 @@ mod platform {
         }))
     }
 
+    /// Mount point = highest ancestor still on the same device as `path`.
+    fn mount_point_for(path: &Path, dev: u64) -> std::path::PathBuf {
+        let mut mount = path.to_path_buf();
+        for anc in path.ancestors().skip(1) {
+            match std::fs::metadata(anc) {
+                Ok(m) if m.dev() == dev => mount = anc.to_path_buf(),
+                _ => break,
+            }
+        }
+        mount
+    }
+
+    fn sysinfo_disk_for(mount: &Path) -> Option<(String, bool, bool, u64, u64)> {
+        let disks = sysinfo::Disks::new_with_refreshed_list().ok()?;
+        for disk in &disks {
+            if disk.mount_point() == mount {
+                return Some((
+                    disk.file_system().to_string_lossy().to_lowercase(),
+                    disk.is_removable(),
+                    disk.is_read_only(),
+                    disk.total_space(),
+                    disk.available_space(),
+                ));
+            }
+        }
+        None
+    }
+
     pub fn inspect_volume_for_path(path: &Path) -> Result<OsVolumeMeta> {
-        let meta = std::fs::metadata(path).map_err(AegisError::Io)?;
+        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let meta = std::fs::metadata(&canonical).map_err(AegisError::Io)?;
         let dev = meta.dev();
-        let case_sensitive = cfg!(target_os = "linux");
-        let fs_type = if cfg!(target_os = "macos") {
-            "apfs".to_string()
-        } else {
-            "ext4".to_string()
-        };
+        let mount = mount_point_for(&canonical, dev);
+        let (fs_type, is_removable, is_readonly, total_bytes, free_bytes) = sysinfo_disk_for(&mount)
+            .unwrap_or_else(|| {
+                let fallback = if cfg!(target_os = "macos") { "apfs" } else { "ext4" };
+                (fallback.to_string(), false, false, 0, 0)
+            });
+        // APFS/HFS+ default to case-insensitive; Linux filesystems are case-sensitive.
+        let case_sensitive = !cfg!(target_os = "macos")
+            && !matches!(fs_type.as_str(), "vfat" | "exfat" | "msdos" | "ntfs" | "ntfs3");
+        let has_stable_inode = !matches!(
+            fs_type.as_str(),
+            "vfat" | "exfat" | "msdos" | "cifs" | "smbfs" | "smb3"
+        );
         Ok(OsVolumeMeta {
             id: format!("unix-{dev}"),
-            mount_point: "/".to_string(),
+            mount_point: mount.to_string_lossy().to_string(),
             fs_type,
-            is_removable: false,
-            is_readonly: false,
-            has_stable_inode: true,
+            is_removable,
+            is_readonly,
+            has_stable_inode,
             case_sensitive,
-            total_bytes: 0,
-            free_bytes: 0,
+            total_bytes,
+            free_bytes,
         })
     }
 
-    pub fn disk_space_for_mount(_mount_point: &str) -> (u64, u64) {
-        (0, 0)
+    pub fn disk_space_for_mount(mount_point: &str) -> (u64, u64) {
+        sysinfo_disk_for(Path::new(mount_point))
+            .map(|(_, _, _, total, free)| (total, free))
+            .unwrap_or((0, 0))
     }
 }
 

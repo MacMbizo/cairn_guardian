@@ -6,7 +6,7 @@ use crate::contracts::{
 use crate::error::{AegisError, Result};
 use crate::scanner::os_adapter;
 use crate::{new_id, now_ms};
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use unicode_normalization::UnicodeNormalization;
@@ -51,6 +51,113 @@ pub fn normalize_path(path: &Path, case_sensitive: bool) -> (String, [u8; 32]) {
     };
     let hash = *blake3::hash(key.as_bytes()).as_bytes();
     (display, hash)
+}
+
+/// True when `candidate` equals `prefix` or lies beneath it on a path-component boundary
+/// (`C:\data` does NOT contain `C:\database\x`). Accepts `\\?\` prefixes and either separator.
+pub fn path_is_within(candidate: &str, prefix: &str, case_sensitive: bool) -> bool {
+    let norm = |s: &str| {
+        let s = s.strip_prefix(r"\\?\").unwrap_or(s).replace('\\', "/");
+        let s = s.trim_end_matches('/').to_string();
+        if case_sensitive { s } else { s.to_lowercase() }
+    };
+    let c = norm(candidate);
+    let p = norm(prefix);
+    if p.is_empty() {
+        // Unix "/" root trims to "" and contains every absolute path.
+        return c.starts_with('/') || c.is_empty();
+    }
+    c == p || c.starts_with(&format!("{p}/"))
+}
+
+/// Finds the online volume whose mount point most specifically contains `path`.
+/// Returns `(volume_id, quarantine_dir, case_sensitive)`.
+pub fn resolve_online_volume(
+    conn: &Connection,
+    path: &Path,
+) -> Result<Option<(String, String, bool)>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, mount_point, quarantine_dir, case_sensitive FROM volumes WHERE status = 'online'",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, i32>(3)? != 0,
+        ))
+    })?;
+    let path_str = path.to_string_lossy();
+    let mut best: Option<(usize, String, String, bool)> = None;
+    for r in rows {
+        let (vid, mount, qdir_opt, cs) = r?;
+        if !path_is_within(&path_str, &mount, cs) {
+            continue;
+        }
+        if best.as_ref().is_none_or(|b| mount.len() > b.0) {
+            let qdir = qdir_opt.unwrap_or_else(|| {
+                Path::new(&mount)
+                    .join(".aegis-quarantine")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            best = Some((mount.len(), vid, qdir, cs));
+        }
+    }
+    Ok(best.map(|(_, vid, qdir, cs)| (vid, qdir, cs)))
+}
+
+/// Case sensitivity of the volume holding `path` (defaults to `false`, the Windows/macOS norm).
+pub fn volume_case_sensitive_for(conn: &Connection, path: &Path) -> bool {
+    resolve_online_volume(conn, path)
+        .ok()
+        .flatten()
+        .map(|v| v.2)
+        .unwrap_or(false)
+}
+
+/// Returns the stored BLAKE3 for a live file whose size and mtime are unchanged,
+/// so rescans skip re-reading unchanged payloads.
+pub fn unchanged_hash(
+    conn: &Connection,
+    volume_id: &str,
+    path_hash: &[u8; 32],
+    size: i64,
+    mtime: i64,
+) -> Result<Option<Vec<u8>>> {
+    let hash = conn
+        .query_row(
+            "SELECT blake3 FROM files
+             WHERE volume_id = ?1 AND path_hash = ?2 AND size = ?3 AND mtime = ?4
+               AND blake3 IS NOT NULL AND container_file_id IS NULL AND deleted_at IS NULL
+               AND state NOT IN ('quarantine','missing')",
+            params![volume_id, path_hash.as_slice(), size, mtime],
+            |r| r.get::<_, Vec<u8>>(0),
+        )
+        .optional()?;
+    Ok(hash)
+}
+
+/// Deletes a file's chunks (FTS5 rows follow via trigger) and enqueues vector deletes.
+pub fn delete_chunks_for_file(conn: &Connection, file_id: &str) -> Result<()> {
+    let now = now_ms();
+    let mut chunk_uuids = Vec::new();
+    {
+        let mut stmt = conn.prepare("SELECT chunk_uuid FROM chunks WHERE file_id = ?1")?;
+        let rows = stmt.query_map(params![file_id], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            chunk_uuids.push(row?);
+        }
+    }
+    for uuid in chunk_uuids {
+        conn.execute(
+            "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+             VALUES ('chunk', ?1, 'delete', '{}', ?2)",
+            params![uuid, now],
+        )?;
+    }
+    conn.execute("DELETE FROM chunks WHERE file_id = ?1", params![file_id])?;
+    Ok(())
 }
 
 fn file_name_and_ext(path: &Path) -> (String, Option<String>) {
@@ -381,26 +488,9 @@ fn insert_file_row(
 
 /// Tombstones a purged file while deleting its `chunks` (firing FTS5 delete triggers),
 /// enqueuing Qdrant deletes, and expiring graph relationships (`B4 v2.3.1` §3.1).
-pub fn soft_delete_file_in_tx(tx: &Transaction<'_>, file_id: &str) -> Result<()> {
+pub fn soft_delete_file_in_tx(tx: &Connection, file_id: &str) -> Result<()> {
     let now = now_ms();
-    let mut chunk_uuids = Vec::new();
-    {
-        let mut stmt = tx.prepare("SELECT chunk_uuid FROM chunks WHERE file_id = ?1")?;
-        let rows = stmt.query_map(params![file_id], |r| r.get::<_, String>(0))?;
-        for row in rows {
-            chunk_uuids.push(row?);
-        }
-    }
-
-    for uuid in chunk_uuids {
-        tx.execute(
-            "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
-             VALUES ('chunk', ?1, 'delete', '{}', ?2)",
-            params![uuid, now],
-        )?;
-    }
-
-    tx.execute("DELETE FROM chunks WHERE file_id = ?1", params![file_id])?;
+    delete_chunks_for_file(tx, file_id)?;
     tx.execute(
         "UPDATE relationships SET valid_to = ?1
          WHERE (src_id = ?2 OR dst_id = ?2) AND valid_to IS NULL",

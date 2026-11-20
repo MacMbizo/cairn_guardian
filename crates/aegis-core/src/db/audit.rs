@@ -4,7 +4,7 @@ use crate::contracts::AuditEntry;
 use crate::error::Result;
 use crate::{new_id, now_ms};
 use blake3::Hasher;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 const GENESIS_PREV_HASH: [u8; 32] = [0u8; 32];
 
@@ -42,7 +42,7 @@ pub fn compute_audit_hash(fields: &AuditHashFields<'_>) -> [u8; 32] {
 
 /// Appends one row to `audit_log` inside an existing transaction.
 pub fn append_audit_in_tx(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     actor: &str,
     action: &str,
     target: &str,

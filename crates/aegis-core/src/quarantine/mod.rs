@@ -3,7 +3,7 @@
 use crate::contracts::{QuarantineEntry, QuarantineSpaceSummary, TargetKind};
 use crate::db::SqliteStore;
 use crate::db::audit::append_audit_in_tx;
-use crate::db::files::soft_delete_file_in_tx;
+use crate::db::files::{normalize_path, soft_delete_file_in_tx, volume_case_sensitive_for};
 use crate::error::{AegisError, Result};
 use crate::scanner::os_adapter::disk_space_for_mount;
 use crate::{new_id, now_ms};
@@ -254,10 +254,10 @@ struct ActiveQuarantineRow {
 }
 
 fn fetch_active_quarantine_row(
-    tx: &rusqlite::Transaction<'_>,
+    conn: &Connection,
     entry_id: &str,
 ) -> Result<Option<ActiveQuarantineRow>> {
-    tx.query_row(
+    conn.query_row(
         "SELECT target_kind, file_id, atomic_unit_id, original_path, quarantine_path
          FROM quarantine_entries
          WHERE id = ?1 AND restored_at IS NULL AND purged_at IS NULL",
@@ -276,7 +276,55 @@ fn fetch_active_quarantine_row(
     .map_err(AegisError::Database)
 }
 
+fn create_user_undo_batch(store: &mut SqliteStore, batch_id: &str, total: usize, now: i64) -> Result<()> {
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "INSERT INTO action_batches (id, origin, status, total_actions, created_at, executed_at)
+             VALUES (?1, 'user_undo', 'executing', ?2, ?3, ?3)",
+            params![batch_id, total as i64, now],
+        )?;
+        Ok(())
+    })
+}
+
+fn settle_user_undo_batch(
+    store: &mut SqliteStore,
+    batch_id: &str,
+    done: usize,
+    failures: &[String],
+    verb: &str,
+) -> Result<()> {
+    let status = if failures.is_empty() {
+        "executed"
+    } else if done > 0 {
+        "partial"
+    } else {
+        "failed"
+    };
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "UPDATE action_batches SET status = ?1 WHERE id = ?2",
+            params![status, batch_id],
+        )?;
+        Ok(())
+    })?;
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(AegisError::QuarantineUnavailable(format!(
+            "{} of {} item(s) could not be {verb}: {}",
+            failures.len(),
+            done + failures.len(),
+            failures.join("; ")
+        )))
+    }
+}
+
 /// Permanently deletes quarantined items ONLY when `confirmed_permanent == true` (`C1` §3).
+///
+/// Each item is deleted from disk first and then recorded in its own short transaction, so a
+/// failure on one item never un-records items that are already gone. If the record step fails
+/// after deletion, Doctor check #5 reconciles the entry as externally purged.
 pub fn purge_entries(
     store: &mut SqliteStore,
     entry_ids: &[String],
@@ -289,35 +337,36 @@ pub fn purge_entries(
         });
     }
     let batch_id = new_id();
-    let now = now_ms();
+    create_user_undo_batch(store, &batch_id, entry_ids.len(), now_ms())?;
 
-    store.with_full_sync_tx(|tx| {
-        tx.execute(
-            "INSERT INTO action_batches (id, origin, status, total_actions, created_at, executed_at)
-             VALUES (?1, 'user_undo', 'executed', ?2, ?3, ?3)",
-            params![batch_id, entry_ids.len() as i64, now],
-        )?;
+    let mut done = 0usize;
+    let mut failures = Vec::new();
+    for entry_id in entry_ids {
+        let Some(row) = fetch_active_quarantine_row(store.conn(), entry_id)? else {
+            continue;
+        };
 
-        for entry_id in entry_ids {
-            let Some(row) = fetch_active_quarantine_row(tx, entry_id)? else {
-                continue;
-            };
+        let q = Path::new(&row.quarantine_path);
+        let delete_res = if q.is_dir() {
+            std::fs::remove_dir_all(q)
+        } else if q.exists() {
+            std::fs::remove_file(q)
+        } else {
+            Ok(())
+        };
+        if let Err(e) = delete_res {
+            failures.push(format!("{} ({e})", row.original_path));
+            continue;
+        }
 
-            let q = Path::new(&row.quarantine_path);
-            if q.exists() {
-                if q.is_dir() {
-                    std::fs::remove_dir_all(q)?;
-                } else {
-                    std::fs::remove_file(q)?;
-                }
-            }
-
+        let now = now_ms();
+        let commit = store.with_full_sync_tx(|tx| {
             if let Some(ref fid) = row.file_id {
                 soft_delete_file_in_tx(tx, fid)?;
             }
             if row.target_kind == "dir" {
                 tx.execute(
-                    "UPDATE cache_dirs SET state = 'missing', updated_at = ?1 WHERE path = ?2",
+                    "UPDATE cache_dirs SET state = 'missing', updated_at = ?1 WHERE path = ?2 AND state = 'quarantine'",
                     params![now, row.original_path],
                 )?;
             }
@@ -338,12 +387,10 @@ pub fn purge_entries(
                     now
                 ],
             )?;
-
             tx.execute(
                 "UPDATE quarantine_entries SET purged_at = ?1 WHERE id = ?2",
                 params![now, entry_id],
             )?;
-
             append_audit_in_tx(
                 tx,
                 "user",
@@ -351,63 +398,77 @@ pub fn purge_entries(
                 &row.quarantine_path,
                 &serde_json::json!({ "entry_id": entry_id, "action_id": action_id }).to_string(),
             )?;
+            Ok(())
+        });
+        match commit {
+            Ok(()) => done += 1,
+            Err(e) => failures.push(format!(
+                "{} was deleted but the index update failed ({e}); run Doctor repair to reconcile",
+                row.original_path
+            )),
         }
-        Ok(())
-    })?;
+    }
 
+    settle_user_undo_batch(store, &batch_id, done, &failures, "purged")?;
     Ok(batch_id)
 }
 
 /// Restores quarantined items back to `original_path` (using unique collision suffix if reoccupied).
+///
+/// Each item is moved on disk first and then recorded in its own short transaction; if the
+/// record step fails the move is undone, so one bad item never strands the others.
 pub fn restore_entries(store: &mut SqliteStore, entry_ids: &[String]) -> Result<String> {
     let batch_id = new_id();
-    let now = now_ms();
+    create_user_undo_batch(store, &batch_id, entry_ids.len(), now_ms())?;
 
-    store.with_full_sync_tx(|tx| {
-        tx.execute(
-            "INSERT INTO action_batches (id, origin, status, total_actions, created_at, executed_at)
-             VALUES (?1, 'user_undo', 'executed', ?2, ?3, ?3)",
-            params![batch_id, entry_ids.len() as i64, now],
-        )?;
-
-        for entry_id in entry_ids {
-            let Some(row) = fetch_active_quarantine_row(tx, entry_id)? else {
-                continue;
+    let mut done = 0usize;
+    let mut failures = Vec::new();
+    for entry_id in entry_ids {
+        let Some(row) = fetch_active_quarantine_row(store.conn(), entry_id)? else {
+            continue;
+        };
+        let src = PathBuf::from(&row.quarantine_path);
+        if !src.exists() {
+            failures.push(format!("{} (missing from quarantine)", row.original_path));
+            continue;
+        }
+        let now = now_ms();
+        let mut dest = PathBuf::from(&row.original_path);
+        if dest.exists() {
+            let stem = dest
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "restored".to_string());
+            let ext = dest.extension().map(|e| e.to_string_lossy().to_string());
+            let new_name = match ext {
+                Some(e) => format!("{stem}.restored-{now}.{e}"),
+                None => format!("{stem}.restored-{now}"),
             };
-            let tk = row.target_kind;
-            let file_id = row.file_id;
-            let atomic_unit_id = row.atomic_unit_id;
-            let orig = row.original_path;
-            let qpath = row.quarantine_path;
-
-            let src = Path::new(&qpath);
-            if !src.exists() {
-                return Err(AegisError::NotFound(format!("quarantine path {qpath}")));
-            }
-            let mut dest = PathBuf::from(&orig);
-            if dest.exists() {
-                let stem = dest
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "restored".to_string());
-                let ext = dest.extension().map(|e| e.to_string_lossy().to_string());
-                let new_name = match ext {
-                    Some(e) => format!("{stem}.restored-{now}.{e}"),
-                    None => format!("{stem}.restored-{now}"),
-                };
-                dest.set_file_name(new_name);
-            }
+            dest.set_file_name(new_name);
+        }
+        let moved = (|| -> std::io::Result<()> {
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::rename(src, &dest)?;
+            std::fs::rename(&src, &dest)
+        })();
+        if let Err(e) = moved {
+            failures.push(format!("{} ({e})", row.original_path));
+            continue;
+        }
 
-            if let Some(ref fid) = file_id {
-                let dest_str = dest.to_string_lossy().to_string();
-                let (_, dest_hash) = crate::db::files::normalize_path(&dest, false);
+        let case_sensitive = volume_case_sensitive_for(store.conn(), &dest);
+        let commit = store.with_full_sync_tx(|tx| {
+            let dest_str = dest.to_string_lossy().to_string();
+            if let Some(ref fid) = row.file_id {
+                let (_, dest_hash) = normalize_path(&dest, case_sensitive);
+                let name = dest
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
                 tx.execute(
-                    "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, updated_at = ?3 WHERE id = ?4",
-                    params![dest_str, dest_hash.as_slice(), now, fid],
+                    "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, name = ?3, updated_at = ?4 WHERE id = ?5",
+                    params![dest_str, dest_hash.as_slice(), name, now, fid],
                 )?;
                 tx.execute(
                     "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
@@ -415,39 +476,60 @@ pub fn restore_entries(store: &mut SqliteStore, entry_ids: &[String]) -> Result<
                     params![fid, now],
                 )?;
             }
-            if tk == "dir" {
+            if row.target_kind == "dir" {
                 tx.execute(
-                    "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2",
-                    params![now, orig],
+                    "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2 AND state = 'quarantine'",
+                    params![now, row.original_path],
                 )?;
             }
 
             let action_id = new_id();
-            let dest_str = dest.to_string_lossy().to_string();
             tx.execute(
                 "INSERT INTO actions (
                     id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
                     from_path, to_path, reason, confidence, evidence_json, status, created_at, executed_at
                  ) VALUES (?1, ?2, NULL, 'restore', ?3, ?4, ?5, ?6, ?7, 'User restore from quarantine', 1.0, '[]', 'executed', ?8, ?8)",
-                params![action_id, batch_id, tk, file_id, atomic_unit_id, qpath, dest_str, now],
+                params![
+                    action_id,
+                    batch_id,
+                    row.target_kind,
+                    row.file_id,
+                    row.atomic_unit_id,
+                    row.quarantine_path,
+                    dest_str,
+                    now
+                ],
             )?;
-
             tx.execute(
                 "UPDATE quarantine_entries SET restored_at = ?1 WHERE id = ?2",
                 params![now, entry_id],
             )?;
-
             append_audit_in_tx(
                 tx,
                 "user",
                 "quarantine.restore",
                 &dest_str,
-                &serde_json::json!({ "entry_id": entry_id, "from": qpath }).to_string(),
+                &serde_json::json!({ "entry_id": entry_id, "from": row.quarantine_path }).to_string(),
             )?;
+            Ok(())
+        });
+        match commit {
+            Ok(()) => done += 1,
+            Err(e) => {
+                let undo = std::fs::rename(&dest, &src);
+                failures.push(match undo {
+                    Ok(()) => format!("{} (index update failed: {e}; left in quarantine)", row.original_path),
+                    Err(ue) => format!(
+                        "{} (index update failed: {e}; restored to {} but could not re-quarantine: {ue})",
+                        row.original_path,
+                        dest.display()
+                    ),
+                });
+            }
         }
-        Ok(())
-    })?;
+    }
 
+    settle_user_undo_batch(store, &batch_id, done, &failures, "restored")?;
     Ok(batch_id)
 }
 
