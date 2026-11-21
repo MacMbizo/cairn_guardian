@@ -219,3 +219,131 @@ fn photo_exif_is_stored() {
     assert_eq!(m.exif_taken_at, Some(1_710_411_725_000));
     assert_eq!(m.camera.as_deref(), Some("Pixel 7"));
 }
+
+// ---------- Task 4: classifier ----------
+
+use aegis_core::filing::classify::{ClassifyInput, DateSource, classify, find_date, find_org, kind_of};
+
+fn doc(name: &str, text: Option<&str>) -> aegis_core::filing::classify::Classification {
+    classify(&ClassifyInput {
+        name,
+        ext: name.rsplit('.').next().unwrap_or(""),
+        text,
+        exif_taken_at: None,
+        mtime: 1_700_000_000_000,
+        in_atomic_unit: false,
+        learned_orgs: &[],
+    })
+}
+
+#[test]
+fn tax_invoice_from_vodacom() {
+    let c = doc(
+        "scan0001.pdf",
+        Some("TAX INVOICE Vodacom (Pty) Ltd Invoice date: 14/03/2026 VAT No 4190123456 Amount due R 499.00"),
+    );
+    assert_eq!(c.kind, Kind::Document);
+    assert_eq!(c.category.as_deref(), Some("Finance/Invoices & receipts"));
+    assert_eq!(c.doc_type.as_deref(), Some("invoice"));
+    assert_eq!(c.who.as_deref(), Some("Vodacom"));
+    assert_eq!(c.doc_date.as_deref(), Some("2026-03-14"));
+    assert_eq!(c.date_source, DateSource::Content);
+    assert!(c.confidence >= 0.90, "{}", c.confidence);
+    assert!(c.evidence.iter().any(|e| e.contains("tax invoice")), "{:?}", c.evidence);
+}
+
+#[test]
+fn sars_assessment() {
+    let c = doc("ita34.pdf", Some("SARS Notice of Assessment Income Tax ITA34 Tax year 2025 Date of assessment 2025-09-30"));
+    assert_eq!(c.category.as_deref(), Some("Finance/Tax"));
+    assert_eq!(c.doc_type.as_deref(), Some("assessment"));
+    assert_eq!(c.who.as_deref(), Some("SARS"));
+    assert!(c.confidence >= 0.90);
+}
+
+#[test]
+fn filename_only_is_capped() {
+    let c = doc("payslip march.pdf", None);
+    assert_eq!(c.category.as_deref(), Some("Finance/Payslips"));
+    assert!(c.confidence <= 0.75, "{}", c.confidence);
+}
+
+#[test]
+fn unclear_document_is_below_060() {
+    let c = doc("misc.txt", Some("hello world notes"));
+    assert!(c.confidence < 0.60, "{}", c.confidence);
+}
+
+#[test]
+fn kinds() {
+    assert_eq!(kind_of("dll", "a.dll", false), Kind::System);
+    assert_eq!(kind_of("png", "Screenshot 2024-01-02 101010.png", false), Kind::Screenshot);
+    assert_eq!(kind_of("rs", "main.rs", false), Kind::Code);
+    assert_eq!(kind_of("txt", "x.txt", true), Kind::Code);
+    assert_eq!(kind_of("exe", "setup.exe", false), Kind::Installer);
+    assert_eq!(kind_of("jpg", "IMG_1.jpg", false), Kind::Photo);
+}
+
+#[test]
+fn dates_parse_and_reject_impossible() {
+    assert_eq!(find_date("due 31/02/2024 now"), None);
+    assert_eq!(find_date("March 14, 2024").as_deref(), Some("2024-03-14"));
+    assert_eq!(find_date("ref 20240314").as_deref(), Some("2024-03-14"));
+    assert_eq!(find_date("on 14 March 2024").as_deref(), Some("2024-03-14"));
+    assert_eq!(find_date("2024-03-14").as_deref(), Some("2024-03-14"));
+    // The date next to "invoice date" wins over an earlier one.
+    assert_eq!(find_date("printed 01/01/2026 invoice date: 14/03/2026").as_deref(), Some("2026-03-14"));
+}
+
+#[test]
+fn orgs_match_on_word_boundaries_and_aliases() {
+    assert_eq!(find_org("account at First National Bank", &[]).as_deref(), Some("FNB"));
+    assert_eq!(find_org("the absa group", &[]).as_deref(), Some("ABSA"));
+    assert_eq!(find_org("absolute value", &[]), None, "no match inside other words");
+    assert_eq!(find_org("letter from Acme Widgets", &["Acme Widgets".to_string()]).as_deref(), Some("Acme Widgets"));
+}
+
+#[test]
+fn photos_and_installers_are_confident_without_content() {
+    let photo = classify(&ClassifyInput {
+        name: "IMG_1.jpg",
+        ext: "jpg",
+        text: None,
+        exif_taken_at: Some(1_710_411_725_000),
+        mtime: 0,
+        in_atomic_unit: false,
+        learned_orgs: &[],
+    });
+    assert_eq!(photo.kind, Kind::Photo);
+    assert_eq!(photo.doc_date.as_deref(), Some("2024-03-14"));
+    assert_eq!(photo.date_source, DateSource::Exif);
+    assert!(photo.confidence >= 0.90);
+    assert!(doc("setup.exe", None).confidence >= 0.90);
+}
+
+#[test]
+fn reader_classifies_what_it_reads() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::docx(r, "scan.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");
+    });
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    let m = load_meta(s.conn(), &file_id_of(&s, "scan.docx")).unwrap().unwrap();
+    assert_eq!(m.category.as_deref(), Some("Finance/Invoices & receipts"));
+    assert_eq!(m.who.as_deref(), Some("Vodacom"));
+    assert_eq!(m.doc_date.as_deref(), Some("2026-03-14"));
+    assert!(m.confidence >= 0.90);
+    assert!(!m.evidence.is_empty());
+}
+
+#[test]
+fn unreadable_kinds_get_meta_without_reading() {
+    let (_t, mut s, _root) = scanned(|r| {
+        common::put(r, "setup.exe", b"MZ installer");
+        common::put(r, "clip.mp4", b"not really a video");
+    });
+    let n = aegis_core::filing::reader::classify_unread(&mut s, 100).unwrap();
+    assert_eq!(n, 2);
+    assert_eq!(load_meta(s.conn(), &file_id_of(&s, "setup.exe")).unwrap().unwrap().kind, Kind::Installer);
+    assert_eq!(load_meta(s.conn(), &file_id_of(&s, "clip.mp4")).unwrap().unwrap().kind, Kind::Video);
+    assert_eq!(aegis_core::filing::reader::classify_unread(&mut s, 100).unwrap(), 0, "done once");
+}

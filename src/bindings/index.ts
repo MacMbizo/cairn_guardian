@@ -17,6 +17,7 @@ export * from './CloneConflict';
 export * from './ConflictResolutionChoice';
 export * from './CoverageErrorItem';
 export * from './CoverageReport';
+export * from './DateSource';
 export * from './DecisionOutcome';
 export * from './DiskRescueReport';
 export * from './DoctorCheckResult';
