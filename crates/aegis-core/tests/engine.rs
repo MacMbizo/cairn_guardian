@@ -521,3 +521,122 @@ fn resume_only_previously_started_uncatalogued_drives() {
         .unwrap();
     assert_eq!(catalogs_to_resume(s.conn()).unwrap(), vec![started_id]);
 }
+
+// ---------- Task 7: downloads janitor ----------
+
+use aegis_core::engine::janitor::{JanitorKind, installer_matches, propose, scan_downloads};
+
+fn aged(path: &Path, days: f64) {
+    let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    let ago = std::time::Duration::from_secs_f64(days * 86_400.0);
+    f.set_modified(std::time::SystemTime::now() - ago).unwrap();
+}
+
+/// A registered Downloads folder (so quarantine has a volume) and a store.
+fn downloads() -> (tempfile::TempDir, SqliteStore, PathBuf) {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dl = tmp.path().join("Downloads");
+    std::fs::create_dir_all(&dl).unwrap();
+    let mut s = store();
+    s.add_root(&dl).unwrap();
+    scan_root(&mut s, &dl, &[1]).unwrap();
+    (tmp, s, dl)
+}
+
+fn now_ms() -> i64 {
+    aegis_core::now_ms()
+}
+
+fn names(items: &[aegis_core::engine::janitor::JanitorItem]) -> Vec<String> {
+    let mut v: Vec<String> = items
+        .iter()
+        .map(|i| Path::new(&i.path).file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn partial_downloads_older_than_a_day() {
+    let (_t, s, dl) = downloads();
+    aged(&common::put(&dl, "movie.mkv.crdownload", b"partial"), 2.0);
+    aged(&common::put(&dl, "fresh.part", b"partial"), 0.05);
+    let items = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    assert_eq!(names(&items), vec!["movie.mkv.crdownload"]);
+    assert_eq!(items[0].kind, JanitorKind::Partial);
+}
+
+#[test]
+fn repeat_download_with_same_hash_flagged_keeps_oldest() {
+    let (_t, s, dl) = downloads();
+    aged(&common::put(&dl, "invoice.pdf", b"%PDF same bytes"), 5.0);
+    aged(&common::put(&dl, "invoice (1).pdf", b"%PDF same bytes"), 1.0);
+    aged(&common::put(&dl, "invoice (2).pdf", b"%PDF same bytes"), 0.5);
+    let items = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    assert_eq!(names(&items), vec!["invoice (1).pdf", "invoice (2).pdf"]);
+    assert!(items.iter().all(|i| i.kind == JanitorKind::Repeat { of: "invoice.pdf".into() }));
+}
+
+#[test]
+fn repeat_name_but_different_content_not_flagged() {
+    let (_t, s, dl) = downloads();
+    aged(&common::put(&dl, "report.docx", b"PK version one"), 5.0);
+    aged(&common::put(&dl, "report (1).docx", b"PK version two"), 1.0);
+    assert!(scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap().is_empty());
+}
+
+#[test]
+fn installer_age_and_match() {
+    assert!(installer_matches("ZoomInstallerFull", &["Zoom Workplace".into()]));
+    assert!(!installer_matches("Firefox Setup 133.0", &["Mozilla Firefox (x64 en-US)".into()]));
+    assert!(installer_matches("vlc-3.0.21-win64", &["VLC media player".into()]));
+    assert!(!installer_matches("vlc-3.0.21-win64", &["Zoom Workplace".into()]));
+
+    let (_t, s, dl) = downloads();
+    aged(&common::put(&dl, "ZoomInstallerFull.exe", b"MZ zoom"), 20.0);
+    aged(&common::put(&dl, "tool-setup.msi", b"msi"), 30.0);
+    aged(&common::put(&dl, "new-setup.exe", b"MZ new"), 3.0);
+    let items = scan_downloads(s.conn(), &dl, &["Zoom Workplace".to_string()], now_ms()).unwrap();
+    assert_eq!(names(&items), vec!["ZoomInstallerFull.exe", "tool-setup.msi"]);
+    let zoom = items.iter().find(|i| i.path.ends_with("ZoomInstallerFull.exe")).unwrap();
+    assert_eq!(zoom.kind, JanitorKind::Installer { already_installed: true, age_days: 20 });
+    let tool = items.iter().find(|i| i.path.ends_with("tool-setup.msi")).unwrap();
+    assert_eq!(tool.kind, JanitorKind::Installer { already_installed: false, age_days: 30 });
+}
+
+#[test]
+fn janitor_skips_files_in_open_batch_and_missing_files() {
+    let (_t, mut s, dl) = downloads();
+    aged(&common::put(&dl, "a.crdownload", b"x"), 2.0);
+    aged(&common::put(&dl, "b.crdownload", b"y"), 2.0);
+    let first = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    assert_eq!(first.len(), 2);
+    propose(&mut s, &first[..1]).unwrap().unwrap();
+    std::fs::remove_file(dl.join("b.crdownload")).unwrap();
+    assert!(scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap().is_empty());
+}
+
+#[test]
+fn propose_once_while_batch_open() {
+    let (_t, mut s, dl) = downloads();
+    aged(&common::put(&dl, "a.crdownload", b"x"), 2.0);
+    aged(&common::put(&dl, "b.crdownload", b"y"), 2.0);
+    let items = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    let batch = propose(&mut s, &items[..1]).unwrap();
+    assert!(batch.is_some());
+    assert!(propose(&mut s, &items[1..]).unwrap().is_none());
+    assert!(propose(&mut s, &[]).unwrap().is_none());
+    let reason: String = s
+        .conn()
+        .query_row("SELECT reason FROM actions WHERE batch_id = ?1", [batch.unwrap()], |r| r.get(0))
+        .unwrap();
+    assert_eq!(reason, "Unfinished download, untouched for a day");
+}
+
+#[cfg(windows)]
+#[test]
+fn installed_programs_reads_the_registry() {
+    let programs = aegis_core::engine::janitor::installed_programs();
+    assert!(!programs.is_empty(), "every Windows install lists some programs");
+    assert!(programs.iter().all(|p| !p.trim().is_empty() && !p.contains('\0')));
+}

@@ -43,6 +43,8 @@ export * from './HealthBreakdown';
 export * from './HealthDimension';
 export * from './IndexStats';
 export * from './IpcError';
+export * from './JanitorItem';
+export * from './JanitorKind';
 export * from './Level';
 export * from './LifecycleState';
 export * from './PreviousVersionItem';
