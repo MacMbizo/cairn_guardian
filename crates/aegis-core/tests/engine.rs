@@ -329,3 +329,61 @@ fn old_events_fall_out_of_window() {
     }
     assert!(tw.evaluate(s.conn(), 1_000 + 61_000).unwrap().is_empty());
 }
+
+// ---------- Task 5: live-index batching, interrupted jobs ----------
+
+use aegis_core::drives::FakeVolumeProvider;
+use aegis_core::engine::batcher::{ChangeBatcher, index_changed};
+use aegis_core::scanner::mark_interrupted_jobs;
+
+#[test]
+fn batcher_waits_for_quiet_then_chunks() {
+    let mut b = ChangeBatcher::new();
+    for i in 0..1_200 {
+        b.push(PathBuf::from(format!("C:/x/f{i}.txt")), i as i64 / 12);
+    }
+    for i in 0..100 {
+        b.push(PathBuf::from(format!("C:/x/f{i}.txt")), 100);
+    }
+    assert!(b.drain_ready(1_500).is_empty());
+    let chunks = b.drain_ready(2_100);
+    assert_eq!(chunks.iter().map(|c| c.len()).collect::<Vec<_>>(), vec![500, 500, 200]);
+    assert!(b.drain_ready(5_000).is_empty());
+}
+
+#[test]
+fn index_changed_applies_all_chunks() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let drive = common::fake_drive(&tmp, "A", "0001");
+    let id = common::plug_and_catalog(&mut s, &provider, &drive);
+    let mut b = ChangeBatcher::new();
+    for i in 0..600 {
+        let p = common::put(&drive.mount_point, &format!("new/f{i}.txt"), b"x");
+        b.push(PathBuf::from(common::canon(&p)), 0);
+    }
+    let n = index_changed(&mut s, &id, b.drain_ready(10_000)).unwrap();
+    assert_eq!(n, 600);
+    assert_eq!(common::live_file_paths(&s, &id).iter().filter(|p| p.contains("new")).count(), 600);
+}
+
+#[test]
+fn stale_running_jobs_marked_interrupted() {
+    let s = store();
+    let c = s.conn();
+    c.execute(
+        "INSERT INTO scan_jobs (id, root_path, tier, status, started_at) VALUES ('j1', 'D:/', 1, 'running', 5)",
+        [],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO scan_jobs (id, root_path, tier, status, started_at, finished_at) VALUES ('j2', 'D:/', 1, 'completed', 5, 6)",
+        [],
+    )
+    .unwrap();
+    assert_eq!(mark_interrupted_jobs(c, 99).unwrap(), 1);
+    let st: (String, i64) =
+        c.query_row("SELECT status, finished_at FROM scan_jobs WHERE id = 'j1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!(st, ("interrupted".to_string(), 99));
+}

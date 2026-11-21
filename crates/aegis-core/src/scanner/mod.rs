@@ -926,6 +926,15 @@ pub fn catalog_volume(
     Ok(result)
 }
 
+/// Scans that were still "running" when Aegis last stopped can never finish: marks them
+/// interrupted. Called once when the engine starts, before any job runs. Returns rows changed.
+pub fn mark_interrupted_jobs(conn: &rusqlite::Connection, now: i64) -> Result<usize> {
+    Ok(conn.execute(
+        "UPDATE scan_jobs SET status = 'interrupted', finished_at = ?1 WHERE status = 'running'",
+        [now],
+    )?)
+}
+
 /// The PC folders Aegis starts with (spec §7.8.1): Downloads, Documents, Desktop, Pictures, Music.
 pub fn default_root_paths() -> Vec<PathBuf> {
     known_folders()

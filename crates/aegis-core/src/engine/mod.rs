@@ -113,6 +113,7 @@ pub fn record_run(conn: &Connection, name: &str, now: i64, error: Option<&str>) 
     Ok(())
 }
 
+pub mod batcher;
 pub mod reminders;
 pub mod tripwire;
 
