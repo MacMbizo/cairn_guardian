@@ -17,11 +17,8 @@ Updated 2026-11-21. Read this first in a new chat.
 
 ## Do next, in this order
 
-1. **Merge to master.** The owner approved this. `git checkout master`, then `git merge feature/drives-dupes`, then run `cargo test --workspace` and `pnpm build` on the merged result. Delete the branch once that is green. Do not push unless asked.
-2. **Fix the preview cards.** In the browser preview, `src/screens/fixtures/drives.ts` already marks Seagate B as `role: "backup"`. That hides the Drive plan card, because `src/screens/Drives.tsx` only shows the card when no Backup drive exists or some drive is unassigned. The owner wants to see **both** the Drive plan card (the recommendation) and the Backup card with its priority-tier bars.
-   - Make the preview show both. For example: a preview-only toggle, or fixtures with one drive still unassigned, so the plan card renders next to an existing backup.
-   - Keep the real app's logic correct.
-   - Verify with Playwright screenshots from a Vite dev server on port 1420. Delete `.playwright-mcp/` afterwards.
+1. ~~Merge to master~~ Done 2026-11-21 (fast-forward; 166 tests pass, build clean; branch deleted; not pushed).
+2. ~~Fix the preview cards~~ Done in `1f189d1`. The fixtures now include an unassigned "Toshiba D". Also fixed a real bug: `showPlan` now checks `drives[].role` and no longer reads the plan entries, which the backend never marks "unassigned" once every drive is catalogued.
 3. **Owner checks:** the owner reviews the screenshots of Home, Drives & Backup and Duplicates. Then the owner plugs in one real external drive and clicks **Catalog**. Report catalog time, fingerprint time, file count, duplicate groups, and the re-plug refresh mode and time.
 
 ## Deferred minor issues (from the final review)
@@ -33,6 +30,8 @@ Updated 2026-11-21. Read this first in a new chat.
 - The keeper radio in Duplicates isn't sent to the backend, so keeper rule 1 ("the location the owner chose") is not implemented.
 - `index_paths` applies a large USN replay in one transaction, which can make UI commands wait.
 - `rebase_volume_paths` doesn't rewrite `backup_versions.source_path`, the roots in settings, or `scan_jobs`.
+- Home "Needs you" says 14.0 GB of duplicates (sum of group sizes), while Duplicates says "up to 11.2 GB to reclaim" (`reclaimable_bytes`). `formatBytes` also divides by 1024 but labels the result "GB" (a 1 TB drive shows as 931.3 GB).
+- "Needs you" on Home doesn't flag an unassigned drive.
 - There are two verified-copy implementations (the `actions.rs` Copy arm and `topup::copy_verified`). They should become one helper.
 
 ## Programme (owner-approved order)
@@ -59,5 +58,6 @@ Owner decisions already made:
 
 - **Shell text gets mangled.** Bash heredocs mangle backslashes in Python and Rust strings. For non-trivial edits, write the Python edit scripts to the scratchpad with the Write tool, or use Edit.
 - **Long jobs use their own database connection.** The watcher, catalog and top-up threads each open their own `SqliteStore` on the same database file (`AppState.db_path`).
-- **Bindings regenerate during tests.** `cargo test` regenerates `src/bindings/*.ts` through ts-rs. Commit those changes with the Rust changes.
+- **Bindings regenerate during tests.** `cargo test` regenerates `src/bindings/*.ts` through ts-rs. Commit those changes with the Rust changes. If `git diff -w --ignore-cr-at-eol` shows nothing, the change is only LF/CRLF: restore the files with `git checkout -- src/bindings`.
+- **A Vite server is often already running on 1420** (probably the owner's). It hot-reloads, so use it and don't kill it.
 - **The owner may be running the app.** Stage only your own files.
