@@ -139,3 +139,83 @@ fn readable_types() {
     }
     assert!(!readable("exe") && !readable("mp4"));
 }
+
+// ---------- Task 3: reader ----------
+
+use aegis_core::filing::reader::read_pending;
+use aegis_core::scanner::scan_root;
+use std::time::Duration;
+
+/// A scanned scratch folder (so files are indexed) and its store.
+fn scanned(build: impl FnOnce(&std::path::Path)) -> (tempfile::TempDir, SqliteStore, std::path::PathBuf) {
+    let t = tempfile::TempDir::new().unwrap();
+    let root = t.path().join("Docs");
+    std::fs::create_dir_all(&root).unwrap();
+    build(&root);
+    let mut s = store();
+    s.add_root(&root).unwrap();
+    scan_root(&mut s, &root, &[1]).unwrap();
+    (t, s, root)
+}
+
+fn file_id_of(s: &SqliteStore, name: &str) -> String {
+    s.conn().query_row("SELECT id FROM files WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+}
+
+#[test]
+fn reader_stores_text_and_makes_it_searchable() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::docx(r, "inv.docx", "Vodacom tax invoice");
+    });
+    let rep = read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    assert_eq!(rep.read, 1);
+    let page = aegis_core::db::files::search_fts(s.conn(), "Vodacom", &Default::default(), 10).unwrap();
+    assert_eq!(page.hits.len(), 1);
+    let m = load_meta(s.conn(), &file_id_of(&s, "inv.docx")).unwrap().unwrap();
+    assert!(m.read_at.is_some());
+    assert_eq!(m.kind, Kind::Document);
+}
+
+#[test]
+fn bad_pdf_is_marked_unreadable_and_reader_continues() {
+    let (_t, mut s, _root) = scanned(|r| {
+        common::put(r, "broken.pdf", b"%PDF-1.4 this is not really a pdf \x00\x01\x02 trailer garbage");
+        fixtures_filing::docx(r, "good.docx", "Statement");
+    });
+    let rep = read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    assert_eq!((rep.read, rep.unreadable), (1, 1));
+    let bad = load_meta(s.conn(), &file_id_of(&s, "broken.pdf")).unwrap().unwrap();
+    assert!(bad.read_error.is_some());
+    assert!(bad.read_at.is_some(), "not retried until the file changes");
+}
+
+#[test]
+fn unchanged_files_are_not_read_twice() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::docx(r, "a.docx", "hello");
+    });
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    assert_eq!(read_pending(&mut s, 100, Duration::from_secs(10)).unwrap().read, 0);
+}
+
+#[test]
+fn big_files_are_skipped() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::docx(r, "huge.docx", "hello");
+    });
+    s.conn().execute("UPDATE files SET size = 60000000", []).unwrap();
+    assert_eq!(read_pending(&mut s, 100, Duration::from_secs(10)).unwrap().read, 0);
+    assert!(load_meta(s.conn(), &file_id_of(&s, "huge.docx")).unwrap().is_none());
+}
+
+#[test]
+fn photo_exif_is_stored() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::jpeg_with_exif(r, "IMG_1.jpg", "2024:03:14 10:22:05", "Pixel 7");
+    });
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    let m = load_meta(s.conn(), &file_id_of(&s, "IMG_1.jpg")).unwrap().unwrap();
+    assert_eq!(m.kind, Kind::Photo);
+    assert_eq!(m.exif_taken_at, Some(1_710_411_725_000));
+    assert_eq!(m.camera.as_deref(), Some("Pixel 7"));
+}

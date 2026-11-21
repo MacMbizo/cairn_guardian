@@ -229,3 +229,6 @@ pub fn blueprint_of(conn: &Connection, scope: &Scope) -> Result<Option<Blueprint
 }
 
 pub mod extract;
+
+pub mod classify;
+pub mod reader;
