@@ -327,8 +327,9 @@ pub fn coverage_summary(conn: &Connection) -> Result<Option<BackupCoverage>> {
     let short = missing - free - versions;
     let shown = label.clone().unwrap_or_else(|| "the Backup drive".into());
     let suggestion = (short > 0).then(|| {
-        let gb = short as f64 / 1_000_000_000.0;
-        let amount = if gb >= 0.1 { format!("{gb:.1} GB") } else { format!("{} KB", (short + 999) / 1000) };
+        // 1024-based, matching Windows Explorer and the rest of the app.
+        let gb = short as f64 / 1_073_741_824.0;
+        let amount = if gb >= 0.1 { format!("{gb:.1} GB") } else { format!("{} KB", (short + 1023) / 1024) };
         format!("{amount} doesn't fit. Add a second backup drive or free space on {shown}.")
     });
     Ok(Some(BackupCoverage {

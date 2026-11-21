@@ -5,6 +5,7 @@ import {
   Archive,
   CheckCircle2,
   Copy,
+  CopyCheck,
   Cpu,
   FolderGit2,
   FolderOpen,
@@ -19,8 +20,14 @@ import {
   Sparkles,
   Stethoscope,
   Trash2,
+  Usb,
   XCircle,
 } from "lucide-react";
+import { HomeTiles } from "./components/HomeTiles";
+import { PlugBanner } from "./components/PlugBanner";
+import { DrivesScreen } from "./screens/Drives";
+import { DupeReview } from "./screens/DupeReview";
+import { useDrives } from "./screens/useDrives";
 import {
   aegis,
   errorMessage,
@@ -46,7 +53,7 @@ import {
   type Simulation,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "search" | "rescue" | "simulator" | "doctor";
+type TabId = "dashboard" | "drives" | "dupes" | "search" | "rescue" | "simulator" | "doctor";
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -62,6 +69,7 @@ function formatBytes(bytes: number): string {
 export default function App() {
   const desktop = useMemo(() => isTauriRuntime(), []);
   const [tab, setTab] = useState<TabId>("dashboard");
+  const drivesData = useDrives();
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
       ? "Aegis Guardian core ready."
@@ -417,7 +425,9 @@ export default function App() {
   }, [actions]);
 
   const navItems: { id: TabId; label: string; icon: typeof ShieldCheck }[] = [
-    { id: "dashboard", label: "Dashboard & Coverage", icon: HardDrive },
+    { id: "dashboard", label: "Home", icon: HardDrive },
+    { id: "drives", label: "Drives & Backup", icon: Usb },
+    { id: "dupes", label: "Duplicates", icon: CopyCheck },
     { id: "search", label: "Keyword Search (Ctrl+K)", icon: Search },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -474,7 +484,8 @@ export default function App() {
             </span>
           </div>
           <p className="mt-1.5 text-slate-400">
-            MVP Autonomy: <strong className="text-slate-200">Suggest Only</strong>
+            Autonomy: <strong className="text-slate-200">Suggest only</strong>
+            <span className="block">Backups run by themselves once you allow it.</span>
           </p>
         </div>
       </aside>
@@ -509,10 +520,18 @@ export default function App() {
             </button>
           </div>
         </header>
+        <PlugBanner onOpen={(t) => { setTab(t); void drivesData.reload(); }} />
 
         <div className="flex-1 overflow-y-auto p-6">
+          {tab === "drives" && (
+            <DrivesScreen data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
+          )}
+          {tab === "dupes" && (
+            <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
+          )}
           {tab === "dashboard" && (
             <div className="space-y-6">
+              <HomeTiles data={drivesData} onOpen={setTab} />
               {/* Honest Coverage Banner (D3 §2) */}
               {scanStatus && (
                 <section
