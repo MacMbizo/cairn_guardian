@@ -51,6 +51,45 @@ pub fn volume_id_at(store: &SqliteStore, mount: &Path) -> String {
         .id
 }
 
+/// Plugs a fake drive, registers it and catalogs it. Returns its volume id.
+pub fn plug_and_catalog(
+    store: &mut SqliteStore,
+    provider: &aegis_core::drives::FakeVolumeProvider,
+    drive: &MountedVolume,
+) -> String {
+    provider.plug(drive.clone());
+    aegis_core::drives::sync_mounted(store, provider).unwrap();
+    let id = volume_id_at(store, &drive.mount_point);
+    aegis_core::scanner::catalog_volume(store, &id, &mut |_| {}).unwrap();
+    id
+}
+
+/// Deterministic pseudo-random bytes (xorshift), so tests can build large distinct files.
+pub fn noise(len: usize, seed: u64) -> Vec<u8> {
+    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..len)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x & 0xff) as u8
+        })
+        .collect()
+}
+
+/// `(quick_hash, blake3)` of the live row at `path`.
+pub fn hashes_at(store: &SqliteStore, path: &Path) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    let want = canon(path);
+    store
+        .conn()
+        .query_row(
+            "SELECT quick_hash, blake3 FROM files WHERE path = ?1 AND deleted_at IS NULL",
+            [want],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
 pub fn status_of(store: &SqliteStore, volume_id: &str) -> String {
     store
         .conn()

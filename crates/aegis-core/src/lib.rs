@@ -5,6 +5,7 @@ pub mod db;
 pub mod doctor;
 pub mod drives;
 pub mod error;
+pub mod fingerprint;
 pub mod policy;
 pub mod quarantine;
 pub mod scanner;
