@@ -67,3 +67,75 @@ fn blueprint_choice_per_scope() {
     assert_eq!(blueprint_of(s.conn(), &v1).unwrap(), Some(BlueprintChoice::Tidy));
     assert_eq!(blueprint_of(s.conn(), &Scope::Volume { volume_id: "v2".into() }).unwrap(), None);
 }
+
+// ---------- Task 2: extractors ----------
+
+mod fixtures_filing;
+
+use aegis_core::filing::extract::{MAX_TEXT_BYTES, extract, readable};
+
+#[test]
+fn docx_text_is_extracted() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = fixtures_filing::docx(t.path(), "a.docx", "Vodacom\nTax invoice\nAmount due R 499.00");
+    let x = extract(&p).unwrap();
+    assert!(x.text.unwrap().contains("Tax invoice"));
+}
+
+#[test]
+fn xlsx_cells_are_extracted() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = fixtures_filing::xlsx(t.path(), "b.xlsx", &["Balance", "1234.50"]);
+    let text = extract(&p).unwrap().text.unwrap();
+    assert!(text.contains("Balance") && text.contains("1234.50"), "{text}");
+}
+
+#[test]
+fn pdf_text_is_extracted() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = fixtures_filing::pdf(t.path(), "c.pdf", "Statement of account");
+    let text = extract(&p).unwrap().text.unwrap();
+    assert!(text.contains("Statement"), "{text:?}");
+}
+
+#[test]
+fn exif_date_and_camera() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = fixtures_filing::jpeg_with_exif(t.path(), "d.jpg", "2024:03:14 10:22:05", "Pixel 7");
+    let exif = extract(&p).unwrap().exif.unwrap();
+    // 2024-03-14 10:22:05 read as UTC.
+    assert_eq!(exif.taken_at, Some(1_710_411_725_000));
+    assert_eq!(exif.camera.as_deref(), Some("Pixel 7"));
+}
+
+#[test]
+fn mp3_tags() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = fixtures_filing::mp3_with_tags(t.path(), "e.mp3", "Miriam Makeba", "Pata Pata", "Pata Pata");
+    let tags = extract(&p).unwrap().tags.unwrap();
+    assert_eq!(tags.artist.as_deref(), Some("Miriam Makeba"));
+    assert_eq!(tags.album.as_deref(), Some("Pata Pata"));
+    assert_eq!(tags.title.as_deref(), Some("Pata Pata"));
+}
+
+#[test]
+fn text_is_capped_at_64kb() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = common::put(t.path(), "big.txt", "words and more words ".repeat(10_000).as_bytes());
+    assert!(extract(&p).unwrap().text.unwrap().len() <= MAX_TEXT_BYTES);
+}
+
+#[test]
+fn rtf_control_words_stripped() {
+    let t = tempfile::TempDir::new().unwrap();
+    let p = common::put(t.path(), "f.rtf", br"{\rtf1\ansi Hello {\b world}}");
+    assert_eq!(extract(&p).unwrap().text.unwrap().trim(), "Hello world");
+}
+
+#[test]
+fn readable_types() {
+    for e in ["pdf", "docx", "xlsx", "txt", "jpg", "mp3", "rtf"] {
+        assert!(readable(e), "{e}");
+    }
+    assert!(!readable("exe") && !readable("mp4"));
+}

@@ -227,3 +227,5 @@ pub fn blueprint_of(conn: &Connection, scope: &Scope) -> Result<Option<Blueprint
         .optional()?;
     Ok(c.map(|c| if c == "tidy" { BlueprintChoice::Tidy } else { BlueprintChoice::Fresh }))
 }
+
+pub mod extract;
