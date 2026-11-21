@@ -76,3 +76,51 @@ fn migration_0002_applies_on_fresh_and_v1_databases() {
     assert_eq!(vols[0].role, "unassigned");
     assert_eq!(vols[0].passport_id, None);
 }
+
+use aegis_core::drives::{
+    FakeVolumeProvider, VolumeProvider, read_passport, regenerate_passport, write_passport,
+};
+
+#[test]
+fn passport_roundtrip_and_regenerate() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let root = tmp.path();
+    assert!(read_passport(root).unwrap().is_none());
+
+    let p = write_passport(root).unwrap();
+    assert_eq!(p.schema, 1);
+    assert!(p.created_by.starts_with("aegis "));
+    assert!(root.join(".aegis").join("volume.json").is_file());
+    assert_eq!(read_passport(root).unwrap(), Some(p.clone()));
+
+    let p2 = regenerate_passport(root).unwrap();
+    assert_ne!(p2.passport_id, p.passport_id);
+    assert_eq!(read_passport(root).unwrap(), Some(p2));
+
+    std::fs::write(root.join(".aegis").join("volume.json"), "{not json").unwrap();
+    assert!(read_passport(root).unwrap().is_none());
+}
+
+#[test]
+fn fake_provider_plug_unplug() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    provider.plug(b.clone());
+    assert_eq!(provider.mounted().unwrap().len(), 2);
+    provider.unplug(&a.mount_point);
+    let now = provider.mounted().unwrap();
+    assert_eq!(now.len(), 1);
+    assert_eq!(now[0].mount_point, b.mount_point);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_provider_lists_system_drive() {
+    let vols = aegis_core::drives::WindowsProvider.mounted().unwrap();
+    let sys = vols.iter().find(|v| v.is_system).expect("system drive listed");
+    assert!(!sys.fs_type.is_empty());
+    assert!(sys.total_bytes > 0);
+}

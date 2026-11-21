@@ -3,6 +3,7 @@
 pub mod contracts;
 pub mod db;
 pub mod doctor;
+pub mod drives;
 pub mod error;
 pub mod policy;
 pub mod quarantine;
