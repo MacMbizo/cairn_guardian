@@ -574,3 +574,79 @@ fn summary_counts_and_examples() {
     let top: Vec<&str> = sum.tree.iter().map(|n| n.name.as_str()).collect();
     assert!(top.contains(&"Documents") && top.contains(&"Software"), "{top:?}");
 }
+
+// ---------- Task 8: rules ----------
+
+use aegis_core::filing::rules::{Outcome, automatic_rule_for, delete_rule, list_rules, record_outcome, stop_automatic};
+
+const INV: &str = "document|Finance/Invoices & receipts|Vodacom";
+const DEST: &str = "Documents\\Finance\\Invoices & receipts\\{year}";
+
+#[test]
+fn three_approvals_graduate() {
+    let s = store();
+    let c = s.conn();
+    for i in 1..=2 {
+        let r = record_outcome(c, "v1", INV, DEST, true, Outcome::Approved, i).unwrap();
+        assert_eq!(r.state, "asking");
+        assert_eq!(r.approvals, i);
+    }
+    let r = record_outcome(c, "v1", INV, DEST, true, Outcome::Approved, 3).unwrap();
+    assert_eq!(r.state, "automatic");
+    assert_eq!(r.kind, Kind::Document);
+    assert_eq!(r.who.as_deref(), Some("Vodacom"));
+    assert!(automatic_rule_for(c, "v1", INV).unwrap().is_some());
+}
+
+#[test]
+fn one_rejection_resets() {
+    let s = store();
+    let c = s.conn();
+    for i in 1..=3 {
+        record_outcome(c, "v1", INV, DEST, true, Outcome::Approved, i).unwrap();
+    }
+    let r = record_outcome(c, "v1", INV, DEST, true, Outcome::Rejected, 4).unwrap();
+    assert_eq!((r.state.as_str(), r.approvals, r.rejections), ("asking", 0, 1));
+    assert!(automatic_rule_for(c, "v1", INV).unwrap().is_none());
+}
+
+#[test]
+fn undo_resets() {
+    let s = store();
+    let c = s.conn();
+    for i in 1..=3 {
+        record_outcome(c, "v1", INV, DEST, true, Outcome::Approved, i).unwrap();
+    }
+    record_outcome(c, "v1", INV, DEST, true, Outcome::Undone, 4).unwrap();
+    assert!(automatic_rule_for(c, "v1", INV).unwrap().is_none());
+}
+
+#[test]
+fn rule_learned_on_drive_not_automatic_on_another_until_approved_there() {
+    let s = store();
+    let c = s.conn();
+    for i in 1..=3 {
+        record_outcome(c, "v1", INV, DEST, true, Outcome::Approved, i).unwrap();
+    }
+    assert!(automatic_rule_for(c, "v2", INV).unwrap().is_none());
+    assert!(automatic_rule_for(c, "pc", INV).unwrap().is_some(), "a drive's rules also apply on the PC");
+    record_outcome(c, "v2", INV, DEST, true, Outcome::Approved, 5).unwrap();
+    assert!(automatic_rule_for(c, "v2", INV).unwrap().is_some());
+    assert_eq!(list_rules(c).unwrap().len(), 1, "one rule, several places");
+}
+
+#[test]
+fn pc_rules_apply_to_pc_and_can_be_stopped_or_deleted() {
+    let s = store();
+    let c = s.conn();
+    for i in 1..=3 {
+        record_outcome(c, "pc", INV, DEST, true, Outcome::Approved, i).unwrap();
+    }
+    assert!(automatic_rule_for(c, "pc", INV).unwrap().is_some());
+    assert!(automatic_rule_for(c, "v1", INV).unwrap().is_none());
+    let id = list_rules(c).unwrap()[0].id.clone();
+    stop_automatic(c, &id).unwrap();
+    assert!(automatic_rule_for(c, "pc", INV).unwrap().is_none());
+    delete_rule(c, &id).unwrap();
+    assert!(list_rules(c).unwrap().is_empty());
+}

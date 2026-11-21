@@ -240,3 +240,4 @@ pub mod reader;
 pub mod orgs;
 pub mod naming;
 pub mod blueprint;
+pub mod rules;

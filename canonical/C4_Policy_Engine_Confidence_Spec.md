@@ -106,3 +106,18 @@ This is the first and only exception to the v1.0 invariant that no proposal auto
   - a new grant, which supersedes the old one.
 - **Guards still apply.** Every run re-checks that each planned path stays inside `Aegis Backup\` on that drive. The mass-change and encryption guard halts affected folders for an explicit owner answer.
 - **Audit.** The grant, every revocation and a summary of every standing run are written to `audit_log` (`standing_approval.granted`, `standing_approval.revoked`, `backup.topup` with `authority: standing`).
+
+## 7. Amendment 2026-11-21: Graduated filing rules
+*Source: Auto-filing design (`docs/superpowers/specs/2026-11-21-auto-filing-design.md` §9). Owner decision: learn-then-take-over.*
+
+This is the second exception to the v1.0 invariant that no proposal auto-executes. It follows the same standing-approval pattern as §6.
+
+- **Scope.** Only `Move` and `Rename` actions proposed by the filing agent (`agent = 'filing'`) for one **filing rule**: a `(kind, category, who)` key with its destination template. Never `Quarantine`, `Purge` or `Archive`. Never anything inside an atomic unit. Never a move between drives. Never the Backup drive.
+- **Earning it.** A rule becomes automatic after **3 owner approvals** of its moves, with no rejection or undo since. The engine may then approve and execute that rule's new moves **only when their confidence is ≥ 0.90**. Lower-confidence matches are still proposed for approval.
+- **Where it applies.** The rule applies in every scope where the owner approved it, and on the PC. A rule learned on one drive only acts on another drive once the owner has approved it there.
+- **Preconditions.** The scope has a chosen blueprint, and the owner has approved at least one filing batch there.
+- **Revocation.** Any of these returns the rule to asking, with approvals reset to 0:
+  - the owner rejects or unticks one of the rule's moves;
+  - the owner undoes (rolls back) a batch that contained one;
+  - the owner chooses "Stop automatic".
+- **Audit and undo.** Automatic moves run as ordinary action batches (origin `filing-auto:<scope>`). They are journaled, listed in the weekly note, and each one can be undone like any other batch.
