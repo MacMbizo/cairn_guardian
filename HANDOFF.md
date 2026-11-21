@@ -2,6 +2,20 @@
 
 Updated 2026-11-21 (evening). Read this first in a new chat.
 
+## IN PROGRESS: Project 3, Auto-filing (read this first)
+
+- **Branch:** `feature/auto-filing`. Project 2 is merged to master.
+- **Design:** `docs/superpowers/specs/2026-11-21-auto-filing-design.md`
+- **Plan:** `docs/superpowers/plans/2026-11-21-auto-filing.md`
+- **Ledger with rulings:** `.superpowers/sdd/2026-11-21-auto-filing/progress.md` (git-ignored; keep it).
+- **Done:** tasks 1–8, all committed. Task 8 (rules) was built before Task 7 (batches). `cargo test -p aegis-core --test filing` gives 55 passed.
+- **Next:**
+  1. Task 9: filing watch.
+  2. Task 10: search by name and former name, plus filters.
+  3. Task 11: commands and the Filing UI.
+  4. Task 12: live dry run on a scratch copy of the database, then the final review and a fix pass.
+- **Resume with:** the superpowers:executing-plans skill on the plan. It reads the ledger and continues from Task 9.
+
 ## Where things stand
 
 - **Branch:** `feature/always-on-engine` (Project 2), branched from `master` at `102ac12`. All work is committed and the tree is clean.
