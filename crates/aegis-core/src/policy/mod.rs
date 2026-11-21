@@ -371,3 +371,15 @@ pub fn revoke_standing_for_passport(
     }
     Ok(n)
 }
+
+/// True when the Backup drive `backup_volume_id` has a live standing approval for top-ups,
+/// bound to the passport it carries *now* (a re-passported or cloned drive does not match).
+pub fn has_standing_topup(conn: &rusqlite::Connection, backup_volume_id: &str) -> crate::error::Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM standing_approvals a JOIN volumes v ON v.passport_id = a.volume_passport
+           WHERE v.id = ?1 AND v.role = 'backup' AND a.scope = 'backup_topup' AND a.revoked_at IS NULL)",
+        [backup_volume_id],
+        |r| r.get(0),
+    )?)
+}

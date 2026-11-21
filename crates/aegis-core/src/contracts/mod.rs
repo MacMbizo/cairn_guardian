@@ -837,6 +837,14 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::backup::plan::DrivePlanEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::plan::DrivePlan as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::plan::AppliedPlan as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::topup::TopUpKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::topup::TopUpAuthority as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::topup::TopUpItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::topup::TopUpPlan as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::topup::TopUpResult as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::topup::PreviousVersionItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::guard::GuardHalt as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::priority::TierShortfall as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DiskRescueReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <HealthBreakdown as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AuditEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

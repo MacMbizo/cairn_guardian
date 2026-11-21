@@ -206,3 +206,262 @@ fn set_mtime(path: &Path, secs_ago: u64) {
     f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(secs_ago))
         .unwrap();
 }
+
+// ---------------------------------------------------------------- Task 10: top-up
+
+use aegis_core::backup::topup::{
+    TopUpAuthority, TopUpKind, list_previous_versions, plan_topup, prune_previous_versions,
+    restore_previous_version, run_topup,
+};
+use aegis_core::scanner::scan_root;
+use std::path::PathBuf;
+
+/// A PC folder named "Documents" (a configured root) plus a Backup drive "B".
+struct BackupFx {
+    tmp: tempfile::TempDir,
+    store: SqliteStore,
+    provider: FakeVolumeProvider,
+    docs: PathBuf,
+    backup: MountedVolume,
+    backup_id: String,
+}
+
+fn backup_fx(files: &[(&str, &[u8])]) -> BackupFx {
+    let (tmp, mut store, provider) = setup();
+    let docs = tmp.path().join("Documents");
+    for (rel, body) in files {
+        common::put(&docs, rel, body);
+    }
+    store.add_root(&docs).unwrap();
+    scan_root(&mut store, &docs, &[1]).unwrap();
+    let backup = common::fake_drive(&tmp, "B", "0002");
+    let backup_id = common::plug_and_catalog(&mut store, &provider, &backup);
+    store
+        .conn()
+        .execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&backup_id])
+        .unwrap();
+    add_source_for(&store, &docs);
+    BackupFx { tmp, store, provider, docs, backup, backup_id }
+}
+
+/// Registers `folder` (on whatever volume holds it) as a backup source.
+fn add_source_for(store: &SqliteStore, folder: &Path) {
+    let canon = common::canon(folder);
+    let (vid, mount) = store
+        .list_volumes()
+        .unwrap()
+        .into_iter()
+        .filter(|v| v.status == "online" && aegis_core::db::files::path_is_within(&canon, &v.mount_point, false))
+        .max_by_key(|v| v.mount_point.len())
+        .map(|v| (v.id, v.mount_point))
+        .unwrap();
+    let rel = canon[mount.len()..].trim_start_matches(['\\', '/']).to_string();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO backup_sources (id, volume_id, rel_path, tier, pinned, added_at) VALUES (?1, ?2, ?3, 2, 0, 0)",
+            rusqlite::params![format!("src-{rel}"), vid, rel],
+        )
+        .unwrap();
+}
+
+fn topup(fx: &mut BackupFx) -> aegis_core::backup::topup::TopUpResult {
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap()
+}
+
+fn live_copy(fx: &BackupFx, rel: &str) -> PathBuf {
+    let mut p = fx.backup.mount_point.join("Aegis Backup").join("PC (Documents)");
+    for part in rel.split('/') {
+        p = p.join(part);
+    }
+    p
+}
+
+#[test]
+fn topup_adds_new_files_as_plain_copies() {
+    let mut fx = backup_fx(&[("a.txt", b"alpha"), ("sub/b.txt", b"beta")]);
+    let res = topup(&mut fx);
+    assert!(res.completed);
+    assert_eq!(res.added, 2);
+    assert_eq!(std::fs::read(live_copy(&fx, "a.txt")).unwrap(), b"alpha");
+    assert_eq!(std::fs::read(live_copy(&fx, "sub/b.txt")).unwrap(), b"beta");
+    assert_eq!(count(&fx.store, "SELECT COUNT(*) FROM backup_copies"), 2);
+    // A second run has nothing to do.
+    assert!(plan_topup(fx.store.conn(), &fx.backup_id).unwrap().items.is_empty());
+}
+
+#[test]
+fn changed_source_moves_old_copy_to_previous_versions() {
+    let files: Vec<(String, Vec<u8>)> = (0..6).map(|i| (format!("f{i}.txt"), format!("v1 {i}").into_bytes())).collect();
+    let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let mut fx = backup_fx(&refs);
+    topup(&mut fx);
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(fx.docs.join("f0.txt"), b"v2 changed").unwrap();
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].kind, TopUpKind::Replace);
+    let res = run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(res.replaced, 1);
+
+    assert_eq!(std::fs::read(live_copy(&fx, "f0.txt")).unwrap(), b"v2 changed");
+    let today = aegis_core::format_date_ms(aegis_core::now_ms());
+    let old = fx
+        .backup
+        .mount_point
+        .join("Aegis Backup")
+        .join("_Previous versions")
+        .join(&today)
+        .join("PC (Documents)")
+        .join("f0.txt");
+    assert_eq!(std::fs::read(&old).unwrap(), b"v1 0");
+    let versions = list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].reason, "changed");
+}
+
+#[test]
+fn deleted_source_retires_only_when_source_online() {
+    let (tmp, mut store, provider) = setup();
+    let s = common::fake_drive(&tmp, "S", "0005");
+    for i in 0..6 {
+        common::put(&s.mount_point, &format!("Keep/f{i}.txt"), format!("file {i}").as_bytes());
+    }
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let _s_id = common::plug_and_catalog(&mut store, &provider, &s);
+    let b_id = common::plug_and_catalog(&mut store, &provider, &b);
+    store.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&b_id]).unwrap();
+    add_source_for(&store, &s.mount_point.join("Keep"));
+    let plan = plan_topup(store.conn(), &b_id).unwrap();
+    run_topup(&mut store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+
+    std::fs::remove_file(s.mount_point.join("Keep").join("f0.txt")).unwrap();
+    provider.unplug(&s.mount_point);
+    sync_mounted(&mut store, &provider).unwrap();
+    let plan = plan_topup(store.conn(), &b_id).unwrap();
+    assert!(
+        plan.items.iter().all(|i| i.kind != TopUpKind::RetireDeleted),
+        "an unplugged source is never a deletion"
+    );
+
+    provider.plug(s.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    let s_id = common::volume_id_at(&store, &s.mount_point);
+    aegis_core::scanner::catalog_volume(&mut store, &s_id, &mut |_| {}).unwrap();
+    let plan = plan_topup(store.conn(), &b_id).unwrap();
+    assert_eq!(
+        plan.items.iter().filter(|i| i.kind == TopUpKind::RetireDeleted).count(),
+        1
+    );
+    let res = run_topup(&mut store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(res.retired, 1);
+    assert!(!b.mount_point.join("Aegis Backup").join("S").join("Keep").join("f0.txt").exists());
+}
+
+#[test]
+fn interrupted_copy_leaves_no_partial_at_live_path_and_resumes() {
+    let big = common::noise(2 * 1024 * KIB, 140);
+    let mut fx = backup_fx(&[("big.bin", &big)]);
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let cancel = AtomicBool::new(false);
+    let res = run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &cancel, &mut |done, _| {
+        if done > 0 {
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    })
+    .unwrap();
+    assert!(!res.completed);
+    assert!(!live_copy(&fx, "big.bin").exists(), "no half-written file at the live path");
+
+    let res = topup(&mut fx);
+    assert!(res.completed);
+    assert_eq!(std::fs::read(live_copy(&fx, "big.bin")).unwrap(), big);
+    let partials = walk_count(&fx.backup.mount_point, ".aegis-partial");
+    assert_eq!(partials, 0, "stale partial files are cleaned up");
+}
+
+#[test]
+fn source_changed_during_copy_is_discarded() {
+    let big = common::noise(1024 * KIB, 141);
+    let mut fx = backup_fx(&[("big.bin", &big)]);
+    let src = fx.docs.join("big.bin");
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let mut touched = false;
+    let res = run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {
+        if !touched {
+            touched = true;
+            set_mtime(&src, 5);
+        }
+    })
+    .unwrap();
+    assert_eq!(res.added, 0);
+    assert_eq!(count(&fx.store, "SELECT COUNT(*) FROM backup_copies"), 0);
+    assert!(!live_copy(&fx, "big.bin").exists());
+}
+
+#[test]
+fn prune_removes_only_expired_versions() {
+    let files: Vec<(String, Vec<u8>)> = (0..6).map(|i| (format!("f{i}.txt"), format!("v1 {i}").into_bytes())).collect();
+    let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let mut fx = backup_fx(&refs);
+    topup(&mut fx);
+    for name in ["f0.txt", "f1.txt"] {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(fx.docs.join(name), b"v2").unwrap();
+        scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+        topup(&mut fx);
+    }
+    let versions = list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(versions.len(), 2);
+    // Age the first version past the window.
+    let ninety_days = 90 * 86_400_000i64;
+    fx.store
+        .conn()
+        .execute(
+            "UPDATE backup_versions SET moved_at = moved_at - ?2, prune_after = prune_after - ?2 WHERE id = ?1",
+            rusqlite::params![versions[0].id, ninety_days + 1],
+        )
+        .unwrap();
+    let pruned = prune_previous_versions(&mut fx.store, &fx.backup_id, aegis_core::now_ms()).unwrap();
+    assert_eq!(pruned, 1);
+    let left = list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].id, versions[1].id);
+    assert_eq!(walk_count(&fx.backup.mount_point.join("Aegis Backup").join("_Previous versions"), ".txt"), 1);
+}
+
+#[test]
+fn restore_previous_version_never_overwrites() {
+    let files: Vec<(String, Vec<u8>)> = (0..6).map(|i| (format!("f{i}.txt"), format!("v1 {i}").into_bytes())).collect();
+    let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let mut fx = backup_fx(&refs);
+    topup(&mut fx);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(fx.docs.join("f0.txt"), b"v2").unwrap();
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    topup(&mut fx);
+    let v = list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap().remove(0);
+    let restored = restore_previous_version(&mut fx.store, &v.id, None).unwrap();
+    assert_eq!(restored.file_name().unwrap().to_string_lossy(), "f0 (restored).txt");
+    assert_eq!(std::fs::read(&restored).unwrap(), b"v1 0");
+    assert_eq!(std::fs::read(fx.docs.join("f0.txt")).unwrap(), b"v2", "current file untouched");
+    let _ = &fx.tmp;
+    let _ = &fx.provider;
+}
+
+fn walk_count(dir: &Path, suffix: &str) -> usize {
+    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    rd.flatten()
+        .map(|e| {
+            let p = e.path();
+            if p.is_dir() {
+                walk_count(&p, suffix)
+            } else {
+                usize::from(p.to_string_lossy().ends_with(suffix))
+            }
+        })
+        .sum()
+}

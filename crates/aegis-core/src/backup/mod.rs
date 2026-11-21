@@ -4,7 +4,10 @@
 //! `<mount>\Aegis Backup\<source label>\<relative path>` and
 //! `<mount>\Aegis Backup\_Previous versions\<yyyy-mm-dd>\<source label>\<relative path>`.
 
+pub mod guard;
 pub mod plan;
+pub mod priority;
+pub mod topup;
 
 use crate::db::files::{normalize_path, path_is_within, resolve_online_volume, upsert_discovered_file};
 use crate::error::Result;
