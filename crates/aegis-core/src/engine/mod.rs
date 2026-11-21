@@ -112,3 +112,100 @@ pub fn record_run(conn: &Connection, name: &str, now: i64, error: Option<&str>) 
     )?;
     Ok(())
 }
+
+pub mod reminders;
+
+use crate::db::SqliteStore;
+
+/// Seconds without keyboard or mouse input before the PC counts as idle.
+pub const CALM_IDLE_SECS: u64 = 120;
+/// On battery, heavy work runs only at or above this charge.
+pub const CALM_BATTERY_PCT: u8 = 50;
+/// An idle-only watch that never found a calm moment runs anyway this long after it was due.
+pub const IDLE_GRACE_MS: i64 = 86_400_000;
+
+/// What the PC is doing right now, as seen by the OS probes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Calm {
+    pub idle_secs: u64,
+    pub on_ac: bool,
+    pub battery_pct: Option<u8>,
+    /// Full-screen app, game or presentation (or Windows "busy").
+    pub busy: bool,
+}
+
+impl Calm {
+    /// Idle, on mains power or a well-charged battery, and not in a game or presentation.
+    pub fn is_calm(&self) -> bool {
+        let power_ok = self.on_ac || self.battery_pct.is_some_and(|p| p >= CALM_BATTERY_PCT);
+        self.idle_secs >= CALM_IDLE_SECS && power_ok && !self.busy
+    }
+}
+
+/// One chore the engine looks after.
+pub trait Watch: Send {
+    fn name(&self) -> &'static str;
+    fn every_ms(&self) -> i64;
+    /// Heavy work: runs only while the PC is calm (or after [`IDLE_GRACE_MS`] past due).
+    fn needs_idle(&self) -> bool;
+    /// Reminder kinds this watch owns; its open reminders not re-raised on a run are resolved.
+    fn kinds(&self) -> &'static [&'static str];
+    fn run(&mut self, store: &mut SqliteStore, now: i64) -> Result<Vec<Finding>>;
+}
+
+/// Whether a watch should run now.
+pub fn is_due(every_ms: i64, last_run_at: Option<i64>, now: i64, needs_idle: bool, calm: bool) -> bool {
+    let Some(last) = last_run_at else { return true };
+    let elapsed = now - last;
+    if elapsed < every_ms {
+        return false;
+    }
+    !needs_idle || calm || elapsed >= every_ms + IDLE_GRACE_MS
+}
+
+/// Which watches ran on a tick, and which failed (with the error).
+#[derive(Debug, Default)]
+pub struct TickReport {
+    pub ran: Vec<&'static str>,
+    pub failed: Vec<(&'static str, String)>,
+}
+
+/// Runs due watches and turns their findings into reminders.
+pub struct Engine {
+    watches: Vec<Box<dyn Watch>>,
+}
+
+impl Engine {
+    pub fn new(watches: Vec<Box<dyn Watch>>) -> Self {
+        Self { watches }
+    }
+
+    /// One pass over the watches. A failing watch is recorded and never stops the others.
+    /// While paused, idle-only watches wait; the rest (safety) keep running.
+    pub fn tick(&mut self, store: &mut SqliteStore, now: i64, calm: &Calm, paused: bool) -> Result<TickReport> {
+        let mut report = TickReport::default();
+        let calm_now = calm.is_calm();
+        for w in self.watches.iter_mut() {
+            if paused && w.needs_idle() {
+                continue;
+            }
+            let state = watch_state(store.conn(), w.name())?;
+            if !is_due(w.every_ms(), state.last_run_at, now, w.needs_idle(), calm_now) {
+                continue;
+            }
+            report.ran.push(w.name());
+            match w.run(store, now) {
+                Ok(findings) => {
+                    reminders::sync_findings(store.conn(), w.kinds(), &findings, now)?;
+                    record_run(store.conn(), w.name(), now, None)?;
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    record_run(store.conn(), w.name(), now, Some(&msg))?;
+                    report.failed.push((w.name(), msg));
+                }
+            }
+        }
+        Ok(report)
+    }
+}
