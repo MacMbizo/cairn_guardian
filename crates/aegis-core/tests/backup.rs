@@ -768,3 +768,130 @@ fn remove_source_asks_bytes_and_retires_as_uncovered() {
     assert_eq!(tier_for_file(fx.store.conn(), &fid(&fx.store, &fx.docs.join("a.txt"))).unwrap(), Some(1));
     assert_eq!(count(&fx.store, "SELECT COUNT(*) FROM backup_sources WHERE removed_at IS NULL"), 1);
 }
+
+// ---------------------------------------------------------------- Task 16: end to end
+
+#[test]
+fn end_to_end_three_drives() {
+    use aegis_core::backup::plan::recommend_plan;
+    use aegis_core::backup::priority::add_source_path;
+    use aegis_core::dupes::decisions::{DupeChoice, decide};
+    use aegis_core::dupes::{copy_count, grouped_report};
+    use aegis_core::policy::grant_standing_topup;
+
+    let (tmp, mut store, provider) = setup();
+    let photo = common::noise(6 * KIB, 900);
+    let budget = common::noise(5 * KIB, 901);
+    let old_zip = common::noise(7 * KIB, 902);
+
+    // The PC: a Documents folder with originals.
+    let docs = tmp.path().join("Documents");
+    let report = common::put(&docs, "report.docx", b"PK\x03\x04 quarterly report v1");
+    let p_photo = common::put(&docs, "photo1.jpg", &photo);
+    let p_budget = common::put(&docs, "budget.xlsx", &budget);
+    for i in 0..10 {
+        common::put(&docs, &format!("notes/n{i}.txt"), format!("note number {i}").as_bytes());
+    }
+    for p in [&p_photo, &p_budget] {
+        set_mtime(p, 5000); // the PC holds the originals
+    }
+
+    // Drive A: an extra copy of the PC photo, plus an archive original.
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "Photos/photo1.jpg", &photo);
+    common::put(&a.mount_point, "Photos/photo2.jpg", &common::noise(4 * KIB, 903));
+    let a_zip = common::put(&a.mount_point, "Archive/old.zip", &old_zip);
+    set_mtime(&a_zip, 5000);
+    // Drive B: random backup copies.
+    let b = common::fake_drive(&tmp, "B", "0002");
+    common::put(&b.mount_point, "backup/old.zip", &old_zip);
+    common::put(&b.mount_point, "backup/budget.xlsx", &budget);
+    // Drive C: another budget copy and some music.
+    let c = common::fake_drive(&tmp, "C", "0003");
+    common::put(&c.mount_point, "misc/budget.xlsx", &budget);
+    common::put(&c.mount_point, "music/song.mp3", &common::noise(9 * KIB, 904));
+
+    store.add_root(&docs).unwrap();
+    scan_root(&mut store, &docs, &[1]).unwrap();
+    let ids = catalog_all(&mut store, &provider, &[&a, &b, &c]);
+    let hashes: Vec<Vec<u8>> = {
+        let mut stmt = store.conn().prepare("SELECT DISTINCT blake3 FROM files WHERE blake3 IS NOT NULL").unwrap();
+        stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+    };
+    assert!(hashes.len() >= 3);
+
+    // 1. Drive plan: B already holds the extra copies.
+    let plan = recommend_plan(store.conn()).unwrap();
+    assert!(plan.ready);
+    assert_eq!(plan.recommended_backup.as_deref(), Some(ids[1].as_str()));
+
+    // 2. Apply it and approve both generated batches.
+    let applied = apply_plan(
+        &mut store,
+        &[
+            (ids[0].clone(), DriveRole::General),
+            (ids[1].clone(), DriveRole::Backup),
+            (ids[2].clone(), DriveRole::General),
+        ],
+    )
+    .unwrap();
+    for batch in [applied.adopt_batch.clone(), applied.stray_batch.clone()].into_iter().flatten() {
+        run_batch(&mut store, &batch);
+    }
+    assert!(b.mount_point.join("Aegis Backup").join("A").join("Archive").join("old.zip").is_file());
+
+    // 3. Answer every remaining duplicate question.
+    for g in grouped_report(store.conn()).unwrap().groups.into_iter().filter(|g| g.needs_question) {
+        decide(&mut store, &g.group_id, DupeChoice::KeepBoth).unwrap();
+    }
+    assert!(grouped_report(store.conn()).unwrap().groups.iter().all(|g| !g.needs_question));
+
+    // 4. Back up Documents: first run approved by the owner, then automatic.
+    add_source_path(&mut store, &docs, false).unwrap();
+    let plan = plan_topup(store.conn(), &ids[1]).unwrap();
+    assert!(plan.halted_folders.is_empty());
+    let first = run_topup(&mut store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert!(first.completed && first.added > 0);
+    grant_standing_topup(&mut store, &ids[1]).unwrap();
+
+    // 5. The owner edits one file and deletes another; the standing top-up follows.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&report, b"PK\x03\x04 quarterly report v2, edited").unwrap();
+    std::fs::remove_file(docs.join("notes").join("n0.txt")).unwrap();
+    scan_root(&mut store, &docs, &[1]).unwrap();
+    let plan = plan_topup(store.conn(), &ids[1]).unwrap();
+    assert!(plan.halted_folders.is_empty(), "{:?}", plan.halted_folders);
+    let auto = run_topup(&mut store, &plan, TopUpAuthority::Standing, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!((auto.replaced, auto.retired), (1, 1));
+
+    // S1: nothing that existed was ever left without a copy.
+    for h in &hashes {
+        let n = copy_count(store.conn(), h).unwrap();
+        let hex: String = h.iter().map(|x| format!("{x:02x}")).collect();
+        let known = [
+            ("report v1", blake3::hash(b"PK\x03\x04 quarterly report v1")),
+            ("note n0", blake3::hash(b"note number 0")),
+        ];
+        // The owner's own edit and delete are not Aegis removing a copy; they are kept as
+        // previous versions, checked below.
+        if known.iter().any(|(_, k)| k.as_bytes().as_slice() == h.as_slice()) {
+            continue;
+        }
+        assert!(n >= 1, "Aegis left a file without any copy: {hex}");
+    }
+    // The old report and the deleted note wait in previous versions.
+    let versions = list_previous_versions(store.conn(), &ids[1]).unwrap();
+    assert!(versions.iter().any(|v| v.reason == "changed" && v.original_rel_path.ends_with("report.docx")));
+    assert!(versions.iter().any(|v| v.reason == "deleted" && v.original_rel_path.ends_with("n0.txt")));
+    // Everything in the backed-up folders is protected.
+    let cov = coverage_summary(store.conn()).unwrap().unwrap();
+    for t in cov.tiers.iter().filter(|t| t.tier != 0) {
+        assert_eq!(t.unprotected_bytes, 0, "tier {} not fully protected: {cov:?}", t.tier);
+    }
+    // The audit trail holds the grant and both runs.
+    assert_eq!(count(&store, "SELECT COUNT(*) FROM audit_log WHERE action = 'standing_approval.granted'"), 1);
+    assert_eq!(
+        count(&store, "SELECT COUNT(*) FROM audit_log WHERE action = 'backup.topup' AND detail_json LIKE '%\"standing\"%'"),
+        1
+    );
+}
