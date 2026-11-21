@@ -177,6 +177,8 @@ export const aegis = {
     sync: () => call<SyncReport>("drives_sync"),
     /** Starts a background catalog; completion arrives as a `DriveCatalogued` event. */
     catalog: (volumeId: string) => call<void>("drive_catalog", { volumeId }),
+    /** Ids of drives whose catalog is running now (a repeat `catalog` call for them does nothing). */
+    cataloguing: () => call<string[]>("drives_cataloguing"),
     refresh: (volumeId: string) => call<RefreshReport>("drive_refresh", { volumeId }),
     plan: () => call<DrivePlan>("drive_plan_get"),
     applyPlan: (roles: [string, DriveRole][]) =>

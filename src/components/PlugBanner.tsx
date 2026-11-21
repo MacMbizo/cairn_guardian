@@ -6,6 +6,7 @@ import type { DrivesTab } from "./HomeTiles";
 
 type Banner =
   | { kind: "arrived"; volumeId: string; label: string; lastSeen: number; known: boolean; report?: RefreshReport }
+  | { kind: "cataloguing"; volumeId: string; label: string; files: number }
   | { kind: "topup"; done: number; total: number }
   | { kind: "topup_done"; text: string }
   | { kind: "halted"; text: string }
@@ -30,6 +31,18 @@ export function PlugBanner({ onOpen }: { onOpen: (tab: DrivesTab) => void }) {
         case "DriveRefreshed":
           setBanner((b) =>
             b && b.kind === "arrived" && b.volumeId === ev.payload.report.volume_id ? { ...b, report: ev.payload.report } : b
+          );
+          break;
+        case "DriveCatalogProgress":
+          setBanner((b) =>
+            b && b.kind === "cataloguing" && b.volumeId === ev.payload.volume_id ? { ...b, files: ev.payload.files_seen } : b
+          );
+          break;
+        case "DriveCatalogued":
+          setBanner((b) =>
+            b && b.kind === "cataloguing" && b.volumeId === ev.payload.volume_id
+              ? { kind: "topup_done", text: `Catalogued ${b.label}: ${ev.payload.files.toLocaleString()} files.` }
+              : b
           );
           break;
         case "TopUpProgress":
@@ -105,12 +118,11 @@ export function PlugBanner({ onOpen }: { onOpen: (tab: DrivesTab) => void }) {
           ) : (
             <button
               type="button"
-              onClick={() =>
-                void aegis.drives
-                  .catalog(banner.volumeId)
-                  .then(() => setBanner({ kind: "topup_done", text: `Cataloguing ${banner.label}… you can keep working.` }))
-                  .catch((e) => setBanner({ kind: "error", text: errorMessage(e) }))
-              }
+              onClick={() => {
+                // Switch to the progress line at once, so there is nothing left to click twice.
+                setBanner({ kind: "cataloguing", volumeId: banner.volumeId, label: banner.label, files: 0 });
+                void aegis.drives.catalog(banner.volumeId).catch((e) => setBanner({ kind: "error", text: errorMessage(e) }));
+              }}
               className="rounded-md bg-sky-600 px-2.5 py-1 font-semibold text-white hover:bg-sky-500"
             >
               Catalog it
@@ -120,6 +132,20 @@ export function PlugBanner({ onOpen }: { onOpen: (tab: DrivesTab) => void }) {
             Later
           </button>
         </span>
+      </div>
+    );
+  }
+
+  if (banner.kind === "cataloguing") {
+    return (
+      <div role="status" className={`${base} border-sky-500/30 bg-sky-950/30 text-sky-100`}>
+        <span className="flex items-center gap-2">
+          <Usb className="h-4 w-4 text-sky-300" aria-hidden="true" />
+          Cataloguing <strong>{banner.label}</strong>… {banner.files > 0 ? `${banner.files.toLocaleString()} files so far` : "starting"}. You can keep working; leave the drive plugged in until it finishes.
+        </span>
+        <button type="button" onClick={close} aria-label="Hide" className="rounded-md p-1 hover:bg-white/10">
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
       </div>
     );
   }

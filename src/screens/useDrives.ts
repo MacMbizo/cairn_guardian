@@ -35,6 +35,8 @@ export interface DrivesData {
   standing: boolean;
   /** Drives plugged in this session that Aegis has never catalogued. */
   unknownDrives: string[];
+  /** Drives being catalogued now, with files seen so far. */
+  cataloguing: Record<string, number>;
   error: string | null;
   preview: boolean;
   reload: () => Promise<void>;
@@ -47,12 +49,13 @@ const RELOAD_ON = new Set([
   "DriveCatalogued",
   "TopUpFinished",
   "GuardHalted",
+  "JobFailed",
 ]);
 
 /** Everything the Drives screen, duplicate review and home tiles show, kept fresh by events. */
 export function useDrives(): DrivesData {
   const preview = !isTauriRuntime();
-  const [state, setState] = useState<Omit<DrivesData, "reload" | "preview" | "unknownDrives" | "error">>({
+  const [state, setState] = useState<Omit<DrivesData, "reload" | "preview" | "unknownDrives" | "cataloguing" | "error">>({
     drives: [],
     plan: null,
     coverage: null,
@@ -64,6 +67,7 @@ export function useDrives(): DrivesData {
     standing: false,
   });
   const [unknownDrives, setUnknownDrives] = useState<string[]>([]);
+  const [cataloguing, setCataloguing] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -82,6 +86,8 @@ export function useDrives(): DrivesData {
       return;
     }
     try {
+      const running = await aegis.drives.cataloguing().catch(() => [] as string[]);
+      setCataloguing((c) => Object.fromEntries(running.map((id) => [id, c[id] ?? 0])));
       const [drives, plan, coverage, dupes, sources, decisions, standing] = await Promise.all([
         aegis.drives.list(),
         aegis.drives.plan(),
@@ -114,8 +120,16 @@ export function useDrives(): DrivesData {
       if (ev.event === "DriveArrived" && !ev.payload.known) {
         setUnknownDrives((u) => (u.includes(ev.payload.volume_id) ? u : [...u, ev.payload.volume_id]));
       }
+      if (ev.event === "DriveCatalogProgress") {
+        const { volume_id, files_seen } = ev.payload;
+        setCataloguing((c) => ({ ...c, [volume_id]: files_seen }));
+      }
       if (ev.event === "DriveCatalogued") {
         setUnknownDrives((u) => u.filter((id) => id !== ev.payload.volume_id));
+        setCataloguing((c) => {
+          const { [ev.payload.volume_id]: _done, ...rest } = c;
+          return rest;
+        });
       }
       if (RELOAD_ON.has(ev.event)) void reload();
     });
@@ -124,5 +138,5 @@ export function useDrives(): DrivesData {
     };
   }, [reload]);
 
-  return { ...state, unknownDrives, error, preview, reload };
+  return { ...state, unknownDrives, cataloguing, error, preview, reload };
 }

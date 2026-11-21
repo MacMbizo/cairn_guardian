@@ -813,6 +813,13 @@ pub enum AegisEvent {
         #[ts(type = "number")]
         files: i64,
     },
+    /// Live count while a drive is being catalogued.
+    DriveCatalogProgress {
+        v: u8,
+        volume_id: String,
+        #[ts(type = "number")]
+        files_seen: i64,
+    },
     TopUpProgress {
         v: u8,
         backup_volume_id: String,

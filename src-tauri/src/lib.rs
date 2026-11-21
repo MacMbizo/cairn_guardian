@@ -24,6 +24,7 @@ pub fn run() {
                 db_path,
                 topup_cancel: Default::default(),
                 topup_running: Default::default(),
+                cataloguing: Default::default(),
             });
             watch::spawn(app.handle().clone());
             Ok(())
@@ -67,6 +68,7 @@ pub fn run() {
             commands::drives::drives_list,
             commands::drives::drives_sync,
             commands::drives::drive_catalog,
+            commands::drives::drives_cataloguing,
             commands::drives::drive_refresh,
             commands::drives::drive_plan_get,
             commands::drives::drive_plan_apply,

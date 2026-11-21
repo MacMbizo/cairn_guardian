@@ -40,6 +40,69 @@ pub struct AppState {
     /// Set to pause the running top-up; it stops cleanly and resumes next time.
     pub topup_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub topup_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Drives with a catalog running, so a repeat click never starts a second walk.
+    pub cataloguing: InFlight,
+}
+
+/// A set of ids with a job in flight. `try_start` hands out a guard that removes the id
+/// when dropped, so a failed or panicking job never leaves its id stuck.
+#[derive(Clone, Default)]
+pub struct InFlight(std::sync::Arc<Mutex<std::collections::HashSet<String>>>);
+
+pub struct InFlightGuard {
+    set: InFlight,
+    id: String,
+}
+
+impl InFlight {
+    /// `None` when a job for `id` is already running.
+    pub fn try_start(&self, id: &str) -> Option<InFlightGuard> {
+        let mut set = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        set.insert(id.to_string()).then(|| InFlightGuard { set: self.clone(), id: id.to_string() })
+    }
+
+    pub fn ids(&self) -> Vec<String> {
+        let set = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let mut ids: Vec<String> = set.iter().cloned().collect();
+        ids.sort();
+        ids
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        let mut set = self.set.0.lock().unwrap_or_else(|p| p.into_inner());
+        set.remove(&self.id);
+    }
+}
+
+#[cfg(test)]
+mod in_flight_tests {
+    use super::InFlight;
+
+    #[test]
+    fn second_start_for_same_id_is_refused_until_the_first_ends() {
+        let jobs = InFlight::default();
+        let first = jobs.try_start("d1").expect("first start");
+        assert!(jobs.try_start("d1").is_none(), "repeat click must not start a second job");
+        assert!(jobs.try_start("d2").is_some(), "other drives are independent");
+        assert_eq!(jobs.ids(), vec!["d1".to_string()]);
+        drop(first);
+        assert!(jobs.ids().is_empty());
+        assert!(jobs.try_start("d1").is_some(), "can start again after the job ends");
+    }
+
+    #[test]
+    fn guard_is_released_when_the_job_thread_panics() {
+        let jobs = InFlight::default();
+        let j = jobs.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = j.try_start("d1").unwrap();
+            panic!("job blew up");
+        })
+        .join();
+        assert!(jobs.try_start("d1").is_some());
+    }
 }
 
 pub(crate) fn lock_store<'r>(

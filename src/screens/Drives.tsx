@@ -16,7 +16,7 @@ const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium 
 const primary = "rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40";
 
 export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onReviewBatches: () => void }) {
-  const { drives, plan, coverage, sources, decisions, versions, topupPlan, standing, preview, reload } = data;
+  const { drives, plan, coverage, sources, decisions, versions, topupPlan, standing, cataloguing, preview, reload } = data;
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [roles, setRoles] = useState<Record<string, DriveRole>>({});
@@ -138,6 +138,7 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
             {drives.map((d) => {
               const online = d.status === "online";
               const catalogued = d.last_catalog_complete_at != null;
+              const running = d.id in cataloguing;
               return (
                 <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                   <div className="min-w-0">
@@ -153,12 +154,18 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {online && !catalogued && (
-                      <button type="button" disabled={busy} className={primary} onClick={() => void act(async () => { await aegis.drives.catalog(d.id); return `Cataloguing ${driveName(d.label, d.mount_point)} in the background. You can unplug it any time; it carries on next time.`; })}>
+                    {running && (
+                      <span role="status" className="flex items-center gap-1.5 text-xs text-sky-200">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        Cataloguing… {cataloguing[d.id] > 0 ? `${cataloguing[d.id].toLocaleString()} files so far` : "starting"}
+                      </span>
+                    )}
+                    {online && !catalogued && !running && (
+                      <button type="button" disabled={busy} className={primary} onClick={() => void act(async () => { await aegis.drives.catalog(d.id); return `Cataloguing ${driveName(d.label, d.mount_point)} in the background. You can keep working; leave the drive plugged in until it finishes.`; })}>
                         Catalog
                       </button>
                     )}
-                    {online && catalogued && (
+                    {online && catalogued && !running && (
                       <button
                         type="button"
                         disabled={busy}

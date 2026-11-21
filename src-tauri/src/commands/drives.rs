@@ -68,10 +68,20 @@ pub fn drives_sync(state: State<'_, AppState>) -> Result<SyncReport, IpcError> {
 }
 
 /// Catalogs a whole drive (metadata walk) and fingerprints duplicate candidates, in the background.
+/// A repeat call while that drive's catalog is running does nothing: two walks of one drive
+/// fight over the database and the losers fail.
 #[tauri::command(async)]
-pub fn drive_catalog(app: AppHandle, volume_id: String) -> Result<(), IpcError> {
+pub fn drive_catalog(app: AppHandle, state: State<'_, AppState>, volume_id: String) -> Result<(), IpcError> {
+    let Some(guard) = state.cataloguing.try_start(&volume_id) else {
+        return Ok(());
+    };
     background(app, "drive_catalog", move |app, store| {
+        let _guard = guard;
         let mut emit_progress = |p: &ScanProgress| {
+            let _ = app.emit(
+                AEGIS_EVENT,
+                AegisEvent::DriveCatalogProgress { v: 1, volume_id: volume_id.clone(), files_seen: p.files_seen },
+            );
             let _ = app.emit(
                 AEGIS_EVENT,
                 AegisEvent::ScanProgress {
@@ -92,6 +102,12 @@ pub fn drive_catalog(app: AppHandle, volume_id: String) -> Result<(), IpcError> 
         Ok(())
     });
     Ok(())
+}
+
+/// Drives whose catalog is running right now.
+#[tauri::command(async)]
+pub fn drives_cataloguing(state: State<'_, AppState>) -> Vec<String> {
+    state.cataloguing.ids()
 }
 
 #[tauri::command(async)]
