@@ -24,6 +24,15 @@ pub const DRIVE_ERROR_COUNT: usize = 10;
 
 /// The only-copy reminder, or `None` when the risk is still small.
 pub fn only_copy_finding(unprotected: i64, days_unseen: i64, backup_label: &str) -> Option<Finding> {
+    only_copy_finding_online(unprotected, days_unseen, false, backup_label)
+}
+
+/// Like [`only_copy_finding`], but silent while the Backup drive is plugged in: the top-up
+/// covers it then, and "hasn't been plugged in" would be false.
+pub fn only_copy_finding_online(unprotected: i64, days_unseen: i64, online: bool, backup_label: &str) -> Option<Finding> {
+    if online {
+        return None;
+    }
     let raise = (unprotected >= ONLY_COPY_BYTES && days_unseen >= ONLY_COPY_DAYS)
         || (unprotected > 0 && days_unseen >= ONLY_COPY_ANY_DAYS);
     raise.then(|| Finding {
@@ -54,13 +63,13 @@ impl Watch for OnlyCopyWatch {
     }
     fn run(&mut self, store: &mut SqliteStore, now: i64) -> Result<Vec<Finding>> {
         let conn = store.conn();
-        let Some((id, mount, _online)) = backup_volume(conn)? else { return Ok(vec![]) };
+        let Some((id, mount, online)) = backup_volume(conn)? else { return Ok(vec![]) };
         let Some(cov) = coverage_summary(conn)? else { return Ok(vec![]) };
         let unprotected: i64 = cov.tiers.iter().filter(|t| t.tier == 1 || t.tier == 2).map(|t| t.unprotected_bytes).sum();
         let last_seen: i64 = conn.query_row("SELECT last_seen FROM volumes WHERE id = ?1", [&id], |r| r.get(0))?;
         let days = (now - last_seen).max(0) / DAY_MS;
         let label = cov.backup_label.clone().unwrap_or(mount);
-        Ok(only_copy_finding(unprotected, days, &label).into_iter().collect())
+        Ok(only_copy_finding_online(unprotected, days, online, &label).into_iter().collect())
     }
 }
 
@@ -141,9 +150,11 @@ impl Watch for DriveErrorsWatch {
                     |r| r.get(0),
                 )
                 .optional()?;
+            // Read failures only: folders Windows locks (System Volume Information, another
+            // user's recycle bin) are "permission denied" and say nothing about drive health.
             let n = errors
                 .and_then(|j| serde_json::from_str::<Vec<serde_json::Value>>(&j).ok())
-                .map_or(0, |v| v.len());
+                .map_or(0, |v| v.iter().filter(|e| e.get("code").and_then(|c| c.as_str()) != Some("permission_denied")).count());
             if n >= DRIVE_ERROR_COUNT {
                 let name = label.unwrap_or(mount);
                 out.push(Finding {
@@ -199,7 +210,7 @@ impl Watch for SelfCheckWatch {
                     kind: "engine_health".into(),
                     subject: (*name).into(),
                     level: Level::Note,
-                    title: format!("{name} stopped working and was restarted"),
+                    title: format!("{} stopped working and was restarted", watch_label(name)),
                     detail: st.last_error.unwrap_or_default(),
                     bytes: None,
                     action: FindingAction::None,
@@ -234,14 +245,100 @@ impl Watch for SelfCheckWatch {
     }
 }
 
-/// Drives whose catalog was started before but never finished, and that are plugged in now:
-/// the engine resumes them (spec §6.7).
+/// Owner-facing name of an engine part.
+fn watch_label(name: &str) -> String {
+    match name {
+        "live_index" => "Live file watching".into(),
+        other => {
+            let mut c = other.replace('_', " ");
+            if let Some(f) = c.get(0..1) {
+                c.replace_range(0..1, &f.to_uppercase());
+            }
+            c
+        }
+    }
+}
+
+fn requested_key(volume_id: &str) -> String {
+    format!("catalog.requested:{volume_id}")
+}
+
+/// Remembers that the owner asked for this drive to be catalogued, so an interrupted catalog
+/// may resume by itself (keyed by drive, never by drive letter).
+pub fn mark_catalog_requested(conn: &Connection, volume_id: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, scope, value_json, updated_at) VALUES (?1, 'global', 'true', ?2)
+         ON CONFLICT(key, scope) DO NOTHING",
+        rusqlite::params![requested_key(volume_id), crate::now_ms()],
+    )?;
+    Ok(())
+}
+
+/// Drives the owner asked to catalog whose catalog never finished, and that are plugged in
+/// now: the engine resumes them (spec §6.7).
 pub fn catalogs_to_resume(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT v.id FROM volumes v
          WHERE v.status = 'online' AND v.passport_id IS NOT NULL AND v.last_catalog_complete_at IS NULL
-           AND EXISTS (SELECT 1 FROM scan_jobs j WHERE lower(j.root_path) = lower(v.mount_point))
+           AND EXISTS (SELECT 1 FROM settings s WHERE s.scope = 'global' AND s.key = 'catalog.requested:' || v.id)
          ORDER BY v.id",
     )?;
     Ok(stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Keeps a tripwire reminder open for as long as a folder's backup is locked, so the owner can
+/// always find "It was me" — even when the alert fired while the window was closed.
+pub struct TripwireLockWatch;
+
+impl Watch for TripwireLockWatch {
+    fn name(&self) -> &'static str {
+        "tripwire_locks"
+    }
+    fn every_ms(&self) -> i64 {
+        0
+    }
+    fn needs_idle(&self) -> bool {
+        false
+    }
+    fn kinds(&self) -> &'static [&'static str] {
+        &["tripwire"]
+    }
+    fn run(&mut self, store: &mut SqliteStore, _now: i64) -> Result<Vec<Finding>> {
+        let locks = crate::backup::guard::locked_folders(store.conn())?;
+        let open: Vec<(String, String, String)> = {
+            let mut stmt = store
+                .conn()
+                .prepare("SELECT subject, title, detail FROM reminders WHERE kind = 'tripwire'")?;
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
+        };
+        Ok(locks
+            .into_iter()
+            .map(|folder| {
+                let name = std::path::Path::new(&folder)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| folder.clone());
+                // Keep the alert's own wording when there is one.
+                let (title, detail) = open
+                    .iter()
+                    .find(|(s, _, _)| s == &folder)
+                    .map(|(_, t, d)| (t.clone(), d.clone()))
+                    .unwrap_or_else(|| {
+                        (
+                            format!("Backup of {name} is paused"),
+                            "Lots of files there changed at once. Check them, then tell Aegis if it was you.".into(),
+                        )
+                    });
+                Finding {
+                    kind: "tripwire".into(),
+                    subject: folder,
+                    level: Level::Now,
+                    title,
+                    detail,
+                    bytes: None,
+                    action: FindingAction::Open { screen: Screen::Drives },
+                }
+            })
+            .collect())
+    }
 }

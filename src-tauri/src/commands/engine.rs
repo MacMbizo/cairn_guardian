@@ -133,6 +133,13 @@ pub fn nav_take(state: State<'_, AppState>) -> Option<Screen> {
     state.nav.take()
 }
 
+/// Folders whose backup the tripwire has locked (the banner shows these on every start).
+#[tauri::command(async)]
+pub fn tripwire_locks(state: State<'_, AppState>) -> Result<Vec<String>, IpcError> {
+    let store = lock_store(&state)?;
+    map_err(aegis_core::backup::guard::locked_folders(store.conn()))
+}
+
 /// "It was me" on the tripwire banner: unlocks the folder's backup and lets those changes
 /// through on the next top-up.
 #[tauri::command(async)]

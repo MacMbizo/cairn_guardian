@@ -153,6 +153,7 @@ pub fn run() {
             commands::engine::engine_settings_set,
             commands::engine::nav_take,
             commands::engine::tripwire_was_me,
+            commands::engine::tripwire_locks,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

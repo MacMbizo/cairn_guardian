@@ -24,6 +24,20 @@ export function PlugBanner({ onOpen, preview = false }: { onOpen: (tab: DrivesTa
     }
   }, [preview]);
 
+  // The tripwire may have fired while the window was closed: a locked folder always shows the
+  // banner, so "It was me" is reachable from any screen.
+  useEffect(() => {
+    if (preview) return;
+    void aegis.engine
+      .tripwireLocks()
+      .then((locks) => {
+        const folder = locks[0];
+        if (folder)
+          setBanner((b) => b ?? { kind: "tripped", folder, name: folder.split(/[\\/]/).pop() ?? folder, changed: 0, scrambled: 0 });
+      })
+      .catch(() => {});
+  }, [preview]);
+
   useEffect(() => {
     const unlisten = onAegisEvent((ev) => {
       switch (ev.event) {
@@ -160,10 +174,16 @@ export function PlugBanner({ onOpen, preview = false }: { onOpen: (tab: DrivesTa
       <div role="alert" className={`${base} border-rose-500/40 bg-rose-950/40 text-rose-100`}>
         <span className="flex items-center gap-2">
           <ShieldX className="h-4 w-4 shrink-0 text-rose-300" aria-hidden="true" />
-          <span>
-            <strong>Lots of files in {banner.name} just changed at once</strong> ({banner.changed.toLocaleString()} in a minute
-            {banner.scrambled > 0 ? `, ${banner.scrambled} look scrambled` : ""}). Backup of this folder is paused so nothing bad gets copied.
-          </span>
+          {banner.changed > 0 ? (
+            <span>
+              <strong>Lots of files in {banner.name} just changed at once</strong> ({banner.changed.toLocaleString()} in a minute
+              {banner.scrambled > 0 ? `, ${banner.scrambled} look scrambled` : ""}). Backup of this folder is paused so nothing bad gets copied.
+            </span>
+          ) : (
+            <span>
+              <strong>Backup of {banner.name} is paused</strong> because lots of files there changed at once. Check them, then tell Aegis if it was you.
+            </span>
+          )}
         </span>
         <span className="flex shrink-0 gap-2">
           <button

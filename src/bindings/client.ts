@@ -228,5 +228,7 @@ export const aegis = {
     /** The screen a notification or the tray asked for before this page loaded (taken once). */
     navTake: () => call<Screen | null>("nav_take"),
     tripwireWasMe: (folder: string) => call<void>("tripwire_was_me", { folder }),
+    /** Folders whose backup the tripwire has locked. */
+    tripwireLocks: () => call<string[]>("tripwire_locks"),
   },
 };

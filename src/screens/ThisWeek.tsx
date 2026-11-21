@@ -49,7 +49,8 @@ export function ThisWeek({ data, onOpen }: { data: EngineData; onOpen: (s: Scree
 
   const showMe = (r: Reminder) =>
     void run(async () => {
-      await aegis.engine.act(r.id);
+      // A tripwire alert stays until its folder is unlocked ("It was me" on the banner).
+      if (r.kind !== "tripwire") await aegis.engine.act(r.id);
       onOpen(screenFor(r.action));
     });
   const notNow = (r: Reminder) =>

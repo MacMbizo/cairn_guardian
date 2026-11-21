@@ -71,7 +71,12 @@ pub fn drives_sync(state: State<'_, AppState>) -> Result<SyncReport, IpcError> {
 /// A repeat call while that drive's catalog is running does nothing: two walks of one drive
 /// fight over the database and the losers fail.
 #[tauri::command(async)]
-pub fn drive_catalog(app: AppHandle, volume_id: String) -> Result<(), IpcError> {
+pub fn drive_catalog(app: AppHandle, state: State<'_, AppState>, volume_id: String) -> Result<(), IpcError> {
+    // The owner asked for this drive: if the catalog is interrupted, it may resume by itself.
+    {
+        let store = lock_store(&state)?;
+        map_err(aegis_core::engine::watches::mark_catalog_requested(store.conn(), &volume_id))?;
+    }
     start_catalog(&app, volume_id);
     Ok(())
 }

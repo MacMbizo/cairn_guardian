@@ -189,7 +189,7 @@ pub fn first_close_hint(app: &AppHandle) {
     }
     let _ = store.set_setting("engine.close_hint_shown", "global", "true");
     drop(store);
-    crate::engine_host::toast(app, "Aegis keeps watching in the tray", "Right-click it to quit.", Screen::Home);
+    crate::engine_host::toast(app, "Aegis keeps watching in the tray", "Right-click it to quit.", Screen::Home, None);
 }
 
 /// Registers the global search shortcut; returns whether Windows accepted it.

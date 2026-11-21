@@ -995,3 +995,16 @@ fn it_was_me_releases_lock_and_skips_mass_guard_once() {
     assert!(plan.halted_folders.is_empty(), "{:?}", plan.halted_folders);
     assert_eq!(plan.items.len(), 5);
 }
+
+#[test]
+fn lock_after_override_still_halts() {
+    let mut fx = two_source_fx(10, 0, "txt");
+    let docs = common::canon(&fx.docs);
+    // Monday: "It was me". Thursday: the tripwire locks the folder again before any top-up.
+    release_lock(&mut fx.store, Some(&fx.backup_id), &docs).unwrap();
+    change(&mut fx, &["A/f0.txt".to_string()], false);
+    lock_folder(&mut fx.store, &docs, "tripwire").unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.halted_folders.len(), 1, "a newer lock beats an older override");
+    assert!(plan.items.is_empty());
+}

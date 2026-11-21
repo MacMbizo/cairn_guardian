@@ -476,7 +476,7 @@ fn drive_errors_raise_now_at_ten() {
     let drive = common::fake_drive(&tmp, "WD C", "0003");
     let id = common::plug_and_catalog(&mut s, &provider, &drive);
     let root = common::canon(&drive.mount_point);
-    let errors = |n: usize| serde_json::to_string(&vec![serde_json::json!({"path": "x", "reason": "io"}); n]).unwrap();
+    let errors = |n: usize| serde_json::to_string(&vec![serde_json::json!({"path": "x", "code": "io_error", "message": "read failed"}); n]).unwrap();
     s.conn()
         .execute(
             "INSERT INTO scan_jobs (id, root_path, tier, status, started_at, finished_at, errors_json)
@@ -510,7 +510,7 @@ fn self_check_reports_stale_heartbeat() {
     assert_eq!(f.len(), 1);
     assert_eq!(f[0].subject, "live_index");
     assert_eq!(f[0].level, Level::Note);
-    assert_eq!(f[0].title, "live_index stopped working and was restarted");
+    assert_eq!(f[0].title, "Live file watching stopped working and was restarted");
 }
 
 #[test]
@@ -532,6 +532,7 @@ fn resume_only_previously_started_uncatalogued_drives() {
             [common::canon(&started.mount_point)],
         )
         .unwrap();
+    mark_catalog_requested(s.conn(), &started_id).unwrap();
     assert_eq!(catalogs_to_resume(s.conn()).unwrap(), vec![started_id]);
 }
 
@@ -899,4 +900,205 @@ fn file_with_an_action_elsewhere_is_skipped() {
     };
     assert_eq!(paths.len(), 1);
     assert!(paths[0].ends_with("b.crdownload"));
+}
+
+// ---------- Final review fixes ----------
+
+use aegis_core::engine::watches::{TripwireLockWatch, mark_catalog_requested};
+
+#[test]
+fn windows_style_encrypt_and_rename_trips() {
+    // On Windows a rename arrives as separate From/To events; ransomware usually writes
+    // "name.ext.locked" and removes the original.
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..150 {
+        let locked = root.join(format!("f{i}.txt.locked"));
+        std::fs::write(&locked, common::noise(8192, i as u64)).unwrap();
+        std::fs::remove_file(root.join(format!("f{i}.txt"))).unwrap();
+        tw.observe(&file(&root, i), ChangeKind::Removed, 1_000);
+        tw.observe(&PathBuf::from(common::canon(&locked)), ChangeKind::Created, 1_000);
+    }
+    let trips = tw.evaluate(s.conn(), 2_000).unwrap();
+    assert_eq!(trips.len(), 1);
+    assert!(trips[0].new_ext_renames >= 100, "{:?}", trips[0]);
+    assert!(trips[0].suspect_encrypted >= 1, "random bytes under a new extension look scrambled");
+}
+
+#[test]
+fn evaluate_rescans_root_at_most_once_per_second() {
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..250 {
+        tw.observe(&file(&root, i), ChangeKind::Modified, 1_000);
+    }
+    tw.evaluate(s.conn(), 1_000).unwrap();
+    let after_first = tw.scans();
+    for t in 1..=10 {
+        tw.observe(&file(&root, 250 + t), ChangeKind::Modified, 1_000 + t as i64 * 50);
+        tw.evaluate(s.conn(), 1_000 + t as i64 * 50).unwrap();
+    }
+    assert_eq!(tw.scans(), after_first, "no rescans within a second");
+    tw.evaluate(s.conn(), 2_100).unwrap();
+    assert_eq!(tw.scans(), after_first + 1);
+}
+
+#[test]
+fn tripwire_lock_keeps_reminder_open_until_released() {
+    let mut s = store();
+    aegis_core::backup::guard::lock_folder(&mut s, "C:/Users/me/Documents", "tripwire").unwrap();
+    let f = TripwireLockWatch.run(&mut s, 1).unwrap();
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].kind, "tripwire");
+    assert_eq!(f[0].level, Level::Now);
+    assert_eq!(f[0].subject, "C:/Users/me/Documents");
+    aegis_core::backup::guard::release_lock(&mut s, None, "C:/Users/me/Documents").unwrap();
+    assert!(TripwireLockWatch.run(&mut s, 2).unwrap().is_empty());
+}
+
+#[test]
+fn batcher_requeue_returns_paths_on_next_drain() {
+    let mut b = ChangeBatcher::new();
+    b.push(PathBuf::from("C:/x/a.txt"), 0);
+    let chunks = b.drain_ready(5_000);
+    b.requeue(chunks.into_iter().flatten(), 5_000);
+    assert!(b.drain_ready(5_100).is_empty(), "requeued paths wait for quiet again");
+    assert_eq!(b.drain_ready(7_100).concat(), vec![PathBuf::from("C:/x/a.txt")]);
+}
+
+#[test]
+fn batcher_drains_a_constantly_busy_file_after_max_wait() {
+    let mut b = ChangeBatcher::new();
+    for t in 0..40 {
+        b.push(PathBuf::from("C:/x/outlook.pst"), t * 1_000);
+        if t < 30 {
+            assert!(b.drain_ready(t * 1_000 + 500).is_empty());
+        }
+    }
+    assert_eq!(b.drain_ready(39_500).concat().len(), 1, "drained despite constant writes");
+}
+
+#[test]
+fn index_changed_expands_moved_in_and_removed_folders() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let drive = common::fake_drive(&tmp, "A", "0001");
+    let id = common::plug_and_catalog(&mut s, &provider, &drive);
+    // A folder moved in: only the folder's own path is reported.
+    for i in 0..3 {
+        common::put(&drive.mount_point, &format!("Trip/p{i}.jpg"), b"jpg");
+    }
+    let folder = PathBuf::from(common::canon(&drive.mount_point.join("Trip")));
+    index_changed(&mut s, &id, vec![vec![folder.clone()]]).unwrap();
+    assert_eq!(common::live_file_paths(&s, &id).iter().filter(|p| p.contains("Trip")).count(), 3);
+    // The folder deleted: again only its own path.
+    std::fs::remove_dir_all(drive.mount_point.join("Trip")).unwrap();
+    index_changed(&mut s, &id, vec![vec![folder]]).unwrap();
+    assert_eq!(common::live_file_paths(&s, &id).iter().filter(|p| p.contains("Trip")).count(), 0);
+}
+
+#[test]
+fn only_copy_silent_while_backup_drive_is_plugged_in() {
+    assert!(aegis_core::engine::watches::only_copy_finding_online(GB * 5, 30, true, "B").is_none());
+    assert!(aegis_core::engine::watches::only_copy_finding_online(GB * 5, 30, false, "B").is_some());
+}
+
+#[test]
+fn drive_errors_ignore_permission_denied() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let drive = common::fake_drive(&tmp, "Old system disk", "0004");
+    common::plug_and_catalog(&mut s, &provider, &drive);
+    let root = common::canon(&drive.mount_point);
+    let denied = serde_json::to_string(&vec![serde_json::json!({"path": "x", "code": "permission_denied", "message": "m"}); 30]).unwrap();
+    s.conn()
+        .execute(
+            "INSERT INTO scan_jobs (id, root_path, tier, status, started_at, finished_at, errors_json)
+             VALUES ('p', ?1, 1, 'degraded', 9e15, 9e15, ?2)",
+            rusqlite::params![root, denied],
+        )
+        .unwrap();
+    assert!(DriveErrorsWatch.run(&mut s, 1).unwrap().is_empty());
+}
+
+#[test]
+fn resume_requires_an_owner_request_for_that_drive() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let asked = common::fake_drive(&tmp, "Asked", "0002");
+    let stranger = common::fake_drive(&tmp, "Stranger", "0003");
+    provider.plug(asked.clone());
+    provider.plug(stranger.clone());
+    aegis_core::drives::sync_mounted(&mut s, &provider).unwrap();
+    let asked_id = common::volume_id_at(&s, &asked.mount_point);
+    // Both drives' letters have old jobs (a reused letter), but only one was ever asked for.
+    for (j, d) in [("j1", &asked), ("j2", &stranger)] {
+        s.conn()
+            .execute(
+                "INSERT INTO scan_jobs (id, root_path, tier, status, started_at) VALUES (?1, ?2, 1, 'interrupted', 1)",
+                rusqlite::params![j, common::canon(&d.mount_point)],
+            )
+            .unwrap();
+    }
+    mark_catalog_requested(s.conn(), &asked_id).unwrap();
+    assert_eq!(catalogs_to_resume(s.conn()).unwrap(), vec![asked_id]);
+}
+
+#[test]
+fn janitor_skips_files_the_owner_rejected() {
+    let (_t, mut s, dl) = downloads();
+    aged(&common::put(&dl, "a.crdownload", b"x"), 2.0);
+    let items = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    let batch = propose(&mut s, &items).unwrap().unwrap();
+    aegis_core::db::actions::reject_batch(&mut s, &batch, Some("keep these")).unwrap();
+    assert!(scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap().is_empty());
+}
+
+#[test]
+fn executables_inside_subfolders_are_not_installers() {
+    let (_t, s, dl) = downloads();
+    aged(&common::put(&dl, "tool/bin/tool.exe", b"MZ portable"), 60.0);
+    aged(&common::put(&dl, "setup.exe", b"MZ setup"), 60.0);
+    let items = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    assert_eq!(names(&items), vec!["setup.exe"]);
+}
+
+#[test]
+fn self_check_copy_is_plain_language() {
+    let mut s = store();
+    record_run(s.conn(), "live_index", 0, None).unwrap();
+    let mut w = SelfCheckWatch::new(vec![("live_index", 1_000)], None);
+    let f = w.run(&mut s, 5_000).unwrap();
+    assert_eq!(f[0].title, "Live file watching stopped working and was restarted");
+}
+
+#[test]
+fn copying_many_files_of_a_new_type_does_not_trip() {
+    // 300 compressed photos of a type the folder never had (random-looking bytes), nothing removed.
+    let (_t, s, root, canon) = indexed_root(20);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..300 {
+        let p = common::put(&root, &format!("raw/IMG_{i}.cr3"), &common::noise(8192, i as u64));
+        tw.observe(&PathBuf::from(common::canon(&p)), ChangeKind::Created, 1_000);
+    }
+    assert!(tw.evaluate(s.conn(), 2_000).unwrap().is_empty(), "a big copy-in is not an attack");
+}
+
+#[test]
+fn random_named_encrypted_replacements_trip() {
+    // Some ransomware writes random names; the originals still disappear.
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..150 {
+        let out = common::put(&root, &format!("{i:08x}.crypt"), &common::noise(8192, 900 + i as u64));
+        std::fs::remove_file(root.join(format!("f{i}.txt"))).unwrap();
+        tw.observe(&file(&root, i), ChangeKind::Removed, 1_000);
+        tw.observe(&PathBuf::from(common::canon(&out)), ChangeKind::Created, 1_000);
+    }
+    let trips = tw.evaluate(s.conn(), 2_000).unwrap();
+    assert_eq!(trips.len(), 1);
+    assert!(trips[0].suspect_encrypted >= 1);
 }

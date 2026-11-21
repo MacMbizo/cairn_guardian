@@ -1,6 +1,10 @@
-//! Runs the always-on engine (spec §6, §7) on its own thread with its own database connection:
-//! live folder watching, the ransomware tripwire, scheduled watches, gentle reminders, the
-//! weekly note and the tray icon state.
+//! Runs the always-on engine (spec §6, §7) on two threads, each with its own database
+//! connection:
+//!
+//! - the **event thread** keeps the live index current and runs the ransomware tripwire. It
+//!   never does heavy work, so an attack is noticed even while a tidy-up is hashing files;
+//! - the **scheduler thread** (below-normal priority) runs the watches, the weekly note,
+//!   reminder delivery and the tray icon state.
 
 use crate::commands::{AEGIS_EVENT, AppState};
 use crate::shell::{open_main, set_tray_state};
@@ -10,35 +14,41 @@ use aegis_core::db::files::{normalize_path, path_is_within};
 use aegis_core::engine::batcher::{ChangeBatcher, index_changed};
 use aegis_core::engine::janitor::{JanitorWatch, installed_programs};
 use aegis_core::engine::note::{LocalNow, build, due_week, ensure_first_day, save};
-use aegis_core::engine::reminders::{Reminder, list_open, mark_shown, sync_findings, to_deliver, tray_state};
+use aegis_core::engine::reminders::{Reminder, act, dismiss, list_open, mark_shown, sync_findings, to_deliver, tray_state};
 use aegis_core::engine::space::SpaceWatch;
-use aegis_core::engine::tripwire::{ChangeKind, Tripwire, trip_finding};
+use aegis_core::engine::tripwire::{ChangeKind, Trip, Tripwire, trip_finding};
 use aegis_core::engine::watches::{
-    DriveErrorsWatch, OnlyCopyWatch, QuarantineExpiryWatch, SelfCheckWatch, catalogs_to_resume,
+    DriveErrorsWatch, OnlyCopyWatch, QuarantineExpiryWatch, SelfCheckWatch, TripwireLockWatch, catalogs_to_resume,
 };
 use aegis_core::engine::{Calm, Engine, FindingAction, Screen, record_run};
 use aegis_core::now_ms;
 use chrono::{Datelike, Local, Timelike};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Messages to the engine thread.
+/// Messages to the event thread.
 pub enum EngineMsg {
     Fs(notify::Event),
-    /// Something changed (a command, pause): re-check reminders, tray and the watcher's roots.
+    /// The file watcher reported an error (lost events, a removed root): rebuild it.
+    WatchError(String),
+    /// Something changed (a command, pause): re-check reminders, tray and the watched roots.
     Wake,
 }
 
-/// How often the scheduled part of the engine runs.
+/// How often the scheduler runs.
 const SLOW_TICK: Duration = Duration::from_secs(30);
-/// While changes are pending, the loop wakes this often to apply them once things are quiet.
+/// While changes are pending, the event thread wakes this often to apply them.
 const FAST_TICK: Duration = Duration::from_millis(500);
+/// How often the event thread re-checks its roots and records its heartbeat.
+const HEARTBEAT: Duration = Duration::from_secs(30);
 /// Cadence of the live index heartbeat the self-check watches.
 const LIVE_INDEX_EVERY_MS: i64 = 60_000;
+/// Attempts to write a tripwire lock before giving up for this burst.
+const LOCK_ATTEMPTS: usize = 5;
 
 pub fn wake(app: &AppHandle) {
     let _ = app.state::<AppState>().engine_tx.lock().map(|tx| tx.send(EngineMsg::Wake));
@@ -80,6 +90,16 @@ pub fn calm_now() -> Calm {
     Calm { idle_secs: 0, on_ac: true, battery_pct: None, busy: false }
 }
 
+/// Heavy work yields to whatever the owner is doing.
+fn lower_priority() {
+    #[cfg(windows)]
+    // SAFETY: changes only the calling thread's scheduling priority.
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
+}
+
 fn screen_of(action: &FindingAction) -> Screen {
     match action {
         FindingAction::Open { screen } => *screen,
@@ -88,32 +108,59 @@ fn screen_of(action: &FindingAction) -> Screen {
     }
 }
 
-/// A quiet Windows notification. Clicking it opens `screen`.
+/// Only the owner closing a notification counts as "not now"; it timing out does not.
 #[cfg(windows)]
-pub fn toast(app: &AppHandle, title: &str, detail: &str, screen: Screen) {
+pub fn dismissal_counts(reason: Option<tauri_winrt_notification::ToastDismissalReason>) -> bool {
+    matches!(reason, Some(tauri_winrt_notification::ToastDismissalReason::UserCanceled))
+}
+
+/// A quiet Windows notification. Clicking it opens `screen`; for a reminder, clicking counts as
+/// acting on it and closing it counts as "not now" (feeding the learn-from-dismissals rule).
+#[cfg(windows)]
+pub fn toast(app: &AppHandle, title: &str, detail: &str, screen: Screen, reminder_id: Option<String>) {
     use tauri_winrt_notification::Toast;
     // Installed builds own an app identity; a raw dev exe borrows PowerShell's so toasts still show.
     let installed = std::env::current_exe()
         .map(|p| !p.to_string_lossy().to_lowercase().contains(r"\target\"))
         .unwrap_or(false);
     let id = if installed { app.config().identifier.clone() } else { Toast::POWERSHELL_APP_ID.to_string() };
-    let handle = app.clone();
+    let (on_click, on_close) = (app.clone(), app.clone());
+    let (click_id, close_id) = (reminder_id.clone(), reminder_id);
     let _ = Toast::new(&id)
         .title(title)
         .text1(detail)
         .sound(None)
         .on_activated(move |_| {
-            open_main(&handle, Some(screen));
+            if let Some(rid) = &click_id {
+                with_ui_store(&on_click, |c| act(c, rid, now_ms()).map(|_| ()));
+            }
+            open_main(&on_click, Some(screen));
+            Ok(())
+        })
+        .on_dismissed(move |reason| {
+            if dismissal_counts(reason)
+                && let Some(rid) = &close_id
+            {
+                with_ui_store(&on_close, |c| dismiss(c, rid, now_ms()).map(|_| ()));
+            }
             Ok(())
         })
         .show();
 }
 
 #[cfg(not(windows))]
-pub fn toast(_app: &AppHandle, _title: &str, _detail: &str, _screen: Screen) {}
+pub fn toast(_app: &AppHandle, _title: &str, _detail: &str, _screen: Screen, _reminder_id: Option<String>) {}
+
+/// Runs `f` on the UI's connection, then wakes the engine so the tray catches up.
+fn with_ui_store(app: &AppHandle, f: impl FnOnce(&rusqlite::Connection) -> aegis_core::error::Result<()>) {
+    if let Ok(store) = app.state::<AppState>().store.lock() {
+        let _ = f(store.conn());
+    }
+    wake(app);
+}
 
 fn deliver(app: &AppHandle, r: &Reminder) {
-    toast(app, &r.title, &r.detail, screen_of(&r.action));
+    toast(app, &r.title, &r.detail, screen_of(&r.action), Some(r.id.clone()));
 }
 
 /// "Back up now" from the tray.
@@ -160,6 +207,8 @@ fn change_kind(ev: &notify::Event) -> Vec<(PathBuf, ChangeKind)> {
         EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if ev.paths.len() == 2 => {
             vec![(ev.paths[0].clone(), ChangeKind::Renamed { to: ev.paths[1].clone() })]
         }
+        // Windows reports renames as separate From/To events: the tripwire sees them as a
+        // removal plus a creation, which it counts toward "new extension" files.
         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
             ev.paths.iter().map(|p| (p.clone(), ChangeKind::Removed)).collect()
         }
@@ -175,9 +224,113 @@ fn display(p: &std::path::Path) -> PathBuf {
     PathBuf::from(normalize_path(p, false).0)
 }
 
-/// Starts the engine thread. `rx` receives file-system events and wake-ups.
+/// Locks the folder's backup, retrying when the database is busy. Returns whether it stuck.
+fn lock_with_retry(store: &mut SqliteStore, trip: &Trip) -> bool {
+    for attempt in 0..LOCK_ATTEMPTS {
+        if aegis_core::backup::guard::lock_folder(store, &trip.root, "tripwire").is_ok() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(200 * (attempt as u64 + 1)));
+    }
+    false
+}
+
+/// Starts the engine. `rx` receives file-system events and wake-ups.
 pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
+    let (sched_tx, sched_rx) = std::sync::mpsc::channel::<()>();
+    spawn_scheduler(app.clone(), sched_rx);
+    std::thread::spawn(move || event_loop(app, rx, sched_tx));
+}
+
+/// Live index and tripwire. Light work only.
+fn event_loop(app: AppHandle, rx: Receiver<EngineMsg>, sched: Sender<()>) {
+    let state = app.state::<AppState>();
+    let Ok(mut store) = SqliteStore::open(&state.db_path) else { return };
+    let mut roots = enabled_roots(&store);
+    let mut watcher = start_watcher(&app, &roots);
+    let mut watch_error: Option<String> = None;
+    let mut tripwire = Tripwire::new(roots.iter().map(|r| r.0.clone()).collect());
+    let mut batcher = ChangeBatcher::new();
+    let mut last_beat = std::time::Instant::now() - HEARTBEAT;
+
+    loop {
+        let timeout = if batcher.is_empty() { HEARTBEAT } else { FAST_TICK };
+        let mut woke = false;
+        match rx.recv_timeout(timeout) {
+            Ok(EngineMsg::Fs(ev)) => {
+                let now = now_ms();
+                for (path, kind) in change_kind(&ev) {
+                    let shown = display(&path);
+                    batcher.push(shown.clone(), now);
+                    if let ChangeKind::Renamed { to } = &kind {
+                        batcher.push(display(to), now);
+                    }
+                    let kind = match kind {
+                        ChangeKind::Renamed { to } => ChangeKind::Renamed { to: display(&to) },
+                        k => k,
+                    };
+                    tripwire.observe(&shown, kind, now);
+                }
+            }
+            Ok(EngineMsg::WatchError(e)) => {
+                // Events may have been lost: rebuild the watcher at once.
+                watch_error = Some(e);
+                watcher = None;
+            }
+            Ok(EngineMsg::Wake) => woke = true,
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        let now = now_ms();
+
+        // Live index: apply quiet bursts in small transactions, grouped by root's volume.
+        for chunk in batcher.drain_ready(now) {
+            for (root, vol) in &roots {
+                let mine: Vec<PathBuf> =
+                    chunk.iter().filter(|p| path_is_within(&p.to_string_lossy(), root, false)).cloned().collect();
+                if !mine.is_empty() && index_changed(&mut store, vol, vec![mine.clone()]).is_err() {
+                    batcher.requeue(mine, now); // database busy: try again shortly
+                }
+            }
+        }
+
+        // Tripwire: lock the folder's backup and tell the owner at once.
+        if let Ok(trips) = tripwire.evaluate(store.conn(), now) {
+            for trip in trips {
+                if !lock_with_retry(&mut store, &trip) {
+                    let _ = record_run(store.conn(), "tripwire", now, Some("could not lock the folder's backup"));
+                }
+                let _ = sync_findings(store.conn(), &[], std::slice::from_ref(&trip_finding(&trip)), now);
+                let _ = app.emit(AEGIS_EVENT, AegisEvent::Tripped { v: 1, trip: trip.clone() });
+                woke = true;
+            }
+        }
+
+        if woke {
+            let _ = sched.send(());
+        }
+        if !(woke || watcher.is_none() || last_beat.elapsed() >= HEARTBEAT) {
+            continue;
+        }
+        last_beat = std::time::Instant::now();
+
+        // Roots may have changed (owner added a folder), or the watcher failed: (re)build it.
+        let now_roots = enabled_roots(&store);
+        if now_roots != roots || watcher.is_none() {
+            roots = now_roots;
+            watcher = start_watcher(&app, &roots);
+            tripwire = Tripwire::new(roots.iter().map(|r| r.0.clone()).collect());
+        }
+        // Heartbeat: healthy only when the watcher is running and reported no error.
+        let err = if watcher.is_none() { Some("the file watcher could not start".to_string()) } else { watch_error.take() };
+        let _ = record_run(store.conn(), "live_index", now, err.as_deref());
+    }
+}
+
+/// Watches, weekly note, reminders and tray. Runs below normal priority on its own connection.
+fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
     std::thread::spawn(move || {
+        lower_priority();
         let state = app.state::<AppState>();
         let db_path = state.db_path.clone();
         let mut store = match SqliteStore::open(&db_path) {
@@ -198,10 +351,10 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
             crate::commands::drives::start_catalog(&app, id);
         }
 
-        // Volumes for the space recorder, refreshed each slow tick.
         let vols: Arc<Mutex<Vec<(String, i64, i64)>>> = Arc::default();
         let vols_for_watch = vols.clone();
         let mut watches: Vec<Box<dyn aegis_core::engine::Watch>> = vec![
+            Box::new(TripwireLockWatch),
             Box::new(OnlyCopyWatch),
             Box::new(QuarantineExpiryWatch),
             Box::new(DriveErrorsWatch),
@@ -216,80 +369,16 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
         }
         let mut engine = Engine::new(watches);
 
-        let mut roots = enabled_roots(&store);
-        let mut watcher = start_watcher(&app, &roots);
-        let mut tripwire = Tripwire::new(roots.iter().map(|r| r.0.clone()).collect());
-        let mut batcher = ChangeBatcher::new();
-        let mut pending = false;
-        let mut last_slow = std::time::Instant::now() - SLOW_TICK;
-
         loop {
-            let timeout = if pending { FAST_TICK } else { SLOW_TICK };
-            let mut woke = false;
-            match rx.recv_timeout(timeout) {
-                Ok(EngineMsg::Fs(ev)) => {
-                    let now = now_ms();
-                    for (path, kind) in change_kind(&ev) {
-                        let shown = display(&path);
-                        batcher.push(shown.clone(), now);
-                        if let ChangeKind::Renamed { to } = &kind {
-                            batcher.push(display(to), now);
-                        }
-                        let kind = match kind {
-                            ChangeKind::Renamed { to } => ChangeKind::Renamed { to: display(&to) },
-                            k => k,
-                        };
-                        tripwire.observe(&shown, kind, now);
-                    }
-                    pending = true;
+            let woke = match wake_rx.recv_timeout(SLOW_TICK) {
+                Ok(()) => {
+                    while wake_rx.try_recv().is_ok() {}
+                    true
                 }
-                Ok(EngineMsg::Wake) => woke = true,
-                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Timeout) => false,
                 Err(RecvTimeoutError::Disconnected) => break,
-            }
+            };
             let now = now_ms();
-
-            // Live index: apply quiet bursts in small transactions, grouped by volume.
-            let chunks = batcher.drain_ready(now);
-            if !chunks.is_empty() {
-                pending = false;
-                for chunk in chunks {
-                    for (root, vol) in &roots {
-                        let mine: Vec<PathBuf> =
-                            chunk.iter().filter(|p| path_is_within(&p.to_string_lossy(), root, false)).cloned().collect();
-                        if !mine.is_empty() {
-                            let _ = index_changed(&mut store, vol, vec![mine]);
-                        }
-                    }
-                }
-            }
-
-            // Tripwire: lock the folder's backup and tell the owner at once.
-            if let Ok(trips) = tripwire.evaluate(store.conn(), now) {
-                for trip in trips {
-                    let _ = aegis_core::backup::guard::lock_folder(&mut store, &trip.root, "tripwire");
-                    let f = trip_finding(&trip);
-                    let _ = sync_findings(store.conn(), &[], std::slice::from_ref(&f), now);
-                    let _ = app.emit(AEGIS_EVENT, AegisEvent::Tripped { v: 1, trip: trip.clone() });
-                    woke = true;
-                }
-            }
-
-            if !(woke || last_slow.elapsed() >= SLOW_TICK) {
-                continue;
-            }
-            last_slow = std::time::Instant::now();
-
-            // Roots may have changed (owner added a folder): re-watch.
-            let now_roots = enabled_roots(&store);
-            if now_roots != roots || watcher.is_none() {
-                roots = now_roots;
-                watcher = start_watcher(&app, &roots);
-                tripwire = Tripwire::new(roots.iter().map(|r| r.0.clone()).collect());
-            }
-            if watcher.is_some() {
-                let _ = record_run(store.conn(), "live_index", now, None);
-            }
 
             if let Ok(list) = store.list_volumes() {
                 let online: Vec<(String, i64, i64)> = list
@@ -303,11 +392,10 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
             }
 
             let calm = calm_now();
-            let paused_until = state.paused_until.load(Ordering::SeqCst);
-            let paused = paused_until > now;
+            let paused = state.paused_until.load(Ordering::SeqCst) > now;
             let mut changed = woke;
             if let Ok(report) = engine.tick(&mut store, now, &calm, paused) {
-                changed |= !report.ran.is_empty();
+                changed |= report.ran.iter().any(|n| *n != "tripwire_locks");
             }
 
             // The weekly note.
@@ -318,7 +406,7 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
                 && let Ok(note) = build(store.conn(), &week, now - 7 * 86_400_000, &local.date, now)
                 && save(store.conn(), &note, now).is_ok()
             {
-                toast(&app, "Your weekly note is ready", &note.headline, Screen::Week);
+                toast(&app, "Your weekly note is ready", &note.headline, Screen::Week, None);
                 changed = true;
             }
 
@@ -336,10 +424,9 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
             if let Ok(t) = tray_state(store.conn()) {
                 set_tray_state(&app, t, open, paused);
             }
-            let backup_online =
-                matches!(aegis_core::backup::backup_volume(store.conn()), Ok(Some((_, _, true))));
-            if let Some(items) = state.tray_items.lock().ok().and_then(|g| g.as_ref().map(|i| i.backup_now.clone())) {
-                let _ = items.set_enabled(backup_online);
+            let backup_online = matches!(aegis_core::backup::backup_volume(store.conn()), Ok(Some((_, _, true))));
+            if let Some(item) = state.tray_items.lock().ok().and_then(|g| g.as_ref().map(|i| i.backup_now.clone())) {
+                let _ = item.set_enabled(backup_online);
             }
             if changed {
                 let _ = app.emit(AEGIS_EVENT, AegisEvent::EngineUpdated { v: 1 });
@@ -348,14 +435,15 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
     });
 }
 
-/// Watches the PC roots recursively; events go to the engine thread.
+/// Watches the PC roots recursively; events (and watcher errors) go to the event thread.
 fn start_watcher(app: &AppHandle, roots: &[(String, String)]) -> Option<notify::RecommendedWatcher> {
     use notify::{RecursiveMode, Watcher};
     let tx = app.state::<AppState>().engine_tx.lock().ok()?.clone();
     let mut w = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if let Ok(ev) = res {
-            let _ = tx.send(EngineMsg::Fs(ev));
-        }
+        let _ = match res {
+            Ok(ev) => tx.send(EngineMsg::Fs(ev)),
+            Err(e) => tx.send(EngineMsg::WatchError(e.to_string())),
+        };
     })
     .ok()?;
     let mut any = false;
@@ -374,5 +462,15 @@ mod tests {
     fn calm_probe_does_not_panic() {
         let c = super::calm_now();
         assert!(c.battery_pct.is_none_or(|p| p <= 100));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn only_a_user_close_counts_as_not_now() {
+        use tauri_winrt_notification::ToastDismissalReason as R;
+        assert!(super::dismissal_counts(Some(R::UserCanceled)));
+        assert!(!super::dismissal_counts(Some(R::TimedOut)));
+        assert!(!super::dismissal_counts(Some(R::ApplicationHidden)));
+        assert!(!super::dismissal_counts(None));
     }
 }

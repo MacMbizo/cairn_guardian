@@ -109,6 +109,15 @@ const TEXT_EXTS: [&str; 14] = [
     "txt", "md", "csv", "tsv", "json", "xml", "html", "htm", "log", "rtf", "ini", "yaml", "yml", "tex",
 ];
 
+/// True when a file's first 64 KB are indistinguishable from random bytes.
+pub fn looks_random(path: &Path) -> Result<bool> {
+    let mut f = std::fs::File::open(path)?;
+    let mut head = vec![0u8; 64 * 1024];
+    let n = f.read(&mut head)?;
+    head.truncate(n);
+    Ok(head.len() >= 256 && entropy(&head) > RANDOM_BITS_PER_BYTE)
+}
+
 /// True when a file's content looks encrypted for what its name says it is: near-random bytes
 /// in a text file, or near-random bytes without the signature of a known binary format.
 /// Genuine compressed formats (JPEG, ZIP-based Office files, video) keep their signature.
@@ -179,6 +188,20 @@ pub fn lock_folder(store: &mut SqliteStore, folder: &str, reason: &str) -> Resul
     if !locks.iter().any(|l| l == folder) {
         locks.push(folder.to_string());
         save_locks(store, &locks)?;
+    }
+    // An earlier "back them up anyway" must not let this new burst through.
+    let keys: Vec<(String, String)> = {
+        let mut stmt = store
+            .conn()
+            .prepare("SELECT key, value_json FROM settings WHERE scope = 'global' AND key LIKE 'guard.override:%'")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    for (key, json) in keys {
+        let set: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+        let kept: Vec<&String> = set.iter().filter(|o| !overlaps(o, folder)).collect();
+        if kept.len() != set.len() {
+            store.set_setting(&key, "global", &serde_json::to_string(&kept)?)?;
+        }
     }
     store.with_full_sync_tx(|tx| {
         append_audit_in_tx(
@@ -251,15 +274,18 @@ pub fn check(conn: &Connection, plan: &TopUpPlan) -> Result<GuardVerdict> {
     let mut locked_hit: HashSet<&str> = HashSet::new();
     let mut by_folder: BTreeMap<&str, (i64, i64)> = BTreeMap::new(); // (changed, suspect)
     for it in &plan.items {
-        if it.source_folder.is_empty() || skip.iter().any(|s| path_is_within(&it.source_folder, s, false)) {
+        if it.source_folder.is_empty() {
             continue;
         }
+        // Locks come first: an override never lets a locked folder through.
         let in_lock = locks.iter().any(|l| {
             path_is_within(&it.source_folder, l, false)
                 || it.source_path.as_deref().is_some_and(|p| path_is_within(p, l, false))
         });
         if in_lock {
             locked_hit.insert(it.source_folder.as_str());
+        } else if skip.iter().any(|s| path_is_within(&it.source_folder, s, false)) {
+            continue;
         }
         let entry = by_folder.entry(it.source_folder.as_str()).or_insert((0, 0));
         match it.kind {

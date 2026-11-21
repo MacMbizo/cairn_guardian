@@ -108,12 +108,28 @@ fn in_open_batches(conn: &Connection) -> Result<HashSet<String>> {
     Ok(stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Files the owner already said no to: janitor actions they rejected, or quarantined files
+/// they restored. The janitor never proposes these again.
+fn declined(conn: &Connection) -> Result<HashSet<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT lower(a.from_path) FROM actions a WHERE a.agent = ?1 AND a.status = 'rejected'
+         UNION
+         SELECT lower(q.original_path) FROM quarantine_entries q JOIN actions a ON a.id = q.action_id
+         WHERE a.agent = ?1 AND q.restored_at IS NOT NULL",
+    )?;
+    Ok(stmt.query_map([AGENT], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
+}
+
 /// Finds janitor candidates in `downloads` (subfolders included, links not followed).
 pub fn scan_downloads(conn: &Connection, downloads: &Path, installed: &[String], now: i64) -> Result<Vec<JanitorItem>> {
     let mut entries = Vec::new();
     walk(downloads, &mut entries);
     let busy = in_open_batches(conn)?;
-    entries.retain(|e| !busy.contains(&e.display.to_lowercase()));
+    let no = declined(conn)?;
+    entries.retain(|e| {
+        let key = e.display.to_lowercase();
+        !busy.contains(&key) && !no.contains(&key)
+    });
 
     let mut items = Vec::new();
     // Partial downloads.
@@ -155,8 +171,9 @@ pub fn scan_downloads(conn: &Connection, downloads: &Path, installed: &[String],
             }
         }
     }
-    // Installers that have sat for a while.
-    for e in &entries {
+    // Installers that have sat for a while: only loose files in Downloads itself. An .exe
+    // inside a folder is usually part of an unzipped or portable app, not an installer.
+    for e in entries.iter().filter(|e| e.path.parent() == Some(downloads)) {
         let age_days = (now - e.mtime) / DAY_MS;
         if INSTALLER_EXTS.contains(&ext(&e.path).as_str()) && age_days >= INSTALLER_AGE_DAYS {
             let stem = e.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
