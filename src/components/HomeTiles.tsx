@@ -1,8 +1,11 @@
-import { CopyCheck, DatabaseBackup, HardDrive, ShieldAlert, Usb } from "lucide-react";
+import { CopyCheck, DatabaseBackup, HardDrive, NotebookText, PauseCircle, ShieldAlert, Usb } from "lucide-react";
+import { aegis } from "../bindings/client";
+import type { EngineData } from "../screens/useEngine";
 import type { DrivesData } from "../screens/useDrives";
 import { driveName, formatBytes, formatDay } from "../format";
 
 export type DrivesTab = "drives" | "dupes";
+export type HomeTab = DrivesTab | "week";
 
 const ROLE_CHIP: Record<string, string> = {
   backup: "bg-sky-500/15 text-sky-300",
@@ -16,7 +19,9 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /** Command-centre tiles for the home screen: drives at a glance, and what needs the owner. */
-export function HomeTiles({ data, onOpen }: { data: DrivesData; onOpen: (tab: DrivesTab) => void }) {
+export function HomeTiles({ data, engine, onOpen }: { data: DrivesData; engine?: EngineData; onOpen: (tab: HomeTab) => void }) {
+  const pausedUntil = engine?.status?.paused_until ?? null;
+  const noteUnread = !!engine?.note && !engine.note.read;
   const { drives, plan, coverage, dupes, topupPlan, unknownDrives } = data;
   const questions = dupes?.groups.filter((g) => g.needs_question) ?? [];
   const questionBytes = questions.reduce((sum, g) => sum + g.size_bytes * Math.max(0, g.locations.length - 1), 0);
@@ -76,7 +81,28 @@ export function HomeTiles({ data, onOpen }: { data: DrivesData; onOpen: (tab: Dr
       </section>
 
       <section aria-label="Needs you" className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-        <h2 className="mb-3 text-sm font-semibold">Needs you</h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Needs you</h2>
+          <span className="flex items-center gap-2">
+            {pausedUntil != null && (
+              <span className="flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+                <PauseCircle className="h-3 w-3" aria-hidden="true" />
+                Paused until {new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                <button
+                  type="button"
+                  onClick={() => void aegis.engine.pause("resume").then(() => engine?.reload())}
+                  className="ml-1 text-emerald-300 hover:underline"
+                >
+                  Resume
+                </button>
+              </span>
+            )}
+            <button type="button" onClick={() => onOpen("week")} className="flex items-center gap-1 text-xs text-emerald-300 hover:underline">
+              <NotebookText className="h-3.5 w-3.5" aria-hidden="true" />
+              This week{noteUnread ? " (new)" : ""}
+            </button>
+          </span>
+        </div>
         {needs.length === 0 ? (
           <p className="text-xs text-slate-400">Nothing right now. Duplicates, backups and new drives show up here.</p>
         ) : (

@@ -828,10 +828,15 @@ fn demoted_kind_announced_once() {
         dismiss(c, &id, t).unwrap();
     }
     let first = build(c, "2026-11-22", 0, "2026-11-22", 5).unwrap();
-    assert!(first.about_aegis.iter().any(|l| l.contains("only_copy")), "{:?}", first.about_aegis);
+    assert!(
+        first.about_aegis.contains(&"I stopped reminding you about files that exist only on this PC; it's here instead.".to_string()),
+        "{:?}",
+        first.about_aegis
+    );
+    assert!(!first.about_aegis.iter().any(|l| l.contains("only_copy")), "no internal names in owner copy");
     assert_eq!(demoted_kinds(c).unwrap(), vec![("only_copy".to_string(), true)]);
     let second = build(c, "2026-11-29", 0, "2026-11-29", 6).unwrap();
-    assert!(!second.about_aegis.iter().any(|l| l.contains("only_copy")));
+    assert!(!second.about_aegis.iter().any(|l| l.contains("only on this PC")));
 }
 
 #[test]

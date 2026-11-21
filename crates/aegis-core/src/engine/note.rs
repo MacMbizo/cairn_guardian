@@ -91,6 +91,17 @@ pub fn due_week(conn: &Connection, local: &LocalNow, note_day: u8, note_hour: u8
     Ok((!exists).then_some(key))
 }
 
+/// Owner-facing name of a reminder kind.
+pub fn kind_label(kind: &str) -> &str {
+    match kind {
+        "only_copy" => "files that exist only on this PC",
+        "quarantine_expiry" => "quarantine about to empty",
+        "space" => "running out of space",
+        "janitor" => "Downloads tidy-ups",
+        other => other,
+    }
+}
+
 fn plural(n: i64, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
@@ -181,7 +192,7 @@ pub fn build(conn: &Connection, week: &str, week_start_ms: i64, today: &str, now
         open.iter().filter(|r| r.kind == "engine_health").map(|r| format!("{}.", r.title)).collect();
     for (kind, announced) in demoted_kinds(conn)? {
         if !announced {
-            about_aegis.push(format!("I stopped reminding you about {kind}; it's here instead."));
+            about_aegis.push(format!("I stopped reminding you about {}; it's here instead.", kind_label(&kind)));
             mark_announced(conn, &kind)?;
         }
     }

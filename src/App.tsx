@@ -11,12 +11,14 @@ import {
   FolderOpen,
   HardDrive,
   Lock,
+  NotebookText,
   Play,
   RefreshCw,
   RotateCcw,
   Search,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Stethoscope,
   Trash2,
@@ -27,6 +29,9 @@ import { HomeTiles } from "./components/HomeTiles";
 import { PlugBanner } from "./components/PlugBanner";
 import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
+import { EngineSettings } from "./screens/EngineSettings";
+import { ThisWeek } from "./screens/ThisWeek";
+import { useEngine } from "./screens/useEngine";
 import { useDrives } from "./screens/useDrives";
 import {
   aegis,
@@ -49,11 +54,24 @@ import {
   type RollbackResult,
   type RootConfig,
   type ScanStatus,
+  type Screen,
   type SearchPage,
   type Simulation,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "drives" | "dupes" | "search" | "rescue" | "simulator" | "doctor";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "search" | "rescue" | "simulator" | "doctor" | "settings";
+
+/** App tab for a screen the backend asks for (tray, notification, search shortcut). */
+const TAB_FOR: Record<Screen, TabId> = {
+  home: "dashboard",
+  drives: "drives",
+  dupes: "dupes",
+  search: "search",
+  rescue: "rescue",
+  simulator: "simulator",
+  week: "week",
+  settings: "settings",
+};
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -70,6 +88,7 @@ export default function App() {
   const desktop = useMemo(() => isTauriRuntime(), []);
   const [tab, setTab] = useState<TabId>("dashboard");
   const drivesData = useDrives();
+  const engineData = useEngine();
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
       ? "Aegis Guardian core ready."
@@ -190,6 +209,25 @@ export default function App() {
     },
     [refreshAll]
   );
+
+  /** Opens the tab for a backend screen; the search box gets focus. */
+  const goTo = useCallback((screen: Screen) => {
+    setTab(TAB_FOR[screen] ?? "dashboard");
+    if (screen === "search") setTimeout(() => searchInputRef.current?.focus(), 0);
+  }, []);
+
+  // A window opened from the tray or a notification asks which screen it was opened for;
+  // an already-open window follows `Navigate` events.
+  useEffect(() => {
+    if (!desktop) return;
+    void aegis.engine.navTake().then((s) => s && goTo(s)).catch(() => {});
+    const unlisten = onAegisEvent((ev) => {
+      if (ev.event === "Navigate") goTo(ev.payload.screen);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [desktop, goTo]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -426,12 +464,14 @@ export default function App() {
 
   const navItems: { id: TabId; label: string; icon: typeof ShieldCheck }[] = [
     { id: "dashboard", label: "Home", icon: HardDrive },
+    { id: "week", label: "This week", icon: NotebookText },
     { id: "drives", label: "Drives & Backup", icon: Usb },
     { id: "dupes", label: "Duplicates", icon: CopyCheck },
     { id: "search", label: "Keyword Search (Ctrl+K)", icon: Search },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
     { id: "doctor", label: "Aegis Doctor", icon: Stethoscope },
+    { id: "settings", label: "Settings", icon: SlidersHorizontal },
   ];
 
   return (
@@ -520,18 +560,20 @@ export default function App() {
             </button>
           </div>
         </header>
-        <PlugBanner onOpen={(t) => { setTab(t); void drivesData.reload(); }} />
+        <PlugBanner preview={!desktop} onOpen={(t) => { setTab(t); void drivesData.reload(); }} />
 
         <div className="flex-1 overflow-y-auto p-6">
           {tab === "drives" && (
             <DrivesScreen data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}
+          {tab === "week" && <ThisWeek data={engineData} onOpen={goTo} />}
+          {tab === "settings" && <EngineSettings data={engineData} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}
           {tab === "dashboard" && (
             <div className="space-y-6">
-              <HomeTiles data={drivesData} onOpen={setTab} />
+              <HomeTiles data={drivesData} engine={engineData} onOpen={setTab} />
               {/* Honest Coverage Banner (D3 §2) */}
               {scanStatus && (
                 <section

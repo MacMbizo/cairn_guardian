@@ -9,8 +9,12 @@ import type {
   DriveRole,
   DupeChoice,
   DupeDecisionItem,
+  EngineStatus,
   GroupedDupeReport,
   PreviousVersionItem,
+  Reminder,
+  Screen,
+  WeeklyNote,
   RefreshReport,
   SyncReport,
   TopUpAuthority,
@@ -208,5 +212,21 @@ export const aegis = {
     previousVersions: () => call<PreviousVersionItem[]>("previous_versions_list"),
     restoreVersion: (id: string, to?: string) =>
       call<string>("previous_version_restore", { id, to }),
+  },
+  engine: {
+    remindersOpen: () => call<Reminder[]>("reminders_open"),
+    /** "Not now". Returns true when that kind of reminder moved to the weekly note. */
+    dismiss: (id: string) => call<boolean>("reminder_dismiss", { id }),
+    act: (id: string) => call<void>("reminder_act", { id }),
+    undemote: (kind: string) => call<void>("reminder_undemote", { kind }),
+    noteLatest: () => call<WeeklyNote | null>("note_latest"),
+    noteMarkRead: (week: string) => call<void>("note_mark_read", { week }),
+    pause: (mode: "hour" | "tomorrow" | "resume") => call<void>("engine_pause", { mode }),
+    status: () => call<EngineStatus>("engine_status"),
+    settingsSet: (s: { autostart?: boolean; noteDay?: number; noteHour?: number; shortcut?: string }) =>
+      call<void>("engine_settings_set", s),
+    /** The screen a notification or the tray asked for before this page loaded (taken once). */
+    navTake: () => call<Screen | null>("nav_take"),
+    tripwireWasMe: (folder: string) => call<void>("tripwire_was_me", { folder }),
   },
 };

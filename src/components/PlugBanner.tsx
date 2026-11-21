@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pause, ShieldAlert, Usb, X } from "lucide-react";
+import { Pause, ShieldAlert, ShieldX, Usb, X } from "lucide-react";
 import { aegis, errorMessage, onAegisEvent, type RefreshReport } from "../bindings/client";
 import { driveName, formatBytes, formatDay } from "../format";
 import type { DrivesTab } from "./HomeTiles";
@@ -10,11 +10,19 @@ type Banner =
   | { kind: "topup"; done: number; total: number }
   | { kind: "topup_done"; text: string }
   | { kind: "halted"; text: string }
+  | { kind: "tripped"; folder: string; name: string; changed: number; scrambled: number }
   | { kind: "error"; text: string };
 
 /** One-line strip under the header: plugged-in drives, backup progress and results (spec §7.4). */
-export function PlugBanner({ onOpen }: { onOpen: (tab: DrivesTab) => void }) {
+export function PlugBanner({ onOpen, preview = false }: { onOpen: (tab: DrivesTab) => void; preview?: boolean }) {
   const [banner, setBanner] = useState<Banner | null>(null);
+
+  // Browser preview: `?tripped=1` shows the ransomware banner with sample numbers.
+  useEffect(() => {
+    if (preview && new URLSearchParams(window.location.search).has("tripped")) {
+      setBanner({ kind: "tripped", folder: "C:\\Users\\you\\Documents", name: "Documents", changed: 412, scrambled: 18 });
+    }
+  }, [preview]);
 
   useEffect(() => {
     const unlisten = onAegisEvent((ev) => {
@@ -67,6 +75,17 @@ export function PlugBanner({ onOpen }: { onOpen: (tab: DrivesTab) => void }) {
           setBanner({
             kind: "halted",
             text: `An unusual number of files changed in ${name} (${h.changed} of ${h.total}). Those weren't backed up yet.`,
+          });
+          break;
+        }
+        case "Tripped": {
+          const t = ev.payload.trip;
+          setBanner({
+            kind: "tripped",
+            folder: t.root,
+            name: t.root.split(/[\\/]/).pop() ?? t.root,
+            changed: t.changed,
+            scrambled: t.suspect_encrypted,
           });
           break;
         }
@@ -130,6 +149,39 @@ export function PlugBanner({ onOpen }: { onOpen: (tab: DrivesTab) => void }) {
           )}
           <button type="button" onClick={close} className="rounded-md border border-sky-700 px-2.5 py-1 hover:bg-sky-900/50">
             Later
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  if (banner.kind === "tripped") {
+    return (
+      <div role="alert" className={`${base} border-rose-500/40 bg-rose-950/40 text-rose-100`}>
+        <span className="flex items-center gap-2">
+          <ShieldX className="h-4 w-4 shrink-0 text-rose-300" aria-hidden="true" />
+          <span>
+            <strong>Lots of files in {banner.name} just changed at once</strong> ({banner.changed.toLocaleString()} in a minute
+            {banner.scrambled > 0 ? `, ${banner.scrambled} look scrambled` : ""}). Backup of this folder is paused so nothing bad gets copied.
+          </span>
+        </span>
+        <span className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              preview
+                ? close()
+                : void aegis.engine
+                    .tripwireWasMe(banner.folder)
+                    .then(() => setBanner({ kind: "topup_done", text: `Thanks. ${banner.name} is backed up as normal again.` }))
+                    .catch((e) => setBanner({ kind: "error", text: errorMessage(e) }))
+            }
+            className="rounded-md border border-rose-700 px-2.5 py-1 hover:bg-rose-900/50"
+          >
+            It was me
+          </button>
+          <button type="button" onClick={() => onOpen("drives")} className="rounded-md bg-rose-600 px-2.5 py-1 font-semibold text-white hover:bg-rose-500">
+            Show me
           </button>
         </span>
       </div>
