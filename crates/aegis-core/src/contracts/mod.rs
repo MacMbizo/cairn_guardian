@@ -628,6 +628,73 @@ pub struct DupeReport {
     pub total_reclaimable_bytes: u64,
 }
 
+/// One place a duplicate lives: a folder (folder groups, batched file groups) or a file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DupeLocation {
+    pub file_id: Option<String>,
+    pub volume_id: String,
+    pub volume_label: Option<String>,
+    pub online: bool,
+    pub path: String,
+    pub is_backup: bool,
+    #[ts(type = "number")]
+    pub last_seen: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DupeGroupKind {
+    /// Whole folders with identical contents.
+    Folder,
+    /// Folders sharing at least 90% of their files (both ways).
+    PartialFolder,
+    /// Individual files, batched by the folders they sit in.
+    Files,
+}
+
+/// One duplicated file inside a group, attributed to one of the group's locations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DupeMember {
+    pub location_index: usize,
+    pub file_id: String,
+    /// Path relative to its location folder.
+    pub rel_path: String,
+    pub blake3_hex: String,
+    #[ts(type = "number")]
+    pub size: i64,
+}
+
+/// One duplicate question (spec §7.5): a folder, near-identical folder, or batch of files.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DupeGroup {
+    /// Stable across rescans and drive-letter changes.
+    pub group_id: String,
+    pub kind: DupeGroupKind,
+    /// Bytes of one full copy of the group's matched content.
+    #[ts(type = "number")]
+    pub size_bytes: i64,
+    #[ts(type = "number")]
+    pub file_count: i64,
+    pub locations: Vec<DupeLocation>,
+    pub keeper_index: usize,
+    /// Relative paths present on only one side (partial folders only).
+    pub differences: Vec<String>,
+    pub needs_question: bool,
+    pub members: Vec<DupeMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct GroupedDupeReport {
+    pub groups: Vec<DupeGroup>,
+    #[ts(type = "number")]
+    pub reclaimable_bytes: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DiskRescueReport {
@@ -759,6 +826,11 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <QuarantineEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <QuarantineSpaceSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DupeReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <DupeLocation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <DupeGroupKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <DupeMember as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <DupeGroup as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <GroupedDupeReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DiskRescueReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <HealthBreakdown as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AuditEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

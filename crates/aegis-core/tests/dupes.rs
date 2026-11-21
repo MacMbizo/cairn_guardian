@@ -149,3 +149,238 @@ fn cancel_returns_partial_stats() {
     assert_eq!(stats.size_candidates, 5);
     assert_eq!(stats.quick_hashed, 0);
 }
+
+// ---------------------------------------------------------------- Task 7: grouping + safety
+
+use aegis_core::db::actions::{approve_batch, execute_batch, propose_dupe_quarantine};
+use aegis_core::dupes::{DupeGroupKind, copy_count, grouped_report};
+use std::path::Path;
+
+/// Catalogs and fingerprints every given drive.
+fn catalog_all(
+    store: &mut SqliteStore,
+    provider: &FakeVolumeProvider,
+    drives: &[&aegis_core::drives::MountedVolume],
+) -> Vec<String> {
+    let ids = drives
+        .iter()
+        .map(|d| common::plug_and_catalog(store, provider, d))
+        .collect();
+    run_fingerprint(store, &AtomicBool::new(false)).unwrap();
+    ids
+}
+
+fn file_id(store: &SqliteStore, path: &Path) -> String {
+    store
+        .conn()
+        .query_row(
+            "SELECT id FROM files WHERE path = ?1 AND deleted_at IS NULL",
+            [common::canon(path)],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+fn action_row(store: &SqliteStore, batch: &str) -> (String, Option<String>) {
+    store
+        .conn()
+        .query_row(
+            "SELECT status, error_message FROM actions WHERE batch_id = ?1",
+            [batch],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+fn set_mtime(path: &Path, secs_ago: u64) {
+    let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(secs_ago))
+        .unwrap();
+}
+
+#[test]
+fn identical_folders_on_two_drives_form_one_folder_group() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    for (i, n) in ["a.jpg", "b.jpg", "c.jpg"].iter().enumerate() {
+        let body = common::noise(2 * KIB + i, 20 + i as u64);
+        common::put(&a.mount_point, &format!("Photos/2019/{n}"), &body);
+        common::put(&c.mount_point, &format!("Old/Photos/2019/{n}"), &body);
+    }
+    common::put(&a.mount_point, "unrelated-a.txt", b"only on a");
+    common::put(&c.mount_point, "unrelated-c.txt", b"only on c, longer");
+    catalog_all(&mut store, &provider, &[&a, &c]);
+
+    let report = grouped_report(store.conn()).unwrap();
+    assert_eq!(report.groups.len(), 1, "{:#?}", report.groups);
+    let g = &report.groups[0];
+    assert_eq!(g.kind, DupeGroupKind::Folder);
+    assert_eq!(g.file_count, 3);
+    assert_eq!(g.locations.len(), 2);
+    let paths: Vec<&str> = g.locations.iter().map(|l| l.path.as_str()).collect();
+    assert!(paths.iter().any(|p| p.ends_with("A\\Photos") || p.ends_with("A/Photos")), "{paths:?}");
+    assert!(g.needs_question);
+}
+
+#[test]
+fn ninety_percent_overlap_is_partial_with_differences() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    for i in 0..10u64 {
+        let body = common::noise(3 * KIB + i as usize, 40 + i);
+        common::put(&a.mount_point, &format!("Set/f{i}.bin"), &body);
+        if i < 9 {
+            common::put(&c.mount_point, &format!("Copy/Set/f{i}.bin"), &body);
+        }
+    }
+    common::put(&c.mount_point, "Copy/Set/extra.bin", b"extra file");
+    common::put(&a.mount_point, "root-a.txt", b"a root");
+    common::put(&c.mount_point, "root-c.txt", b"c root file");
+    catalog_all(&mut store, &provider, &[&a, &c]);
+
+    let report = grouped_report(store.conn()).unwrap();
+    assert_eq!(report.groups.len(), 1, "{:#?}", report.groups);
+    let g = &report.groups[0];
+    assert_eq!(g.kind, DupeGroupKind::PartialFolder);
+    let mut diffs = g.differences.clone();
+    diffs.sort();
+    assert_eq!(diffs, vec!["extra.bin".to_string(), "f9.bin".to_string()]);
+}
+
+#[test]
+fn keeper_prefers_non_backup_then_oldest() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 60);
+    let pa = common::put(&a.mount_point, "x.bin", &body);
+    let pb = common::put(&b.mount_point, "x.bin", &body);
+    let pc = common::put(&c.mount_point, "x.bin", &body);
+    set_mtime(&pb, 3000); // oldest, but on the Backup drive
+    set_mtime(&pa, 2000);
+    set_mtime(&pc, 1000);
+    let ids = catalog_all(&mut store, &provider, &[&a, &b, &c]);
+    store
+        .conn()
+        .execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&ids[1]])
+        .unwrap();
+
+    let report = grouped_report(store.conn()).unwrap();
+    assert_eq!(report.groups.len(), 1);
+    let g = &report.groups[0];
+    let keeper = &g.locations[g.keeper_index];
+    assert_eq!(keeper.volume_id, ids[0], "A: not backup, and older than C");
+    assert!(g.locations.iter().any(|l| l.is_backup));
+}
+
+#[test]
+fn refuses_delete_below_min_copies() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 61);
+    let pa = common::put(&a.mount_point, "x.bin", &body);
+    let pc = common::put(&c.mount_point, "x.bin", &body);
+    catalog_all(&mut store, &provider, &[&a, &c]);
+    let keep = file_id(&store, &pa);
+    let drop = file_id(&store, &pc);
+    let err = propose_dupe_quarantine(&mut store, &keep, &[drop]).unwrap_err();
+    assert!(
+        matches!(err, aegis_core::error::AegisError::PolicyBlocked { .. }),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("Make this the backup copy"), "{err}");
+}
+
+#[test]
+fn hardlinks_count_once() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 62);
+    let pa = common::put(&a.mount_point, "x.bin", &body);
+    std::fs::hard_link(&pa, a.mount_point.join("x-link.bin")).unwrap();
+    common::put(&c.mount_point, "x.bin", &body);
+    catalog_all(&mut store, &provider, &[&a, &c]);
+    assert_eq!(copy_count(store.conn(), blake3::hash(&body).as_bytes()).unwrap(), 2);
+}
+
+fn three_copies(
+    tmp: &tempfile::TempDir,
+    store: &mut SqliteStore,
+    provider: &FakeVolumeProvider,
+) -> (std::path::PathBuf, std::path::PathBuf, aegis_core::drives::MountedVolume, String) {
+    let a = common::fake_drive(tmp, "A", "0001");
+    let b = common::fake_drive(tmp, "B", "0002");
+    let c = common::fake_drive(tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 63);
+    let pa = common::put(&a.mount_point, "x.bin", &body);
+    common::put(&b.mount_point, "x.bin", &body);
+    let pc = common::put(&c.mount_point, "x.bin", &body);
+    catalog_all(store, provider, &[&a, &b, &c]);
+    let keep = file_id(store, &pc);
+    let drop = file_id(store, &pa);
+    let batch = propose_dupe_quarantine(store, &keep, &[drop]).unwrap();
+    approve_batch(store, &batch, None).unwrap();
+    (pa, pc, c, batch)
+}
+
+#[test]
+fn survivor_offline_fails_action_without_moving() {
+    let (tmp, mut store, provider) = setup();
+    let (pa, _pc, c, batch) = three_copies(&tmp, &mut store, &provider);
+    provider.unplug(&c.mount_point);
+    sync_mounted(&mut store, &provider).unwrap();
+    execute_batch(&mut store, &batch).unwrap();
+    let (status, msg) = action_row(&store, &batch);
+    assert_eq!(status, "failed");
+    let msg = msg.unwrap_or_default();
+    assert!(msg.contains("Plug it in to confirm"), "{msg}");
+    assert!(msg.contains("C"), "names the drive: {msg}");
+    assert!(pa.exists(), "nothing moved");
+}
+
+#[test]
+fn survivor_deleted_outside_aegis_fails() {
+    let (tmp, mut store, provider) = setup();
+    let (pa, pc, _c, batch) = three_copies(&tmp, &mut store, &provider);
+    std::fs::remove_file(&pc).unwrap();
+    execute_batch(&mut store, &batch).unwrap();
+    let (status, _) = action_row(&store, &batch);
+    assert_eq!(status, "failed");
+    assert!(pa.exists(), "nothing moved");
+}
+
+#[test]
+fn backup_copy_needs_no_question() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let body = common::noise(5 * KIB, 64);
+    let pa = common::put(&a.mount_point, "x.bin", &body);
+    common::put(&b.mount_point, "Aegis Backup/A/x.bin", &body);
+    let ids = catalog_all(&mut store, &provider, &[&a, &b]);
+    store
+        .conn()
+        .execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&ids[1]])
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO backup_copies (id, source_file_id, backup_volume_id, backup_rel_path, source_blake3, copied_at)
+             VALUES ('bc1', ?1, ?2, ?3, ?4, 0)",
+            rusqlite::params![
+                file_id(&store, &pa),
+                ids[1],
+                Path::new("Aegis Backup").join("A").join("x.bin").to_string_lossy(),
+                blake3::hash(&body).as_bytes().to_vec()
+            ],
+        )
+        .unwrap();
+    let report = grouped_report(store.conn()).unwrap();
+    assert_eq!(report.groups.len(), 1);
+    assert!(!report.groups[0].needs_question);
+}

@@ -50,6 +50,10 @@ pub enum AegisError {
     #[error("invalid argument: {0}")]
     InvalidInput(String),
 
+    /// The copy a duplicate delete relies on could not be confirmed right now (spec §7.5 S3).
+    #[error("{0}")]
+    SurvivorUnavailable(String),
+
     #[error("rollback conflict detected on batch {0}")]
     RollbackConflict(String),
 
@@ -114,6 +118,12 @@ impl AegisError {
                 message: msg.clone(),
                 retryable: true,
                 remediation: Some("Ensure volume is online and writable for .aegis-quarantine.".into()),
+            },
+            Self::SurvivorUnavailable(msg) => IpcError {
+                code: "survivor_unavailable".into(),
+                message: msg.clone(),
+                retryable: true,
+                remediation: Some("Plug in the drive holding the other copy, or keep both.".into()),
             },
             Self::PolicyBlocked { rule, detail } => IpcError {
                 code: format!("policy_blocked:{rule}"),

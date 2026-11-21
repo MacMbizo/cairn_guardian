@@ -90,14 +90,25 @@ fn non_overwriting_dest(path: &Path) -> (PathBuf, bool) {
 }
 
 pub fn build_policy_context(store: &SqliteStore) -> Result<PolicyContext> {
+    let volumes = store.list_volumes()?;
     let active_roots = store
         .list_roots()?
         .into_iter()
         .filter(|r| r.enabled)
         .map(|r| PathBuf::from(r.path))
+        // A drive Aegis has fully catalogued is managed as a whole (spec §7.8.1), while online.
+        .chain(
+            volumes
+                .iter()
+                .filter(|v| {
+                    v.status == "online"
+                        && v.last_catalog_complete_at.is_some()
+                        && (v.passport_id.is_some() || v.id.starts_with("fp-"))
+                })
+                .map(|v| PathBuf::from(&v.mount_point)),
+        )
         .collect();
-    let volume_quarantine_dirs = store
-        .list_volumes()?
+    let volume_quarantine_dirs = volumes
         .into_iter()
         .filter_map(|v| v.quarantine_dir.map(PathBuf::from))
         .collect();
@@ -125,6 +136,8 @@ struct DbActionRow {
     status: ActionStatus,
     rollback_conflict: Option<RollbackConflictKind>,
     error_message: Option<String>,
+    /// For duplicate quarantines: the copy that must still exist, verified at execute time.
+    survivor_file_id: Option<String>,
 }
 
 impl DbActionRow {
@@ -152,7 +165,7 @@ fn load_batch_actions(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionR
     let mut stmt = conn.prepare(
         "SELECT id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
                 from_path, to_path, post_blake3, reason, confidence,
-                status, rollback_conflict, error_message
+                status, rollback_conflict, error_message, survivor_file_id
          FROM actions WHERE batch_id = ?1 ORDER BY created_at ASC, id ASC",
     )?;
     let rows = stmt.query_map(params![batch_id], |r| {
@@ -176,6 +189,7 @@ fn load_batch_actions(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionR
             status: ActionStatus::from_db(&st_str),
             rollback_conflict: rc_str.as_deref().and_then(RollbackConflictKind::from_db),
             error_message: r.get(14)?,
+            survivor_file_id: r.get(15)?,
         })
     })?;
     let mut out = Vec::new();
@@ -346,8 +360,39 @@ pub fn propose_dupe_quarantine(
     keeper_file_id: &str,
     member_file_ids: &[String],
 ) -> Result<String> {
+    let keeper_hash: Option<Vec<u8>> = store
+        .conn()
+        .query_row(
+            "SELECT blake3 FROM files WHERE id = ?1 AND deleted_at IS NULL AND state NOT IN ('quarantine','missing')",
+            params![keeper_file_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let keeper_hash = keeper_hash
+        .ok_or_else(|| AegisError::NotFound(format!("kept copy {keeper_file_id} has no fingerprint")))?;
+    let removing: Vec<&String> = member_file_ids
+        .iter()
+        .filter(|f| f.as_str() != keeper_file_id)
+        .collect();
+    let pending: i64 = store.conn().query_row(
+        "SELECT COUNT(DISTINCT a.file_id) FROM actions a JOIN files f ON f.id = a.file_id
+         WHERE a.action_type = 'quarantine' AND a.status IN ('proposed','approved') AND f.blake3 = ?1",
+        params![keeper_hash],
+        |r| r.get(0),
+    )?;
+    let copies = crate::dupes::copy_count(store.conn(), &keeper_hash)?;
+    if copies - pending - (removing.len() as i64) < crate::dupes::MIN_COPIES {
+        return Err(AegisError::PolicyBlocked {
+            rule: "min_copies".into(),
+            detail: format!(
+                "Aegis keeps at least {} copies of every file, and only {copies} exist. Make this the backup copy instead of deleting it.",
+                crate::dupes::MIN_COPIES
+            ),
+        });
+    }
     let mut actions = Vec::new();
-    for fid in member_file_ids.iter().filter(|f| f.as_str() != keeper_file_id) {
+    for fid in removing {
         let (path, atomic_unit_id): (String, Option<String>) = store
             .conn()
             .query_row(
@@ -371,13 +416,18 @@ pub fn propose_dupe_quarantine(
             evidence_json: serde_json::json!([{ "keeper_file_id": keeper_file_id }]).to_string(),
         });
     }
-    propose_batch(
+    let batch = propose_batch(
         store,
         &RefilePlan {
             origin: "dedupe".into(),
             actions,
         },
-    )
+    )?;
+    store.conn().execute(
+        "UPDATE actions SET survivor_file_id = ?2 WHERE batch_id = ?1",
+        params![batch, keeper_file_id],
+    )?;
+    Ok(batch)
 }
 
 /// Dry-run Simulator evaluating collisions and `C4 v1.1` Policy verdicts (`C1` `actions.simulate`).
@@ -805,6 +855,21 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
             None
         };
         let pre_state_json = capture_state_json(from);
+
+        // Duplicate deletes: the other copy must be online and unchanged right now (S3).
+        if let Some(survivor) = row.survivor_file_id.as_deref() {
+            let check = match pre_blake3.as_deref() {
+                Some(h) => crate::dupes::verify_survivor(store.conn(), survivor, h),
+                None => Err(AegisError::SurvivorUnavailable(
+                    "This copy could not be read to compare with the one being kept.".into(),
+                )),
+            };
+            if let Err(e) = check {
+                failed_count += 1;
+                mark_action(store, &row.id, "failed", &e.to_string())?;
+                continue;
+            }
+        }
 
         // 1. Disk first, outside any transaction.
         let outcome = match perform_execute_fs(row, meta) {
@@ -1370,11 +1435,11 @@ pub fn list_actions(conn: &Connection, status: Option<ActionStatus>) -> Result<V
 /// Generates an exact-duplicate report adjusted honestly for hardlinks (`ADR-003`).
 pub fn exact_dedupe_report(conn: &Connection) -> Result<DupeReport> {
     let mut stmt = conn.prepare(
-        "SELECT id, volume_id, file_index, nlink, size, blake3, path, last_access
-         FROM files
-         WHERE deleted_at IS NULL AND state NOT IN ('quarantine','missing')
-           AND blake3 IS NOT NULL AND size > 0
-         ORDER BY blake3, length(path) ASC, COALESCE(last_access, mtime) DESC",
+        "SELECT f.id, f.volume_id, f.file_index, f.nlink, f.size, f.blake3, f.path, f.last_access
+         FROM files f LEFT JOIN volumes v ON v.id = f.volume_id
+         WHERE f.deleted_at IS NULL AND f.state NOT IN ('quarantine','missing')
+           AND f.blake3 IS NOT NULL AND f.size > 0
+         ORDER BY f.blake3, COALESCE(v.role = 'backup', 0) ASC, f.mtime ASC, length(f.path) ASC",
     )?;
 
     #[allow(clippy::type_complexity)]

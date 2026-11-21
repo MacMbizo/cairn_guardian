@@ -519,14 +519,22 @@ fn ignore_rules_saved_from_settings_are_applied() {
 
 #[test]
 fn dedupe_cluster_can_be_proposed_for_quarantine() {
-    let mut fx = fixture(&[("a/dup.txt", "same bytes"), ("b/c/dup.txt", "same bytes")]);
+    // Three copies: one may go, leaving the minimum of two.
+    let mut fx = fixture(&[
+        ("a/dup.txt", "same bytes"),
+        ("b/c/dup.txt", "same bytes"),
+        ("d/dup.txt", "same bytes"),
+    ]);
     let report = exact_dedupe_report(fx.store.conn()).unwrap();
     assert_eq!(report.clusters.len(), 1);
     let cl = &report.clusters[0];
-    let batch =
-        propose_dupe_quarantine(&mut fx.store, &cl.keeper_file_id, &cl.member_file_ids).unwrap();
+    let drop_one = vec![cl.keeper_file_id.clone(), cl.member_file_ids[1].clone()];
+    let batch = propose_dupe_quarantine(&mut fx.store, &cl.keeper_file_id, &drop_one).unwrap();
     let statuses = action_status(&fx.store, &batch);
     assert_eq!(statuses, vec!["proposed".to_string()], "only the non-keeper is proposed");
+
+    // Removing every extra copy would leave one: refused.
+    assert!(propose_dupe_quarantine(&mut fx.store, &cl.keeper_file_id, &cl.member_file_ids).is_err());
 }
 
 #[cfg(windows)]
