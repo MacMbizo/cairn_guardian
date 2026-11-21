@@ -650,3 +650,197 @@ fn pc_rules_apply_to_pc_and_can_be_stopped_or_deleted() {
     delete_rule(c, &id).unwrap();
     assert!(list_rules(c).unwrap().is_empty());
 }
+
+// ---------- Task 7: batches ----------
+
+use aegis_core::db::actions::{approve_batch, execute_batch, rollback_batch};
+use aegis_core::filing::batches::{BATCH_MAX, after_execute, after_rollback, next_batch, open_filing_batch};
+
+fn actions_of(s: &SqliteStore, batch: &str) -> Vec<(String, String, Option<String>, String)> {
+    let mut st = s
+        .conn()
+        .prepare("SELECT id, from_path, to_path, status FROM actions WHERE batch_id = ?1 ORDER BY from_path")
+        .unwrap();
+    st.query_map([batch], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+}
+
+fn invoice_text() -> &'static str {
+    "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due"
+}
+
+#[test]
+fn first_batch_is_loose_root_items_capped_at_500() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        for i in 0..620 {
+            common::put(m, &format!("setup{i}.exe"), b"MZ");
+        }
+        common::put(&m.join("old").join("deep"), "tool.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    assert_eq!(actions_of(&s, &b).len(), BATCH_MAX);
+    assert!(actions_of(&s, &b).iter().all(|a| !a.1.contains("deep")), "loose root items come first");
+    assert_eq!(open_filing_batch(s.conn(), &scope).unwrap().as_deref(), Some(b.as_str()));
+    assert!(next_batch(&mut s, &scope).unwrap().is_none(), "one batch at a time");
+}
+
+#[test]
+fn no_batch_without_a_blueprint() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        common::put(m, "setup.exe", b"MZ");
+    });
+    assert!(next_batch(&mut s, &scope).unwrap().is_none());
+}
+
+#[test]
+fn same_target_name_in_one_batch_gets_suffix() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", invoice_text());
+        fixtures_filing::docx(m, "scan2.docx", invoice_text());
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    let tos: Vec<String> = actions_of(&s, &b).into_iter().filter_map(|a| a.2).collect();
+    assert_eq!(tos.len(), 2);
+    assert_ne!(tos[0].to_lowercase(), tos[1].to_lowercase());
+    assert!(tos.iter().any(|t| t.ends_with("2026-03-14 Vodacom invoice (2).docx")), "{tos:?}");
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    assert!(actions_of(&s, &b).iter().all(|a| a.3 == "executed"));
+}
+
+#[test]
+fn executed_batch_records_history_and_old_name_is_findable() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", invoice_text());
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    let (old, new): (String, String) = s
+        .conn()
+        .query_row("SELECT old_path, new_path FROM file_history WHERE batch_id = ?1", [&b], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert!(old.ends_with("scan1.docx"));
+    assert!(new.ends_with("2026-03-14 Vodacom invoice.docx"));
+    assert!(std::path::Path::new(&new).is_file());
+    assert!(!mount.join("scan1.docx").exists());
+}
+
+#[test]
+fn moved_away_file_fails_alone() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+        common::put(m, "b-setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    std::fs::rename(mount.join("a-setup.exe"), mount.join("renamed-by-owner.exe")).unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    let acts = actions_of(&s, &b);
+    assert_eq!(acts.iter().filter(|a| a.3 == "failed").count(), 1);
+    assert_eq!(acts.iter().filter(|a| a.3 == "executed").count(), 1);
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [&b], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1);
+}
+
+#[test]
+fn partially_executed_batch_records_only_done_moves() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+        common::put(m, "b-setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    std::fs::remove_file(mount.join("b-setup.exe")).unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [&b], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1);
+    rollback_batch(&mut s, &b).unwrap();
+    after_rollback(&mut s, &b).unwrap();
+    assert!(mount.join("a-setup.exe").is_file(), "the done move is undone");
+}
+
+#[test]
+fn group_move_reindexes_children() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        let c = m.join("self development").join("Learn Rust");
+        for i in 1..=6 {
+            common::put(&c, &format!("{i:02} Lesson.mp4"), b"vid");
+            common::put(&c, &format!("{i:02} Lesson.srt"), b"1");
+        }
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    let paths: Vec<String> = {
+        let mut st = s.conn().prepare("SELECT path FROM files WHERE deleted_at IS NULL AND name LIKE '%Lesson%'").unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+    };
+    assert_eq!(paths.len(), 12, "{paths:?}");
+    assert!(paths.iter().all(|p| p.contains("Courses")), "{paths:?}");
+    let h: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [&b], |r| r.get(0)).unwrap();
+    assert_eq!(h, 12, "every file in the course has a history row");
+}
+
+#[test]
+fn unticked_item_counts_as_rejection_and_is_not_proposed_again() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+        common::put(m, "b-setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    let acts = actions_of(&s, &b);
+    approve_batch(&mut s, &b, Some(&[acts[0].0.clone()])).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    assert_eq!(actions_of(&s, &b)[1].3, "rejected");
+    let rule = list_rules(s.conn()).unwrap().into_iter().find(|r| r.kind == Kind::Installer).unwrap();
+    assert_eq!((rule.approvals, rule.rejections), (0, 1));
+    assert!(next_batch(&mut s, &scope).unwrap().is_none(), "the owner said leave it");
+}
+
+#[test]
+fn rollback_counts_as_undo() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    assert_eq!(list_rules(s.conn()).unwrap()[0].approvals, 1);
+    rollback_batch(&mut s, &b).unwrap();
+    after_rollback(&mut s, &b).unwrap();
+    let r = &list_rules(s.conn()).unwrap()[0];
+    assert_eq!((r.approvals, r.rejections), (0, 1));
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+}
+
+#[test]
+fn tidy_does_not_rename_folders_holding_code() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        std::fs::create_dir_all(m.join("projectsv2").join("app").join(".git")).unwrap();
+        common::put(&m.join("projectsv2").join("app"), "main.rs", b"fn main(){}");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Tidy).unwrap();
+    assert!(
+        !ps.iter().any(|p| p.from.ends_with("projectsv2") && p.to.is_some()),
+        "renaming a folder that holds code would break the code's paths"
+    );
+}

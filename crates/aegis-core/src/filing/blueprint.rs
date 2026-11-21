@@ -378,6 +378,8 @@ fn stays(row: &Row, reason: &str) -> Placement {
 
 struct Group {
     path: String,
+    /// A code project (never renamed around or moved).
+    code: bool,
     to: Option<PathBuf>,
     reason: String,
     confidence: f64,
@@ -414,6 +416,7 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
     for u in units {
         groups.push(Group {
             path: u,
+            code: true,
             to: None,
             reason: "Code project: stays where it is so your tools keep working".into(),
             confidence: 1.0,
@@ -473,7 +476,7 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             BlueprintChoice::Fresh => bases.of("Videos").map(|b| b.join("Courses").join(&name)),
             BlueprintChoice::Tidy => None,
         };
-        groups.push(Group { path: c.to_string_lossy().to_string(), to, reason: format!("Course: {name}"), confidence: 0.9 });
+        groups.push(Group { path: c.to_string_lossy().to_string(), code: false, to, reason: format!("Course: {name}"), confidence: 0.9 });
     }
     // Named photo events ("Cape Town Dec 2023").
     for (d, (_, _, _, photos, years)) in &dirs {
@@ -488,7 +491,7 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             BlueprintChoice::Fresh => bases.of("Photos").map(|b| b.join(&year).join(&name)),
             BlueprintChoice::Tidy => None,
         };
-        groups.push(Group { path: d.to_string_lossy().to_string(), to, reason: format!("Photo album: {name}"), confidence: 0.9 });
+        groups.push(Group { path: d.to_string_lossy().to_string(), code: false, to, reason: format!("Photo album: {name}"), confidence: 0.9 });
     }
     Ok(groups)
 }
@@ -580,7 +583,10 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
             if only.is_none() {
                 for t in tops.keys().filter(|t| !merge_into.contains_key(*t)) {
                     let letters: Vec<char> = t.chars().filter(|c| c.is_alphabetic()).collect();
-                    if !letters.is_empty() && letters.iter().all(|c| c.is_lowercase()) {
+                    // Renaming a folder that holds code would break every path inside it.
+                    let top_path = root_p.join(t).to_string_lossy().to_string();
+                    let holds_code = groups.iter().any(|g| g.code && path_is_within(&g.path, &top_path, false));
+                    if !holds_code && !letters.is_empty() && letters.iter().all(|c| c.is_lowercase()) {
                         let files = root_rows.iter().filter(|r| path_is_within(&r.path, &root_p.join(t).to_string_lossy(), false)).count();
                         out.push(Placement {
                             target: Target::Group { path: root_p.join(t).to_string_lossy().to_string(), files },
