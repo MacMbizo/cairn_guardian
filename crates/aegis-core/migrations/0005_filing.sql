@@ -7,6 +7,7 @@ CREATE TABLE file_meta (
     doc_type TEXT,
     who TEXT,
     doc_date TEXT,
+    date_source TEXT,
     title TEXT,
     exif_taken_at INTEGER,
     camera TEXT,

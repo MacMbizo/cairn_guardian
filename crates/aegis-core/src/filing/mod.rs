@@ -73,6 +73,8 @@ pub struct FileMeta {
     pub who: Option<String>,
     /// `YYYY-MM-DD`.
     pub doc_date: Option<String>,
+    /// Where `doc_date` came from: only content, name and photo dates are trusted for naming.
+    pub date_source: classify::DateSource,
     pub title: Option<String>,
     #[ts(type = "number | null")]
     pub exif_taken_at: Option<i64>,
@@ -96,6 +98,7 @@ impl FileMeta {
             doc_type: None,
             who: None,
             doc_date: None,
+            date_source: classify::DateSource::None,
             title: None,
             exif_taken_at: None,
             camera: None,
@@ -112,14 +115,14 @@ impl FileMeta {
 pub fn save_meta(conn: &Connection, m: &FileMeta) -> Result<()> {
     conn.execute(
         "INSERT INTO file_meta (file_id, kind, category, doc_type, who, doc_date, title, exif_taken_at, camera,
-                                artist, album, confidence, evidence_json, read_at, read_error)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                artist, album, confidence, evidence_json, read_at, read_error, date_source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
          ON CONFLICT(file_id) DO UPDATE SET
             kind = excluded.kind, category = excluded.category, doc_type = excluded.doc_type,
             who = excluded.who, doc_date = excluded.doc_date, title = excluded.title,
             exif_taken_at = excluded.exif_taken_at, camera = excluded.camera, artist = excluded.artist,
             album = excluded.album, confidence = excluded.confidence, evidence_json = excluded.evidence_json,
-            read_at = excluded.read_at, read_error = excluded.read_error",
+            read_at = excluded.read_at, read_error = excluded.read_error, date_source = excluded.date_source",
         params![
             m.file_id,
             m.kind.as_str(),
@@ -135,7 +138,8 @@ pub fn save_meta(conn: &Connection, m: &FileMeta) -> Result<()> {
             m.confidence,
             serde_json::to_string(&m.evidence)?,
             m.read_at,
-            m.read_error
+            m.read_error,
+            m.date_source.as_str()
         ],
     )?;
     Ok(())
@@ -145,7 +149,7 @@ pub fn load_meta(conn: &Connection, file_id: &str) -> Result<Option<FileMeta>> {
     let row = conn
         .query_row(
             "SELECT kind, category, doc_type, who, doc_date, title, exif_taken_at, camera, artist, album,
-                    confidence, evidence_json, read_at, read_error
+                    confidence, evidence_json, read_at, read_error, date_source
              FROM file_meta WHERE file_id = ?1",
             [file_id],
             |r| {
@@ -157,6 +161,7 @@ pub fn load_meta(conn: &Connection, file_id: &str) -> Result<Option<FileMeta>> {
                     doc_type: r.get(2)?,
                     who: r.get(3)?,
                     doc_date: r.get(4)?,
+                    date_source: classify::DateSource::from_db(r.get::<_, Option<String>>(14)?.as_deref()),
                     title: r.get(5)?,
                     exif_taken_at: r.get(6)?,
                     camera: r.get(7)?,
@@ -234,3 +239,4 @@ pub mod classify;
 pub mod reader;
 pub mod orgs;
 pub mod naming;
+pub mod blueprint;

@@ -76,6 +76,28 @@ pub enum DateSource {
     None,
 }
 
+impl DateSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Content => "content",
+            Self::Name => "name",
+            Self::Exif => "exif",
+            Self::Modified => "modified",
+            Self::None => "none",
+        }
+    }
+
+    pub fn from_db(s: Option<&str>) -> DateSource {
+        match s {
+            Some("content") => Self::Content,
+            Some("name") => Self::Name,
+            Some("exif") => Self::Exif,
+            Some("modified") => Self::Modified,
+            _ => Self::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Classification {
     pub kind: Kind,

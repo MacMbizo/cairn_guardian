@@ -39,6 +39,7 @@ fn meta_round_trips() {
         doc_type: Some("invoice".into()),
         who: Some("Vodacom".into()),
         doc_date: Some("2026-03-14".into()),
+        date_source: aegis_core::filing::classify::DateSource::Content,
         title: None,
         exif_taken_at: None,
         camera: None,
@@ -418,4 +419,158 @@ fn names_are_sanitised_and_capped() {
 #[test]
 fn unchanged_name_is_not_proposed() {
     assert_eq!(proposed_name(&invoice_class(), "2026-03-14 Vodacom invoice", "pdf", 0), None);
+}
+
+// ---------- Task 6: blueprints ----------
+
+use aegis_core::drives::FakeVolumeProvider;
+use aegis_core::filing::blueprint::{Placement, Target, plan, summarize};
+use aegis_core::filing::reader::classify_unread;
+
+/// A catalogued fake drive whose files have been read and classified. Returns (tmp, store, mount, scope).
+fn drive_with(build: impl FnOnce(&std::path::Path)) -> (tempfile::TempDir, SqliteStore, std::path::PathBuf, Scope) {
+    let t = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let d = common::fake_drive(&t, "Data", "0007");
+    build(&d.mount_point);
+    let id = common::plug_and_catalog(&mut s, &provider, &d);
+    read_pending(&mut s, 1_000, Duration::from_secs(10)).unwrap();
+    classify_unread(&mut s, 10_000).unwrap();
+    let mount = std::path::PathBuf::from(common::canon(&d.mount_point));
+    (t, s, mount, Scope::Volume { volume_id: id })
+}
+
+fn placement_for<'a>(ps: &'a [Placement], file_name: &str) -> &'a Placement {
+    ps.iter()
+        .find(|p| matches!(p.target, Target::File { .. }) && p.from.ends_with(file_name))
+        .unwrap_or_else(|| panic!("no placement for {file_name}: {ps:#?}"))
+}
+
+fn rel(mount: &std::path::Path, p: &str) -> String {
+    let m = mount.to_string_lossy().to_string();
+    p.strip_prefix(&m).unwrap_or(p).trim_start_matches(['\\', '/']).replace('/', "\\")
+}
+
+#[test]
+fn fresh_places_documents_photos_and_installers() {
+    let (_t, s, mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(&m.join("junk"), "scan0001.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");
+        fixtures_filing::jpeg_with_exif(&m.join("junk"), "IMG_1.jpg", "2024:03:14 10:22:05", "Pixel 7");
+        common::put(&m.join("junk"), "setup.exe", b"MZ");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let inv = placement_for(&ps, "scan0001.docx");
+    assert_eq!(rel(&mount, inv.to.as_deref().unwrap()), "Documents\\Finance\\Invoices & receipts\\2026\\2026-03-14 Vodacom invoice.docx");
+    assert_eq!(inv.new_name.as_deref(), Some("2026-03-14 Vodacom invoice.docx"));
+    assert!(inv.confidence >= 0.90);
+    let photo = placement_for(&ps, "IMG_1.jpg");
+    assert_eq!(rel(&mount, photo.to.as_deref().unwrap()), "Photos\\2024\\2024-03\\IMG_1.jpg");
+    let exe = placement_for(&ps, "setup.exe");
+    assert_eq!(rel(&mount, exe.to.as_deref().unwrap()), "Software\\Installers\\setup.exe");
+}
+
+#[test]
+fn code_projects_stay_whole_and_untouched() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        std::fs::create_dir_all(m.join("projects").join("app").join(".git")).unwrap();
+        common::put(&m.join("projects").join("app"), "main.rs", b"fn main(){}");
+        fixtures_filing::docx(&m.join("projects").join("app"), "notes.docx", "TAX INVOICE Vodacom");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    assert!(
+        !ps.iter().any(|p| matches!(p.target, Target::File { .. }) && p.from.contains("app")),
+        "nothing inside a code project is placed on its own"
+    );
+    let unit = ps.iter().find(|p| matches!(p.target, Target::Group { .. }) && p.from.ends_with("app")).unwrap();
+    assert_eq!(unit.to, None, "code projects stay where they are");
+}
+
+#[test]
+fn course_folder_kept_together() {
+    let (_t, s, mount, scope) = drive_with(|m| {
+        let c = m.join("self development").join("Learn Rust");
+        for i in 1..=6 {
+            common::put(&c, &format!("{i:02} Lesson.mp4"), b"vid");
+            common::put(&c, &format!("{i:02} Lesson.srt"), b"1");
+        }
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let g = ps.iter().find(|p| matches!(p.target, Target::Group { .. }) && p.from.ends_with("Learn Rust")).unwrap();
+    assert_eq!(rel(&mount, g.to.as_deref().unwrap()), "Videos\\Courses\\Learn Rust");
+    assert!(!ps.iter().any(|p| matches!(p.target, Target::File { .. }) && p.from.contains("Learn Rust")));
+}
+
+#[test]
+fn low_confidence_goes_to_sort() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        common::put(m, "misc.txt", b"hello world notes");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let p = placement_for(&ps, "misc.txt");
+    assert!(p.to_sort);
+    assert_eq!(p.to, None);
+}
+
+#[test]
+fn tidy_merges_msidocuments_into_documents_and_files_loose_items() {
+    let (_t, s, mount, scope) = drive_with(|m| {
+        for i in 0..3 {
+            common::put(&m.join("documents").join("letters"), &format!("l{i}.txt"), b"x");
+        }
+        common::put(&m.join("msidocuments").join("letters"), "old.txt", b"x");
+        fixtures_filing::docx(m, "scan9.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Tidy).unwrap();
+    let old = placement_for(&ps, "old.txt");
+    assert_eq!(rel(&mount, old.to.as_deref().unwrap()).to_lowercase(), "documents\\letters\\old.txt");
+    let loose = placement_for(&ps, "scan9.docx");
+    assert_eq!(rel(&mount, loose.to.as_deref().unwrap()).to_lowercase(), "documents\\2026-03-14 vodacom invoice.docx");
+    let rename = ps.iter().find(|p| matches!(p.target, Target::Group { .. }) && p.from.ends_with("documents")).unwrap();
+    assert_eq!(rel(&mount, rename.to.as_deref().unwrap()), "Documents", "all-lowercase folder names become Title Case");
+}
+
+#[test]
+fn pc_scope_maps_to_known_folders() {
+    let t = tempfile::TempDir::new().unwrap();
+    let home = t.path().join("me");
+    for f in ["Documents", "Pictures", "Downloads"] {
+        std::fs::create_dir_all(home.join(f)).unwrap();
+    }
+    fixtures_filing::jpeg_with_exif(&home.join("Downloads"), "IMG_9.jpg", "2023:07:01 09:00:00", "Pixel 7");
+    let mut s = store();
+    for f in ["Documents", "Pictures", "Downloads"] {
+        s.add_root(&home.join(f)).unwrap();
+        scan_root(&mut s, &home.join(f), &[1]).unwrap();
+    }
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    let ps = plan(&s, &Scope::Pc, BlueprintChoice::Fresh).unwrap();
+    let photo = placement_for(&ps, "IMG_9.jpg");
+    let pictures = common::canon(&home.join("Pictures"));
+    assert_eq!(photo.to.as_deref().unwrap(), format!("{pictures}\\2023\\2023-07\\IMG_9.jpg"));
+}
+
+#[test]
+fn backup_drive_is_refused() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        common::put(m, "a.txt", b"x");
+    });
+    let Scope::Volume { volume_id } = &scope else { unreachable!() };
+    s.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [volume_id]).unwrap();
+    assert!(plan(&s, &scope, BlueprintChoice::Fresh).is_err());
+}
+
+#[test]
+fn summary_counts_and_examples() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");
+        common::put(m, "setup.exe", b"MZ");
+        common::put(m, "misc.txt", b"hello world notes");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let sum = summarize(&ps, BlueprintChoice::Fresh, &s).unwrap();
+    assert_eq!((sum.moves, sum.renames, sum.to_sort), (2, 1, 1));
+    assert!(sum.examples.len() <= 6 && !sum.examples.is_empty());
+    let top: Vec<&str> = sum.tree.iter().map(|n| n.name.as_str()).collect();
+    assert!(top.contains(&"Documents") && top.contains(&"Software"), "{top:?}");
 }

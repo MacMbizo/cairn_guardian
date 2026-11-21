@@ -156,6 +156,7 @@ fn apply_classification(
     meta.doc_type = c.doc_type;
     meta.who = c.who;
     meta.doc_date = c.doc_date;
+    meta.date_source = c.date_source;
     meta.confidence = c.confidence;
     meta.evidence = c.evidence;
 }
