@@ -536,3 +536,105 @@ fn standing_run_refuses_paths_outside_backup_root() {
     assert!(!fx.tmp.path().join("escaped.txt").exists());
     assert!(!fx.backup.mount_point.join("escaped.txt").exists());
 }
+
+// ---------------------------------------------------------------- Task 12: guard
+
+use aegis_core::backup::guard::{looks_encrypted, override_halt};
+
+/// Backs up `n_a` files under Documents\A and `n_b` under Documents\B as two sources.
+fn two_source_fx(n_a: usize, n_b: usize, ext: &str) -> BackupFx {
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..n_a {
+        files.push((format!("A/f{i}.{ext}"), doc_bytes(i)));
+    }
+    for i in 0..n_b {
+        files.push((format!("B/f{i}.{ext}"), doc_bytes(100 + i)));
+    }
+    let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let mut fx = backup_fx(&refs);
+    fx.store.conn().execute("DELETE FROM backup_sources", []).unwrap();
+    add_source_for(&fx.store, &fx.docs.join("A"));
+    add_source_for(&fx.store, &fx.docs.join("B"));
+    topup(&mut fx);
+    fx
+}
+
+/// A plausible .docx: zip magic followed by ordinary text.
+fn doc_bytes(i: usize) -> Vec<u8> {
+    let mut v = b"PK\x03\x04".to_vec();
+    v.extend_from_slice(format!("document number {i} with ordinary words in it. ").repeat(40).as_bytes());
+    v
+}
+
+fn change(fx: &mut BackupFx, rels: &[String], random: bool) {
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    for (k, rel) in rels.iter().enumerate() {
+        let body = if random { common::noise(8 * KIB, 500 + k as u64) } else { format!("edited {k}").into_bytes() };
+        std::fs::write(fx.docs.join(rel), body).unwrap();
+    }
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+}
+
+#[test]
+fn twenty_one_percent_change_halts_folder_only() {
+    let mut fx = two_source_fx(19, 19, "txt");
+    let a: Vec<String> = (0..4).map(|i| format!("A/f{i}.txt")).collect(); // 4/19 = 21%
+    let b: Vec<String> = vec!["B/f0.txt".into()];
+    change(&mut fx, &[a, b].concat(), false);
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.halted_folders.len(), 1);
+    let h = &plan.halted_folders[0];
+    assert!(h.source_folder.ends_with('A'), "{h:?}");
+    assert_eq!((h.changed, h.total), (4, 19));
+    assert_eq!(plan.items.len(), 1, "B's change still goes ahead");
+}
+
+#[test]
+fn twenty_percent_exactly_proceeds() {
+    let mut fx = two_source_fx(10, 0, "txt");
+    change(&mut fx, &["A/f0.txt".to_string(), "A/f1.txt".to_string()], false);
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert!(plan.halted_folders.is_empty());
+    assert_eq!(plan.items.len(), 2);
+}
+
+#[test]
+fn encrypted_looking_files_halt_below_mass_threshold() {
+    let mut fx = two_source_fx(20, 0, "docx");
+    change(&mut fx, &["A/f0.docx".to_string(), "A/f1.docx".to_string()], true); // 10%
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.halted_folders.len(), 1);
+    assert!(plan.halted_folders[0].suspect_encrypted >= 2);
+    assert!(plan.items.is_empty());
+}
+
+#[test]
+fn real_jpgs_are_not_suspect() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut jpg = vec![0xFF, 0xD8, 0xFF, 0xE0];
+    jpg.extend(common::noise(64 * KIB, 9)); // compressed image data looks random
+    let p = common::put(tmp.path(), "photo.jpg", &jpg);
+    assert!(!looks_encrypted(&p, Some("jpg")).unwrap());
+    let fake = common::put(tmp.path(), "photo2.jpg", &common::noise(64 * KIB, 10));
+    assert!(looks_encrypted(&fake, Some("jpg")).unwrap(), "random bytes with a .jpg name");
+    let txt = common::put(tmp.path(), "notes.txt", b"plain words, nothing odd here at all");
+    assert!(!looks_encrypted(&txt, Some("txt")).unwrap());
+}
+
+#[test]
+fn override_allows_next_run_once() {
+    let mut fx = two_source_fx(10, 0, "txt");
+    let first: Vec<String> = (0..5).map(|i| format!("A/f{i}.txt")).collect();
+    change(&mut fx, &first, false);
+    let halted = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(halted.halted_folders.len(), 1);
+    override_halt(&mut fx.store, &fx.backup_id, &halted.halted_folders[0].source_folder).unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert!(plan.halted_folders.is_empty());
+    let res = run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(res.replaced, 5);
+
+    let again: Vec<String> = (5..10).map(|i| format!("A/f{i}.txt")).collect();
+    change(&mut fx, &again, false);
+    assert_eq!(plan_topup(fx.store.conn(), &fx.backup_id).unwrap().halted_folders.len(), 1, "one-shot");
+}

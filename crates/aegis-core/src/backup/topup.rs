@@ -594,6 +594,9 @@ pub fn run_topup(
     }
 
     res.completed = !cancelled;
+    if res.completed {
+        guard::clear_overrides(store, &plan.backup_volume_id)?;
+    }
     let finished = now_ms();
     store.with_full_sync_tx(|tx| {
         tx.execute(
