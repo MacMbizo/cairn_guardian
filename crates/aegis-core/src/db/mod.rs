@@ -11,7 +11,11 @@ use crate::scanner::os_adapter::{disk_space_for_mount, inspect_volume_for_path};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::path::Path;
 
-const MIGRATION_0001: &str = include_str!("../../migrations/0001_initial_b4_v2_3_1.sql");
+/// Ordered schema migrations: (version, name, SQL). Each applies in its own transaction.
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (1, "0001_initial_b4_v2_3_1", include_str!("../../migrations/0001_initial_b4_v2_3_1.sql")),
+    (2, "0002_drives_backup", include_str!("../../migrations/0002_drives_backup.sql")),
+];
 
 /// Embedded SQLite store holding the single writer connection (`B4` §2).
 pub struct SqliteStore {
@@ -57,23 +61,24 @@ impl SqliteStore {
             );",
         )?;
 
-        let applied: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT version FROM schema_migrations WHERE version = 1",
-                [],
-                |r| r.get(0),
-            )
-            .optional()?;
-
-        if applied.is_none() {
-            let tx = self.conn.transaction()?;
-            tx.execute_batch(MIGRATION_0001)?;
-            tx.execute(
-                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (1, '0001_initial_b4_v2_3_1', ?1)",
-                params![now_ms()],
-            )?;
-            tx.commit()?;
+        for (version, name, sql) in MIGRATIONS {
+            let applied: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT version FROM schema_migrations WHERE version = ?1",
+                    params![version],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if applied.is_none() {
+                let tx = self.conn.transaction()?;
+                tx.execute_batch(sql)?;
+                tx.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+                    params![version, name, now_ms()],
+                )?;
+                tx.commit()?;
+            }
         }
         Ok(())
     }
@@ -171,12 +176,17 @@ impl SqliteStore {
             last_seen: ts,
             total_bytes: meta.total_bytes,
             free_bytes: meta.free_bytes,
+            label: None,
+            role: "unassigned".to_string(),
+            passport_id: None,
+            last_catalog_complete_at: None,
         })
     }
 
     pub fn list_volumes(&self) -> Result<Vec<VolumeInfo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, mount_point, fs_type, is_removable, is_readonly, has_stable_inode, case_sensitive, quarantine_dir, status, last_seen
+            "SELECT id, mount_point, fs_type, is_removable, is_readonly, has_stable_inode, case_sensitive, quarantine_dir, status, last_seen,
+                    label, role, passport_id, last_catalog_complete_at
              FROM volumes ORDER BY mount_point",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -195,6 +205,10 @@ impl SqliteStore {
                 last_seen: r.get(9)?,
                 total_bytes,
                 free_bytes,
+                label: r.get(10)?,
+                role: r.get(11)?,
+                passport_id: r.get(12)?,
+                last_catalog_complete_at: r.get(13)?,
             })
         })?;
         let mut out = Vec::new();

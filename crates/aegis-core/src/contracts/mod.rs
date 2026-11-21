@@ -263,6 +263,41 @@ pub struct VolumeInfo {
     pub total_bytes: u64,
     #[ts(type = "number")]
     pub free_bytes: u64,
+    pub label: Option<String>,
+    /// `unassigned` | `general` | `backup` (see [`DriveRole`]).
+    pub role: String,
+    pub passport_id: Option<String>,
+    #[ts(type = "number | null")]
+    pub last_catalog_complete_at: Option<i64>,
+}
+
+/// What a drive is for (Drives & Duplicates spec §7.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DriveRole {
+    Unassigned,
+    General,
+    Backup,
+}
+
+impl DriveRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unassigned => "unassigned",
+            Self::General => "general",
+            Self::Backup => "backup",
+        }
+    }
+
+    pub fn from_db(s: &str) -> Option<Self> {
+        match s {
+            "unassigned" => Some(Self::Unassigned),
+            "general" => Some(Self::General),
+            "backup" => Some(Self::Backup),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -708,6 +743,7 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <ActionClass as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <RootConfig as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <VolumeInfo as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <DriveRole as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <ScanStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <CoverageReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <IndexStats as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
