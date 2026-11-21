@@ -2,8 +2,10 @@
 
 pub mod passport;
 pub mod provider;
+pub mod registry;
 
 pub use passport::{Passport, read_passport, regenerate_passport, write_passport};
 #[cfg(windows)]
 pub use provider::WindowsProvider;
 pub use provider::{FakeVolumeProvider, MountedVolume, VolumeProvider};
+pub use registry::{CloneConflict, SyncReport, rebase_volume_paths, sync_mounted};

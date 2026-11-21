@@ -22,3 +22,49 @@ pub fn fake_drive(tmp: &TempDir, name: &str, serial: &str) -> MountedVolume {
         is_system: false,
     }
 }
+
+use aegis_core::db::SqliteStore;
+use std::path::Path;
+
+/// Writes `content` to `root/rel`, creating parent folders.
+pub fn put(root: &Path, rel: &str, content: &[u8]) -> PathBuf {
+    let p = root.join(rel);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, content).unwrap();
+    p
+}
+
+/// Canonical display form of a path, as stored in `volumes.mount_point` / `files.path`.
+pub fn canon(path: &Path) -> String {
+    aegis_core::db::files::normalize_path(&std::fs::canonicalize(path).unwrap(), false).0
+}
+
+/// Volume id of the registered drive whose mount is `mount`.
+pub fn volume_id_at(store: &SqliteStore, mount: &Path) -> String {
+    let want = canon(mount);
+    store
+        .list_volumes()
+        .unwrap()
+        .into_iter()
+        .find(|v| v.mount_point.eq_ignore_ascii_case(&want) && v.status == "online")
+        .unwrap_or_else(|| panic!("no online volume at {want}"))
+        .id
+}
+
+pub fn status_of(store: &SqliteStore, volume_id: &str) -> String {
+    store
+        .conn()
+        .query_row("SELECT status FROM volumes WHERE id = ?1", [volume_id], |r| r.get(0))
+        .unwrap()
+}
+
+pub fn live_file_paths(store: &SqliteStore, volume_id: &str) -> Vec<String> {
+    let mut stmt = store
+        .conn()
+        .prepare("SELECT path FROM files WHERE volume_id = ?1 AND deleted_at IS NULL ORDER BY path")
+        .unwrap();
+    stmt.query_map([volume_id], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+}

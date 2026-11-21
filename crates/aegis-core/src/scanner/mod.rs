@@ -680,7 +680,11 @@ pub fn scan_root_with_progress(
 ) -> Result<ScanStatus> {
     let canonical_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let vol_info = store.ensure_volume_for_path(&canonical_root)?;
-    let vol_meta = inspect_volume_for_path(&canonical_root)?;
+    let mut vol_meta = inspect_volume_for_path(&canonical_root)?;
+    // The registered volume (passport-identified drives included) owns these files.
+    vol_meta.id = vol_info.id.clone();
+    vol_meta.has_stable_inode = vol_info.has_stable_inode;
+    vol_meta.case_sensitive = vol_info.case_sensitive;
     let (display_root, _) = normalize_path(&canonical_root, vol_info.case_sensitive);
 
     let global_ignore = store.get_setting("ignore.global", "global")?;

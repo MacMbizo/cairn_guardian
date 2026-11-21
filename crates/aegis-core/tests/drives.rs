@@ -124,3 +124,178 @@ fn windows_provider_lists_system_drive() {
     assert!(!sys.fs_type.is_empty());
     assert!(sys.total_bytes > 0);
 }
+
+use aegis_core::drives::sync_mounted;
+use aegis_core::scanner::scan_root;
+
+#[test]
+fn new_drive_gets_passport_and_pp_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    let report = sync_mounted(&mut store, &provider).unwrap();
+    assert_eq!(report.new_drives.len(), 1);
+    let passport = read_passport(&a.mount_point).unwrap().expect("passport written");
+    let id = common::volume_id_at(&store, &a.mount_point);
+    assert_eq!(id, format!("pp-{}", passport.passport_id));
+    let v = store.list_volumes().unwrap().into_iter().find(|v| v.id == id).unwrap();
+    assert_eq!(v.label.as_deref(), Some("A"));
+    assert_eq!(v.passport_id.as_deref(), Some(passport.passport_id.as_str()));
+
+    // A second sync recognises the same drive instead of creating another.
+    let again = sync_mounted(&mut store, &provider).unwrap();
+    assert!(again.new_drives.is_empty());
+    assert!(again.arrived.is_empty());
+}
+
+#[test]
+fn unplug_marks_offline_without_touching_file_rows() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "Photos/x.jpg", b"x");
+    common::put(&a.mount_point, "doc.txt", b"doc");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    scan_root(&mut store, &a.mount_point, &[1]).unwrap();
+    let id = common::volume_id_at(&store, &a.mount_point);
+    assert_eq!(common::live_file_paths(&store, &id).len(), 2);
+
+    provider.unplug(&a.mount_point);
+    let report = sync_mounted(&mut store, &provider).unwrap();
+    assert_eq!(report.departed, vec![id.clone()]);
+    assert_eq!(common::status_of(&store, &id), "offline");
+    assert_eq!(common::live_file_paths(&store, &id).len(), 2);
+    let missing: i64 = store
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE volume_id = ?1 AND (state = 'missing' OR deleted_at IS NOT NULL)",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(missing, 0);
+}
+
+#[test]
+fn replug_under_new_letter_rebases_paths() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "Photos/x.jpg", b"x");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    scan_root(&mut store, &a.mount_point, &[1]).unwrap();
+    let id = common::volume_id_at(&store, &a.mount_point);
+
+    provider.unplug(&a.mount_point);
+    sync_mounted(&mut store, &provider).unwrap();
+    let new_mount = tmp.path().join("F");
+    std::fs::rename(&a.mount_point, &new_mount).unwrap();
+    let mut moved = a.clone();
+    moved.mount_point = new_mount.clone();
+    provider.plug(moved);
+    let report = sync_mounted(&mut store, &provider).unwrap();
+    assert_eq!(report.relettered.len(), 1);
+    assert_eq!(common::volume_id_at(&store, &new_mount), id);
+
+    let new_prefix = common::canon(&new_mount);
+    let mut stmt = store
+        .conn()
+        .prepare("SELECT path, path_hash FROM files WHERE volume_id = ?1")
+        .unwrap();
+    let rows: Vec<(String, Vec<u8>)> = stmt
+        .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(rows.len(), 1);
+    for (path, hash) in rows {
+        assert!(path.starts_with(&new_prefix), "{path} not under {new_prefix}");
+        let (_, h) = aegis_core::db::files::normalize_path(std::path::Path::new(&path), false);
+        assert_eq!(hash, h.to_vec());
+    }
+}
+
+#[test]
+fn letter_reused_by_other_drive_marks_old_offline() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "M", "0001");
+    common::put(&a.mount_point, "a-only.txt", b"a");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    scan_root(&mut store, &a.mount_point, &[1]).unwrap();
+    let a_id = common::volume_id_at(&store, &a.mount_point);
+
+    // Drive A leaves; a different drive B appears at the same mount point.
+    std::fs::rename(&a.mount_point, tmp.path().join("A-elsewhere")).unwrap();
+    std::fs::create_dir_all(&a.mount_point).unwrap();
+    common::put(&a.mount_point, "b-only.txt", b"b");
+    let mut b = a.clone();
+    b.serial = Some("0002".into());
+    b.guid_path = Some(r"\\?\Volume{0002-guid}\".into());
+    b.label = Some("B".into());
+    provider.set(vec![b.clone()]);
+    let report = sync_mounted(&mut store, &provider).unwrap();
+    assert_eq!(report.new_drives.len(), 1);
+    assert_eq!(common::status_of(&store, &a_id), "offline");
+    let b_id = common::volume_id_at(&store, &b.mount_point);
+    assert_ne!(a_id, b_id);
+
+    scan_root(&mut store, &b.mount_point, &[1]).unwrap();
+    let b_files = common::live_file_paths(&store, &b_id);
+    assert_eq!(b_files.len(), 1);
+    assert!(b_files[0].ends_with("b-only.txt"));
+    let a_files = common::live_file_paths(&store, &a_id);
+    assert_eq!(a_files.len(), 1);
+    assert!(a_files[0].ends_with("a-only.txt"));
+}
+
+#[test]
+fn cloned_drive_gets_new_passport() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    let a_id = common::volume_id_at(&store, &a.mount_point);
+    let a_passport = read_passport(&a.mount_point).unwrap().unwrap();
+
+    let c = common::fake_drive(&tmp, "C", "0001"); // clones share serials too
+    std::fs::create_dir_all(c.mount_point.join(".aegis")).unwrap();
+    std::fs::copy(
+        a.mount_point.join(".aegis").join("volume.json"),
+        c.mount_point.join(".aegis").join("volume.json"),
+    )
+    .unwrap();
+    provider.plug(c.clone());
+    let report = sync_mounted(&mut store, &provider).unwrap();
+    assert_eq!(report.clones.len(), 1);
+    let c_passport = read_passport(&c.mount_point).unwrap().unwrap();
+    assert_ne!(c_passport.passport_id, a_passport.passport_id);
+    assert_eq!(read_passport(&a.mount_point).unwrap().unwrap(), a_passport);
+    assert_eq!(common::volume_id_at(&store, &a.mount_point), a_id);
+    assert_ne!(common::volume_id_at(&store, &c.mount_point), a_id);
+}
+
+#[test]
+fn readonly_drive_uses_fingerprint_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let mut r = common::fake_drive(&tmp, "R", "00ab");
+    r.is_readonly = true;
+    let provider = FakeVolumeProvider::new();
+    provider.plug(r.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    assert!(!r.mount_point.join(".aegis").exists());
+    assert!(common::volume_id_at(&store, &r.mount_point).starts_with("fp-"));
+    // Recognised again on the next sync.
+    assert!(sync_mounted(&mut store, &provider).unwrap().new_drives.is_empty());
+}

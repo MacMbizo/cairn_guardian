@@ -347,3 +347,27 @@ pub fn evaluate_policy(action: &PolicyAction<'_>, ctx: &PolicyContext) -> Policy
     }
     PolicyVerdict::AutoEligible
 }
+
+/// Revokes every live standing approval bound to `passport_id` (spec §7.8.6). Audited.
+/// Returns how many approvals were revoked.
+pub fn revoke_standing_for_passport(
+    tx: &rusqlite::Connection,
+    passport_id: &str,
+    reason: &str,
+) -> crate::error::Result<usize> {
+    let n = tx.execute(
+        "UPDATE standing_approvals SET revoked_at = ?2, revoke_reason = ?3
+         WHERE volume_passport = ?1 AND revoked_at IS NULL",
+        rusqlite::params![passport_id, crate::now_ms(), reason],
+    )?;
+    if n > 0 {
+        crate::db::audit::append_audit_in_tx(
+            tx,
+            "system",
+            "standing_approval.revoked",
+            passport_id,
+            &serde_json::json!({ "reason": reason, "count": n }).to_string(),
+        )?;
+    }
+    Ok(n)
+}

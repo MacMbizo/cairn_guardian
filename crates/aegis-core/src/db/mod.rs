@@ -131,6 +131,20 @@ impl SqliteStore {
 
     /// Registers or refreshes a volume row based on live OS metadata.
     pub fn ensure_volume_for_path(&self, path: &Path) -> Result<VolumeInfo> {
+        // Drives managed by the registry (passport / fingerprint ids) are matched by their
+        // registered mount point, so the OS volume serial never mis-attributes their files.
+        if let Some((vid, _, _)) = files::resolve_online_volume(&self.conn, path)?
+            && let Some(v) = self
+                .list_volumes()?
+                .into_iter()
+                .find(|v| v.id == vid && (v.passport_id.is_some() || v.id.starts_with("fp-")))
+        {
+            self.conn.execute(
+                "UPDATE volumes SET last_seen = ?2 WHERE id = ?1",
+                params![v.id, now_ms()],
+            )?;
+            return Ok(v);
+        }
         let meta = inspect_volume_for_path(path)?;
         let quarantine_dir = Path::new(&meta.mount_point)
             .join(".aegis-quarantine")
