@@ -138,6 +138,7 @@ struct DbActionRow {
     error_message: Option<String>,
     /// For duplicate quarantines: the copy that must still exist, verified at execute time.
     survivor_file_id: Option<String>,
+    evidence_json: String,
 }
 
 impl DbActionRow {
@@ -165,7 +166,7 @@ fn load_batch_actions(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionR
     let mut stmt = conn.prepare(
         "SELECT id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
                 from_path, to_path, post_blake3, reason, confidence,
-                status, rollback_conflict, error_message, survivor_file_id
+                status, rollback_conflict, error_message, survivor_file_id, evidence_json
          FROM actions WHERE batch_id = ?1 ORDER BY created_at ASC, id ASC",
     )?;
     let rows = stmt.query_map(params![batch_id], |r| {
@@ -190,6 +191,7 @@ fn load_batch_actions(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionR
             rollback_conflict: rc_str.as_deref().and_then(RollbackConflictKind::from_db),
             error_message: r.get(14)?,
             survivor_file_id: r.get(15)?,
+            evidence_json: r.get(16)?,
         })
     })?;
     let mut out = Vec::new();
@@ -669,7 +671,40 @@ fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOu
             if let Some(parent) = eff_to.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(from, &eff_to)?;
+            let partial = PathBuf::from(format!("{}.aegis-partial", eff_to.display()));
+            let copied = (|| -> Result<Vec<u8>> {
+                use std::io::{Read, Write};
+                let mut src = std::fs::File::open(from)?;
+                let mut out = std::fs::File::create(&partial)?;
+                let mut h = blake3::Hasher::new();
+                let mut buf = vec![0u8; 256 * 1024];
+                loop {
+                    let n = src.read(&mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    h.update(&buf[..n]);
+                    out.write_all(&buf[..n])?;
+                }
+                out.sync_all()?;
+                Ok(h.finalize().as_bytes().to_vec())
+            })();
+            let verified = copied.and_then(|written| {
+                let fresh = hash_file_blake3(from)?.unwrap_or_default();
+                if fresh == written {
+                    Ok(())
+                } else {
+                    Err(AegisError::InvalidInput(format!(
+                        "{} changed while it was being copied; try again",
+                        from.display()
+                    )))
+                }
+            });
+            if let Err(e) = verified {
+                let _ = std::fs::remove_file(&partial);
+                return Err(e);
+            }
+            std::fs::rename(&partial, &eff_to)?;
             Ok(FsOutcome::Copied { dest: eff_to })
         }
         ActionType::Archive => Ok(FsOutcome::MetadataOnly),
@@ -677,6 +712,34 @@ fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOu
             "Use quarantine.restore/purge commands for quarantine lifecycle ops".into(),
         )),
     }
+}
+
+/// The file row created by the executed copy action carrying `pair == token` in `batch_id`.
+fn copy_survivor_for(conn: &Connection, batch_id: &str, token: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT to_path, evidence_json FROM actions
+         WHERE batch_id = ?1 AND action_type = 'copy' AND status = 'executed'",
+    )?;
+    let rows = stmt.query_map(params![batch_id], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?)))?;
+    for r in rows {
+        let (to, ev) = r?;
+        let matches = serde_json::from_str::<serde_json::Value>(&ev)
+            .ok()
+            .and_then(|v| v.get("pair").and_then(|t| t.as_str()).map(|t| t == token))
+            .unwrap_or(false);
+        if let (true, Some(to)) = (matches, to) {
+            let (_, ph) = normalize_path(Path::new(&to), false);
+            return Ok(conn
+                .query_row(
+                    "SELECT id FROM files WHERE path_hash = ?1 AND deleted_at IS NULL
+                       AND state NOT IN ('quarantine','missing')",
+                    params![ph.as_slice()],
+                    |r| r.get(0),
+                )
+                .optional()?);
+        }
+    }
+    Ok(None)
 }
 
 struct ExecutionRecord<'a> {
@@ -753,9 +816,16 @@ fn record_executed_in_tx(
                     "UPDATE files SET path = ?1, path_hash = ?2, name = ?3, updated_at = ?4 WHERE id = ?5",
                     params![disp, ph.as_slice(), name, now, fid],
                 )?;
+                if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&row.evidence_json) {
+                    crate::backup::record_backup_copy_in_tx(tx, &ev, dest, Some(fid), rec.post_blake3.as_deref())?;
+                }
             }
         }
-        FsOutcome::Copied { .. } => {}
+        FsOutcome::Copied { dest } => {
+            if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&row.evidence_json) {
+                crate::backup::record_backup_copy_in_tx(tx, &ev, dest, None, rec.post_blake3.as_deref())?;
+            }
+        }
         FsOutcome::MetadataOnly => {
             if row.action_type == ActionType::Archive
                 && let Some(ref fid) = row.file_id
@@ -883,8 +953,29 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         };
         let pre_state_json = capture_state_json(from);
 
+        // A quarantine that depends on a copy made earlier in this batch keeps that copy.
+        let mut survivor_id = row.survivor_file_id.clone();
+        if let Some(token) = serde_json::from_str::<serde_json::Value>(&row.evidence_json)
+            .ok()
+            .and_then(|v| v.get("after_copy").and_then(|t| t.as_str()).map(str::to_string))
+        {
+            match copy_survivor_for(store.conn(), batch_id, &token)? {
+                Some(id) => survivor_id = Some(id),
+                None => {
+                    failed_count += 1;
+                    mark_action(
+                        store,
+                        &row.id,
+                        "failed",
+                        "The Backup drive copy wasn't made, so this copy was kept.",
+                    )?;
+                    continue;
+                }
+            }
+        }
+
         // Duplicate deletes: the other copy must be online and unchanged right now (S3).
-        if let Some(survivor) = row.survivor_file_id.as_deref() {
+        if let Some(survivor) = survivor_id.as_deref() {
             let check = match pre_blake3.as_deref() {
                 Some(h) => crate::dupes::verify_survivor(store.conn(), survivor, h),
                 None => Err(AegisError::SurvivorUnavailable(
