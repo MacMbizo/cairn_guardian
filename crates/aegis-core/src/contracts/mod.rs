@@ -907,6 +907,8 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::engine::Screen as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::engine::FindingAction as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::engine::Finding as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::reminders::Reminder as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::reminders::TrayState as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::SyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

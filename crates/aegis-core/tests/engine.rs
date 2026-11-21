@@ -103,3 +103,143 @@ fn paused_skips_idle_watches_only() {
     let report = engine.tick(&mut s, 5_000, &CALM, true).unwrap();
     assert_eq!(report.ran, vec!["event"]);
 }
+
+// ---------- Task 3: reminders ----------
+
+use aegis_core::engine::reminders::{
+    TrayState, act, dismiss, list_open, mark_shown, sync_findings, to_deliver, tray_state, undemote,
+};
+use aegis_core::engine::{FindingAction, Level, Screen};
+
+const DAY: i64 = 86_400_000;
+
+fn finding(kind: &str, subject: &str, level: Level, title: &str) -> Finding {
+    Finding {
+        kind: kind.into(),
+        subject: subject.into(),
+        level,
+        title: title.into(),
+        detail: "d".into(),
+        bytes: None,
+        action: FindingAction::Open { screen: Screen::Drives },
+    }
+}
+
+fn all_rows(c: &rusqlite::Connection) -> Vec<(String, String, String, String)> {
+    let mut st = c.prepare("SELECT subject, level, state, title FROM reminders ORDER BY subject").unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+}
+
+#[test]
+fn raising_same_subject_twice_updates_one_row() {
+    let s = store();
+    let c = s.conn();
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "first")], 1).unwrap();
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "second")], 2).unwrap();
+    let rows = all_rows(c);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].3, "second");
+}
+
+#[test]
+fn missing_subject_resolves() {
+    let s = store();
+    let c = s.conn();
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "t")], 1).unwrap();
+    sync_findings(c, &["k"], &[], 2).unwrap();
+    assert_eq!(all_rows(c)[0].2, "resolved");
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "t")], 3).unwrap();
+    assert_eq!(all_rows(c)[0].2, "open");
+}
+
+#[test]
+fn one_convenient_per_day() {
+    let s = store();
+    let c = s.conn();
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "a"), finding("k", "b", Level::Convenient, "b")], 0)
+        .unwrap();
+    let t = 1_000;
+    let first = to_deliver(c, t, false, false).unwrap();
+    assert_eq!(first.len(), 1);
+    mark_shown(c, &first[0].id, t).unwrap();
+    assert!(to_deliver(c, t + 3_600_000, false, false).unwrap().is_empty());
+    let next = to_deliver(c, t + DAY + 1, false, false).unwrap();
+    assert_eq!(next.len(), 1);
+    assert_ne!(next[0].id, first[0].id);
+}
+
+#[test]
+fn busy_holds_convenient_not_now() {
+    let s = store();
+    let c = s.conn();
+    sync_findings(c, &["n"], &[finding("n", "x", Level::Now, "urgent")], 0).unwrap();
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "later")], 0).unwrap();
+    let out = to_deliver(c, 10, true, false).unwrap();
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].level, Level::Now);
+    let paused = to_deliver(c, 10, false, true).unwrap();
+    assert_eq!(paused.len(), 1);
+    assert_eq!(paused[0].level, Level::Now);
+}
+
+#[test]
+fn three_dismissals_demote_convenient_kind() {
+    let s = store();
+    let c = s.conn();
+    let f = [finding("k", "a", Level::Convenient, "t")];
+    sync_findings(c, &["k"], &f, 0).unwrap();
+    let id = list_open(c).unwrap()[0].id.clone();
+    assert!(!dismiss(c, &id, 1).unwrap());
+    assert!(!dismiss(c, &id, 2).unwrap());
+    assert!(dismiss(c, &id, 3).unwrap());
+    sync_findings(c, &["k"], &f, 4).unwrap();
+    assert_eq!(list_open(c).unwrap()[0].level, Level::Note);
+    undemote(c, "k").unwrap();
+    sync_findings(c, &["k"], &f, 5).unwrap();
+    assert_eq!(list_open(c).unwrap()[0].level, Level::Convenient);
+}
+
+#[test]
+fn now_kind_never_demoted() {
+    let s = store();
+    let c = s.conn();
+    let f = [finding("n", "x", Level::Now, "t")];
+    sync_findings(c, &["n"], &f, 0).unwrap();
+    let id = list_open(c).unwrap()[0].id.clone();
+    for t in 1..=5 {
+        assert!(!dismiss(c, &id, t).unwrap());
+    }
+    sync_findings(c, &["n"], &f, 6).unwrap();
+    assert_eq!(list_open(c).unwrap()[0].level, Level::Now);
+}
+
+#[test]
+fn acting_resets_streak() {
+    let s = store();
+    let c = s.conn();
+    let f = [finding("k", "a", Level::Convenient, "t")];
+    sync_findings(c, &["k"], &f, 0).unwrap();
+    let id = list_open(c).unwrap()[0].id.clone();
+    dismiss(c, &id, 1).unwrap();
+    dismiss(c, &id, 2).unwrap();
+    act(c, &id, 3).unwrap();
+    sync_findings(c, &["k"], &f, 4).unwrap();
+    let id = list_open(c).unwrap()[0].id.clone();
+    assert!(!dismiss(c, &id, 5).unwrap());
+    sync_findings(c, &["k"], &f, 6).unwrap();
+    assert_eq!(list_open(c).unwrap()[0].level, Level::Convenient);
+}
+
+#[test]
+fn tray_state_reflects_worst_open_level() {
+    let s = store();
+    let c = s.conn();
+    assert_eq!(tray_state(c).unwrap(), TrayState::Calm);
+    sync_findings(c, &["j"], &[finding("j", "a", Level::Note, "t")], 0).unwrap();
+    assert_eq!(tray_state(c).unwrap(), TrayState::Waiting);
+    sync_findings(c, &["n"], &[finding("n", "x", Level::Now, "t")], 0).unwrap();
+    assert_eq!(tray_state(c).unwrap(), TrayState::Urgent);
+}
