@@ -356,6 +356,14 @@ The column and table names are the builder's call; the meaning below is fixed.
 - Priority fill tiers.
 - Plug-in detection in-app only until Project 2.
 - Previous versions pruned without quarantine.
+- Everything in §7.8:
+  - whole-drive catalog of externals; PC starting set seeded as roots;
+  - adopting duplicates already on the Backup drive;
+  - "only copy" files on the Backup drive are flagged, not moved;
+  - what counts as a copy;
+  - "Make this the backup copy" instead of a refused delete;
+  - uncovered backups kept 90 days;
+  - standing approval tied to the passport, starting automatically with Pause.
 
 ## 13. Left to the builder
 
