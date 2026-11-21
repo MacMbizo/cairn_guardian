@@ -39,6 +39,8 @@ export const fixtureDrives: VolumeInfo[] = [
   vol("pp-a", "Seagate A", "E:\\", "general", true, 410),
   vol("pp-b", "Seagate B", "F:\\", "backup", true, 780),
   vol("pp-c", "WD C", "G:\\", "general", false, 780),
+  // Newly plugged in and catalogued, no role yet: shows the Drive plan card next to the existing Backup card.
+  vol("pp-d", "Toshiba D", "H:\\", "unassigned", true, 230),
 ];
 
 export const fixturePlan: DrivePlan = {
@@ -48,6 +50,8 @@ export const fixturePlan: DrivePlan = {
     { volume_id: "pp-a", label: "Seagate A", proposed_role: "general", used_bytes: 410 * GB, total_bytes: TB, backup_copy_share: 0.12, duplicate_bytes: 40 * GB, online: true },
     { volume_id: "pp-b", label: "Seagate B", proposed_role: "backup", used_bytes: 780 * GB, total_bytes: TB, backup_copy_share: 0.62, duplicate_bytes: 300 * GB, online: true },
     { volume_id: "pp-c", label: "WD C", proposed_role: "general", used_bytes: 780 * GB, total_bytes: TB, backup_copy_share: 0.26, duplicate_bytes: 90 * GB, online: false },
+    // The backend proposes "general" for an unassigned drive once a Backup drive exists.
+    { volume_id: "pp-d", label: "Toshiba D", proposed_role: "general", used_bytes: 230 * GB, total_bytes: TB, backup_copy_share: 0, duplicate_bytes: 15 * GB, online: true },
   ],
 };
 

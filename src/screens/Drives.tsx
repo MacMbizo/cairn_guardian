@@ -44,7 +44,9 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
   };
 
   const backup = drives.find((d) => d.role === "backup");
-  const showPlan = !!plan && plan.entries.length > 0 && (!backup || plan.entries.some((e) => e.proposed_role === "unassigned"));
+  // Check the drives' saved roles, not the plan: once every drive is catalogued the plan
+  // proposes general/backup for unassigned drives, so its entries are never "unassigned".
+  const showPlan = !!plan && plan.entries.length > 0 && (!backup || drives.some((d) => d.role === "unassigned"));
   const halts = topupPlan?.halted_folders ?? [];
 
   return (
