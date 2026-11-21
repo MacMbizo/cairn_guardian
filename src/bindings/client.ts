@@ -1,6 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AppliedPlan,
+  BackupCoverage,
+  BackupSourceItem,
+  DecisionOutcome,
+  DrivePlan,
+  DriveRole,
+  DupeChoice,
+  DupeDecisionItem,
+  GroupedDupeReport,
+  PreviousVersionItem,
+  RefreshReport,
+  SyncReport,
+  TopUpAuthority,
+  TopUpPlan,
+} from "./index";
+import type {
   ActionItem,
   AegisEvent,
   ActionStatus,
@@ -155,5 +171,40 @@ export const aegis = {
   },
   doctor: {
     run: (repair?: boolean) => call<DoctorReport>("doctor_run", { repair }),
+  },
+  drives: {
+    list: () => call<VolumeInfo[]>("drives_list"),
+    sync: () => call<SyncReport>("drives_sync"),
+    /** Starts a background catalog; completion arrives as a `DriveCatalogued` event. */
+    catalog: (volumeId: string) => call<void>("drive_catalog", { volumeId }),
+    refresh: (volumeId: string) => call<RefreshReport>("drive_refresh", { volumeId }),
+    plan: () => call<DrivePlan>("drive_plan_get"),
+    applyPlan: (roles: [string, DriveRole][]) =>
+      call<AppliedPlan>("drive_plan_apply", { roles }),
+  },
+  dupes: {
+    grouped: () => call<GroupedDupeReport>("dupes_grouped"),
+    decide: (groupId: string, choice: DupeChoice) =>
+      call<DecisionOutcome>("dupe_decide", { groupId, choice }),
+    decisions: () => call<DupeDecisionItem[]>("dupe_decisions_list"),
+    undoDecision: (id: string) => call<void>("dupe_decision_undo", { id }),
+  },
+  backup: {
+    coverage: () => call<BackupCoverage | null>("backup_coverage"),
+    sources: () => call<BackupSourceItem[]>("backup_sources_list"),
+    addSource: (path: string, pinned: boolean) =>
+      call<string>("backup_source_add", { path, pinned }),
+    /** Returns the bytes that will stop being backed up (kept 90 days). */
+    removeSource: (id: string) => call<number>("backup_source_remove", { id }),
+    plan: () => call<TopUpPlan>("backup_topup_plan"),
+    /** Starts a top-up in the background (`TopUpProgress` / `TopUpFinished` events). */
+    start: (authority: TopUpAuthority) => call<void>("backup_topup_start", { authority }),
+    pause: () => call<void>("backup_topup_pause"),
+    overrideGuard: (folder: string) => call<void>("backup_guard_override", { folder }),
+    grantStanding: () => call<string>("backup_standing_grant"),
+    standingStatus: () => call<boolean>("backup_standing_status"),
+    previousVersions: () => call<PreviousVersionItem[]>("previous_versions_list"),
+    restoreVersion: (id: string, to?: string) =>
+      call<string>("previous_version_restore", { id, to }),
   },
 };

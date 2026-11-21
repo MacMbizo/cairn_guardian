@@ -13,7 +13,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// What changed in one `sync_mounted` pass.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct SyncReport {
     /// Volume ids that came online in this pass (includes new drives).
     pub arrived: Vec<String>,
@@ -26,7 +27,8 @@ pub struct SyncReport {
     pub clones: Vec<CloneConflict>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct CloneConflict {
     pub kept_volume_id: String,
     pub new_volume_id: String,

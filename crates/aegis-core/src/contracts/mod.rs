@@ -789,6 +789,54 @@ pub enum AegisEvent {
         v: u8,
         overall_score: f64,
     },
+    /// A drive was plugged in. `known` = Aegis has seen it before.
+    DriveArrived {
+        v: u8,
+        volume_id: String,
+        label: Option<String>,
+        #[ts(type = "number")]
+        last_seen: i64,
+        known: bool,
+        role: String,
+    },
+    DriveDeparted {
+        v: u8,
+        volume_id: String,
+    },
+    DriveRefreshed {
+        v: u8,
+        report: crate::drives::RefreshReport,
+    },
+    DriveCatalogued {
+        v: u8,
+        volume_id: String,
+        #[ts(type = "number")]
+        files: i64,
+    },
+    TopUpProgress {
+        v: u8,
+        backup_volume_id: String,
+        #[ts(type = "number")]
+        bytes_done: i64,
+        #[ts(type = "number")]
+        bytes_total: i64,
+    },
+    TopUpFinished {
+        v: u8,
+        backup_volume_id: String,
+        result: crate::backup::topup::TopUpResult,
+    },
+    GuardHalted {
+        v: u8,
+        backup_volume_id: String,
+        halts: Vec<crate::backup::guard::GuardHalt>,
+    },
+    /// A background drive job failed; `message` is owner-facing.
+    JobFailed {
+        v: u8,
+        job: String,
+        message: String,
+    },
 }
 
 /// Generates TypeScript bindings and barrel file `index.ts` into `out_dir`.
@@ -847,6 +895,12 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::backup::priority::TierShortfall as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::priority::TierCoverage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::priority::BackupCoverage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::priority::BackupSourceItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::drives::RefreshReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::drives::RefreshMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::drives::SyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::drives::CloneConflict as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::fingerprint::FingerprintStats as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DiskRescueReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <HealthBreakdown as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AuditEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

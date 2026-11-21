@@ -17,12 +17,18 @@ pub const EDGE_BYTES: u64 = 64 * 1024;
 pub const SMALL_FILE_BYTES: u64 = 2 * EDGE_BYTES;
 const BATCH: usize = 500;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct FingerprintStats {
+    #[ts(type = "number")]
     pub size_candidates: i64,
+    #[ts(type = "number")]
     pub quick_hashed: i64,
+    #[ts(type = "number")]
     pub full_hashed: i64,
+    #[ts(type = "number")]
     pub skipped_offline: i64,
+    #[ts(type = "number")]
     pub skipped_placeholder: i64,
 }
 

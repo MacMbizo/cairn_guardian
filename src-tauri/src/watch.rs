@@ -1,0 +1,174 @@
+//! Plug-in watcher: polls mounted drives while the app is open (spec §7.2, §7.4).
+//!
+//! On a change it syncs the drive registry, tells the UI, refreshes known drives, and, when
+//! the Backup drive arrives with a standing approval, tops it up and prunes old versions.
+
+use crate::commands::{AEGIS_EVENT, AppState};
+use aegis_core::backup::topup::{TopUpAuthority, plan_topup, prune_previous_versions, run_topup};
+use aegis_core::contracts::AegisEvent;
+use aegis_core::db::SqliteStore;
+use aegis_core::drives::{SyncReport, VolumeProvider, refresh_volume, sync_mounted};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
+
+/// How often mounted drives are polled.
+pub const POLL_INTERVAL: Duration = Duration::from_secs(3);
+
+/// `(arrived, departed)` between two snapshots of mount points.
+pub fn diff_mounts(prev: &[PathBuf], now: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let arrived = now.iter().filter(|m| !prev.contains(m)).cloned().collect();
+    let departed = prev.iter().filter(|m| !now.contains(m)).cloned().collect();
+    (arrived, departed)
+}
+
+fn provider() -> Box<dyn VolumeProvider> {
+    #[cfg(windows)]
+    {
+        Box::new(aegis_core::drives::WindowsProvider)
+    }
+    #[cfg(not(windows))]
+    {
+        Box::new(aegis_core::drives::FakeVolumeProvider::new())
+    }
+}
+
+fn emit(app: &AppHandle, ev: AegisEvent) {
+    let _ = app.emit(AEGIS_EVENT, ev);
+}
+
+fn fail(app: &AppHandle, job: &str, err: impl std::fmt::Display) {
+    emit(app, AegisEvent::JobFailed { v: 1, job: job.into(), message: err.to_string() });
+}
+
+/// Starts the watcher on its own thread with its own database connection.
+pub fn spawn(app: AppHandle) {
+    std::thread::spawn(move || {
+        let db_path = app.state::<AppState>().db_path.clone();
+        let mut store = match SqliteStore::open(&db_path) {
+            Ok(s) => s,
+            Err(e) => return fail(&app, "drive_watch", e),
+        };
+        let provider = provider();
+        let mut prev: Vec<PathBuf> = Vec::new();
+        loop {
+            let now: Vec<PathBuf> = provider
+                .mounted()
+                .map(|v| v.into_iter().filter(|m| !m.is_system).map(|m| m.mount_point).collect())
+                .unwrap_or_default();
+            let (arrived, departed) = diff_mounts(&prev, &now);
+            if !arrived.is_empty() || !departed.is_empty() {
+                let seen_before = last_seen_map(&store);
+                match sync_mounted(&mut store, provider.as_ref()) {
+                    Ok(report) => handle(&app, &mut store, &report, &seen_before),
+                    Err(e) => fail(&app, "drive_sync", e),
+                }
+            }
+            prev = now;
+            std::thread::sleep(POLL_INTERVAL);
+        }
+    });
+}
+
+fn last_seen_map(store: &SqliteStore) -> HashMap<String, i64> {
+    store
+        .list_volumes()
+        .map(|vs| vs.into_iter().map(|v| (v.id, v.last_seen)).collect())
+        .unwrap_or_default()
+}
+
+fn handle(app: &AppHandle, store: &mut SqliteStore, report: &SyncReport, seen_before: &HashMap<String, i64>) {
+    for id in &report.departed {
+        emit(app, AegisEvent::DriveDeparted { v: 1, volume_id: id.clone() });
+    }
+    let volumes = store.list_volumes().unwrap_or_default();
+    for id in &report.arrived {
+        let Some(v) = volumes.iter().find(|v| &v.id == id) else { continue };
+        let known = !report.new_drives.contains(id);
+        emit(
+            app,
+            AegisEvent::DriveArrived {
+                v: 1,
+                volume_id: id.clone(),
+                label: v.label.clone(),
+                last_seen: seen_before.get(id).copied().unwrap_or(v.last_seen),
+                known,
+                role: v.role.clone(),
+            },
+        );
+        if !known || v.last_catalog_complete_at.is_none() {
+            continue; // cataloguing a new drive waits for the owner's click
+        }
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        match refresh_volume(store, id, &cancel) {
+            Ok(r) => emit(app, AegisEvent::DriveRefreshed { v: 1, report: r }),
+            Err(e) => fail(app, "drive_refresh", e),
+        }
+        if v.role == "backup" && aegis_core::policy::has_standing_topup(store.conn(), id).unwrap_or(false) {
+            standing_topup(app, store, id);
+        }
+    }
+}
+
+/// Runs an automatic top-up under the standing approval, then prunes expired versions.
+pub fn standing_topup(app: &AppHandle, store: &mut SqliteStore, backup_id: &str) {
+    run_topup_job(app, store, backup_id, TopUpAuthority::Standing);
+}
+
+/// Shared by the watcher and the `backup_topup_start` command.
+pub fn run_topup_job(app: &AppHandle, store: &mut SqliteStore, backup_id: &str, authority: TopUpAuthority) {
+    let state = app.state::<AppState>();
+    if state.topup_running.swap(true, Ordering::SeqCst) {
+        return; // one top-up at a time
+    }
+    state.topup_cancel.store(false, Ordering::SeqCst);
+    let cancel = state.topup_cancel.clone();
+    let result = (|| -> aegis_core::error::Result<()> {
+        let plan = plan_topup(store.conn(), backup_id)?;
+        if !plan.halted_folders.is_empty() {
+            emit(app, AegisEvent::GuardHalted {
+                v: 1,
+                backup_volume_id: backup_id.into(),
+                halts: plan.halted_folders.clone(),
+            });
+        }
+        let mut last_emit = std::time::Instant::now() - Duration::from_secs(1);
+        let res = run_topup(store, &plan, authority, &cancel, &mut |done, total| {
+            if last_emit.elapsed() >= Duration::from_millis(250) || done == total {
+                last_emit = std::time::Instant::now();
+                emit(app, AegisEvent::TopUpProgress {
+                    v: 1,
+                    backup_volume_id: backup_id.into(),
+                    bytes_done: done,
+                    bytes_total: total,
+                });
+            }
+        })?;
+        prune_previous_versions(store, backup_id, aegis_core::now_ms())?;
+        emit(app, AegisEvent::TopUpFinished { v: 1, backup_volume_id: backup_id.into(), result: res });
+        Ok(())
+    })();
+    state.topup_running.store(false, Ordering::SeqCst);
+    if let Err(e) = result {
+        fail(app, "backup_topup", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watch_diff_detects_arrival_and_departure() {
+        let e = PathBuf::from(r"E:\");
+        let f = PathBuf::from(r"F:\");
+        let g = PathBuf::from(r"G:\");
+        let (arrived, departed) = diff_mounts(&[e.clone(), f.clone()], &[f.clone(), g.clone()]);
+        assert_eq!(arrived, vec![g]);
+        assert_eq!(departed, vec![e]);
+        let (a, d) = diff_mounts(std::slice::from_ref(&f), std::slice::from_ref(&f));
+        assert!(a.is_empty() && d.is_empty());
+    }
+}

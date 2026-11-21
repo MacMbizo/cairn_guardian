@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod watch;
 
 use aegis_core::db::SqliteStore;
 use commands::AppState;
@@ -16,9 +17,15 @@ pub fn run() {
                 .unwrap_or_else(|_| std::env::temp_dir().join("aegis-guardian"));
             let db_path = data_dir.join("aegis.db");
             let store = SqliteStore::open(&db_path)?;
+            // First run: start with the PC folders where clutter lands (spec §7.8.1).
+            let _ = aegis_core::scanner::seed_default_roots(&store);
             app.manage(AppState {
                 store: Mutex::new(store),
+                db_path,
+                topup_cancel: Default::default(),
+                topup_running: Default::default(),
             });
+            watch::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -57,6 +64,28 @@ pub fn run() {
             commands::audit_list,
             commands::hw_profile,
             commands::doctor_run,
+            commands::drives::drives_list,
+            commands::drives::drives_sync,
+            commands::drives::drive_catalog,
+            commands::drives::drive_refresh,
+            commands::drives::drive_plan_get,
+            commands::drives::drive_plan_apply,
+            commands::drives::dupes_grouped,
+            commands::drives::dupe_decide,
+            commands::drives::dupe_decisions_list,
+            commands::drives::dupe_decision_undo,
+            commands::drives::backup_coverage,
+            commands::drives::backup_sources_list,
+            commands::drives::backup_source_add,
+            commands::drives::backup_source_remove,
+            commands::drives::backup_topup_plan,
+            commands::drives::backup_topup_start,
+            commands::drives::backup_topup_pause,
+            commands::drives::backup_guard_override,
+            commands::drives::backup_standing_grant,
+            commands::drives::backup_standing_status,
+            commands::drives::previous_versions_list,
+            commands::drives::previous_version_restore,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Aegis Guardian");

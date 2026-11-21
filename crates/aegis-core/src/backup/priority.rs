@@ -341,3 +341,49 @@ pub fn coverage_summary(conn: &Connection) -> Result<Option<BackupCoverage>> {
         suggestion,
     }))
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BackupSourceItem {
+    pub id: String,
+    pub volume_id: String,
+    pub drive_label: Option<String>,
+    pub rel_path: String,
+    /// Full folder path on its drive.
+    pub folder: String,
+    pub pinned: bool,
+    #[ts(type = "number")]
+    pub tier: i64,
+}
+
+/// Folders currently backed up.
+pub fn list_sources(conn: &Connection) -> Result<Vec<BackupSourceItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.volume_id, v.label, s.rel_path, v.mount_point, s.pinned, s.tier
+         FROM backup_sources s JOIN volumes v ON v.id = s.volume_id
+         WHERE s.removed_at IS NULL ORDER BY s.pinned DESC, s.added_at",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        let mount: String = r.get(4)?;
+        let rel: String = r.get(3)?;
+        Ok(BackupSourceItem {
+            id: r.get(0)?,
+            volume_id: r.get(1)?,
+            drive_label: r.get(2)?,
+            folder: if rel.is_empty() { mount.clone() } else { Path::new(&mount).join(&rel).to_string_lossy().to_string() },
+            rel_path: rel,
+            pinned: r.get::<_, i64>(5)? != 0,
+            tier: r.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+/// Adds the folder at `path` (on whichever known, online drive holds it) as a backup source.
+pub fn add_source_path(store: &mut SqliteStore, path: &Path, pinned: bool) -> Result<String> {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let (display, _) = crate::db::files::normalize_path(&canonical, false);
+    let vol = store.ensure_volume_for_path(&canonical)?;
+    let rel = super::rel_under(&display, &vol.mount_point);
+    add_source(store, &vol.id, &rel, pinned)
+}

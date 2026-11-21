@@ -10,21 +10,30 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum RefreshMode {
     Usn,
     Walk,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
 pub struct RefreshReport {
     pub volume_id: String,
     pub mode: RefreshMode,
+    #[ts(type = "number")]
     pub created: i64,
+    #[ts(type = "number")]
     pub modified: i64,
+    #[ts(type = "number")]
     pub renamed: i64,
+    #[ts(type = "number")]
     pub deleted: i64,
+    #[ts(type = "number")]
     pub folders_changed: i64,
+    #[ts(type = "number")]
     pub new_duplicates: i64,
     pub fingerprint: FingerprintStats,
 }

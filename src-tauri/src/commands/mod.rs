@@ -1,5 +1,7 @@
 //! Tauri 2 IPC command handlers aligned with `C1_IPC_Action_Contracts.md` (v1.2).
 
+pub mod drives;
+
 use aegis_core::contracts::{
     ActionItem, ActionStatus, AegisEvent, AtomicUnit, AuditEntry, ConflictResolutionChoice,
     CoverageReport,
@@ -33,9 +35,14 @@ pub const AEGIS_EVENT: &str = "aegis://event";
 /// scan therefore cannot freeze the window. The single SQLite writer still serializes them.
 pub struct AppState {
     pub store: Mutex<SqliteStore>,
+    /// Background jobs (watcher, catalog, top-up) open their own connection to this file.
+    pub db_path: PathBuf,
+    /// Set to pause the running top-up; it stops cleanly and resumes next time.
+    pub topup_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub topup_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
-fn lock_store<'r>(
+pub(crate) fn lock_store<'r>(
     state: &'r State<'_, AppState>,
 ) -> Result<std::sync::MutexGuard<'r, SqliteStore>, IpcError> {
     state.store.lock().map_err(|_| IpcError {
@@ -46,7 +53,7 @@ fn lock_store<'r>(
     })
 }
 
-fn map_err<T>(res: aegis_core::error::Result<T>) -> Result<T, IpcError> {
+pub(crate) fn map_err<T>(res: aegis_core::error::Result<T>) -> Result<T, IpcError> {
     res.map_err(|e| e.to_ipc())
 }
 
