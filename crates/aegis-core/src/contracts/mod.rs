@@ -929,6 +929,10 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::engine::space::Forecast as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::engine::note::WeeklyNote as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::engine::EngineStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::Kind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::FileMeta as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::Scope as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::BlueprintChoice as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::SyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

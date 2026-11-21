@@ -17,6 +17,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (2, "0002_drives_backup", include_str!("../../migrations/0002_drives_backup.sql")),
     (3, "0003_backup_version_source", include_str!("../../migrations/0003_backup_version_source.sql")),
     (4, "0004_engine", include_str!("../../migrations/0004_engine.sql")),
+    (5, "0005_filing", include_str!("../../migrations/0005_filing.sql")),
 ];
 
 /// Embedded SQLite store holding the single writer connection (`B4` §2).
