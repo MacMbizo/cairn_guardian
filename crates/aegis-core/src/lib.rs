@@ -6,6 +6,7 @@ pub mod db;
 pub mod doctor;
 pub mod drives;
 pub mod dupes;
+pub mod engine;
 pub mod error;
 pub mod fingerprint;
 pub mod policy;

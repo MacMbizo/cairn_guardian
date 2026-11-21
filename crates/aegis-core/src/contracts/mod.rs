@@ -903,6 +903,10 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::backup::priority::TierCoverage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::priority::BackupCoverage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::priority::BackupSourceItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::Level as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::Screen as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::FindingAction as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::Finding as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::SyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
