@@ -104,6 +104,13 @@ fn load_candidates(store: &SqliteStore) -> Result<Vec<Candidate>> {
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
+fn mark_placeholder(store: &SqliteStore, id: &str) -> Result<()> {
+    store
+        .conn()
+        .execute("UPDATE files SET cloud_state = 'placeholder_remote' WHERE id = ?1", [id])?;
+    Ok(())
+}
+
 /// The file on disk still has the catalogued size (otherwise a refresh must re-catalog it first).
 fn unchanged_on_disk(c: &Candidate) -> bool {
     std::fs::metadata(&c.path).is_ok_and(|m| m.is_file() && m.len() as i64 == c.size)
@@ -162,6 +169,13 @@ pub fn run_fingerprint(store: &mut SqliteStore, cancel: &AtomicBool) -> Result<F
             flush(store, &mut pending)?;
             return Ok(stats);
         }
+        if crate::scanner::os_adapter::is_placeholder_now(Path::new(&c.path)) {
+            // Became online-only since the catalog: never open it (that downloads it).
+            stats.skipped_placeholder += 1;
+            c.placeholder = true;
+            mark_placeholder(store, &c.id)?;
+            continue;
+        }
         if !unchanged_on_disk(c) {
             continue;
         }
@@ -212,7 +226,7 @@ pub fn run_fingerprint(store: &mut SqliteStore, cancel: &AtomicBool) -> Result<F
                 flush(store, &mut pending)?;
                 return Ok(stats);
             }
-            if !unchanged_on_disk(c) {
+            if !unchanged_on_disk(c) || crate::scanner::os_adapter::is_placeholder_now(Path::new(&c.path)) {
                 continue;
             }
             if let Ok(full) = full_hash_file(Path::new(&c.path)) {

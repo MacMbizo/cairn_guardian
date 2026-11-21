@@ -12,7 +12,7 @@ use crate::policy::revoke_standing_for_passport;
 use crate::{new_id, now_ms};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use ts_rs::TS;
 
@@ -221,61 +221,100 @@ struct ToBackup<'a> {
     member: &'a Copy,
     keeper: &'a Copy,
     existing: Option<String>,
+    hash: &'a [u8],
 }
 
+fn quarantine_input(member: &Copy, reason: &str, evidence: serde_json::Value) -> ProposedActionInput {
+    ProposedActionInput {
+        agent: Some("Housekeeper".into()),
+        action_type: ActionType::Quarantine,
+        target_kind: TargetKind::File,
+        file_id: Some(member.id.clone()),
+        atomic_unit_id: None,
+        from_path: member.path.clone(),
+        to_path: None,
+        reason: reason.into(),
+        confidence: 0.99,
+        evidence_json: evidence.to_string(),
+    }
+}
+
+/// Builds one batch that puts the given files on the Backup drive. Per distinct content: one
+/// verified copy (unless the Backup drive already holds it), then a quarantine of every listed
+/// copy, each kept by that backup copy. Refused when any content would end up with fewer than
+/// `MIN_COPIES` copies, counting quarantines already waiting for approval.
 fn propose_to_backup(store: &mut SqliteStore, items: &[ToBackup<'_>], backup_id: &str, backup_mount: &str) -> Result<Option<String>> {
     if items.is_empty() {
         return Ok(None);
     }
+    let mut by_hash: std::collections::BTreeMap<&[u8], Vec<&ToBackup<'_>>> = Default::default();
+    for it in items {
+        by_hash.entry(it.hash).or_default().push(it);
+    }
     let mut actions = Vec::new();
     let mut survivors: Vec<(String, String)> = Vec::new(); // (member file id, survivor id)
-    for it in items {
-        if let Some(existing) = &it.existing {
-            survivors.push((it.member.id.clone(), existing.clone()));
-        } else {
-            let dest = backup_dest_for(store.conn(), &it.keeper.volume_id, &it.keeper.path, backup_mount)?;
-            let token = new_id();
-            let mut ev = backup_evidence(store.conn(), it.keeper, backup_id)?;
-            ev["pair"] = serde_json::json!(token);
-            actions.push(ProposedActionInput {
-                agent: Some("Housekeeper".into()),
-                action_type: ActionType::Copy,
-                target_kind: TargetKind::File,
-                // The content's kept copy: identical bytes, and not otherwise in this batch.
-                file_id: Some(it.keeper.id.clone()),
-                atomic_unit_id: None,
-                from_path: it.member.path.clone(),
-                to_path: Some(dest.to_string_lossy().to_string()),
-                reason: "Place this copy on the Backup drive".into(),
-                confidence: 0.99,
-                evidence_json: ev.to_string(),
+    for (hash, group) in &by_hash {
+        let existing = group.iter().find_map(|it| it.existing.clone());
+        let pending: i64 = store.conn().query_row(
+            "SELECT COUNT(DISTINCT a.file_id) FROM actions a JOIN files f ON f.id = a.file_id
+             WHERE a.action_type = 'quarantine' AND a.status IN ('proposed','approved') AND f.blake3 = ?1",
+            params![hash],
+            |r| r.get(0),
+        )?;
+        let copies = crate::dupes::copy_count(store.conn(), hash)?;
+        let added = i64::from(existing.is_none());
+        if copies + added - pending - (group.len() as i64) < crate::dupes::MIN_COPIES {
+            return Err(AegisError::PolicyBlocked {
+                rule: "min_copies".into(),
+                detail: format!(
+                    "Aegis keeps at least {} copies of every file; with the deletes already waiting for approval, this would leave fewer.",
+                    crate::dupes::MIN_COPIES
+                ),
             });
-            actions.push(ProposedActionInput {
-                agent: Some("Housekeeper".into()),
-                action_type: ActionType::Quarantine,
-                target_kind: TargetKind::File,
-                file_id: Some(it.member.id.clone()),
-                atomic_unit_id: None,
-                from_path: it.member.path.clone(),
-                to_path: None,
-                reason: "Now kept on the Backup drive".into(),
-                confidence: 0.99,
-                evidence_json: serde_json::json!({ "after_copy": token }).to_string(),
-            });
-            continue;
         }
-        actions.push(ProposedActionInput {
-            agent: Some("Housekeeper".into()),
-            action_type: ActionType::Quarantine,
-            target_kind: TargetKind::File,
-            file_id: Some(it.member.id.clone()),
-            atomic_unit_id: None,
-            from_path: it.member.path.clone(),
-            to_path: None,
-            reason: "The Backup drive already holds this file".into(),
-            confidence: 0.99,
-            evidence_json: "{}".into(),
-        });
+        match existing {
+            Some(existing) => {
+                for it in group {
+                    survivors.push((it.member.id.clone(), existing.clone()));
+                    actions.push(quarantine_input(it.member, "The Backup drive already holds this file", serde_json::json!({})));
+                }
+            }
+            None => {
+                let members: HashSet<&str> = group.iter().map(|it| it.member.id.as_str()).collect();
+                let keeper = group
+                    .iter()
+                    .map(|it| it.keeper)
+                    .find(|k| !members.contains(k.id.as_str()))
+                    .unwrap_or(group[0].keeper);
+                let source = group[0].member;
+                let dest = backup_dest_for(store.conn(), &keeper.volume_id, &keeper.path, backup_mount)?;
+                let token = new_id();
+                let mut ev = backup_evidence(store.conn(), keeper, backup_id)?;
+                ev["pair"] = serde_json::json!(token);
+                ev["member_file_id"] = serde_json::json!(source.id);
+                actions.push(ProposedActionInput {
+                    agent: Some("Housekeeper".into()),
+                    action_type: ActionType::Copy,
+                    // A copy is not an action *on* a catalogued file: the source is checked
+                    // through `member_file_id`, and file ids stay free for the quarantines.
+                    target_kind: TargetKind::Dir,
+                    file_id: None,
+                    atomic_unit_id: None,
+                    from_path: source.path.clone(),
+                    to_path: Some(dest.to_string_lossy().to_string()),
+                    reason: "Place this copy on the Backup drive".into(),
+                    confidence: 0.99,
+                    evidence_json: ev.to_string(),
+                });
+                for it in group {
+                    actions.push(quarantine_input(
+                        it.member,
+                        "Now kept on the Backup drive",
+                        serde_json::json!({ "after_copy": token }),
+                    ));
+                }
+            }
+        }
     }
     let batch = propose_batch(store, &RefilePlan { origin: "backup".into(), actions })?;
     // Copies run before the quarantines that depend on them.
@@ -332,7 +371,13 @@ pub fn apply_plan(store: &mut SqliteStore, roles: &[(String, DriveRole)]) -> Res
 
     // Files already on the Backup drive, outside "Aegis Backup".
     let mut adopt: Vec<(Copy, Copy)> = Vec::new(); // (file on backup, keeper elsewhere)
-    let mut stray: Vec<(Copy, Copy)> = Vec::new(); // (copy to move, keeper)
+    let mut stray: Vec<(Copy, Copy, Vec<u8>)> = Vec::new(); // (copy to move, keeper, hash)
+    // Stray copies only ever come from General drives: PC folders hold the owner's working files.
+    let general: HashSet<String> = {
+        let mut stmt = store.conn().prepare("SELECT id FROM volumes WHERE role = 'general'")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<_, _>>()?
+    };
     for h in &hashes {
         let copies = &by_hash[*h];
         let on_backup: Vec<&Copy> = copies.iter().filter(|c| c.volume_id == backup_id).collect();
@@ -344,9 +389,12 @@ pub fn apply_plan(store: &mut SqliteStore, roles: &[(String, DriveRole)]) -> Res
             continue;
         }
         if on_backup.is_empty() {
-            let others: Vec<&Copy> = copies.iter().filter(|c| c.id != k.id).collect();
+            let others: Vec<&Copy> = copies
+                .iter()
+                .filter(|c| c.id != k.id && general.contains(&c.volume_id))
+                .collect();
             if let Some(m) = others.iter().max_by_key(|c| (c.mtime, c.path.len())) {
-                stray.push(((*m).clone(), k.clone()));
+                stray.push(((*m).clone(), k.clone(), (*h).clone()));
             }
         }
     }
@@ -399,7 +447,7 @@ pub fn apply_plan(store: &mut SqliteStore, roles: &[(String, DriveRole)]) -> Res
     stray.truncate(MAX_BATCH_FILES);
     let items: Vec<ToBackup<'_>> = stray
         .iter()
-        .map(|(m, k)| ToBackup { member: m, keeper: k, existing: None })
+        .map(|(m, k, h)| ToBackup { member: m, keeper: k, existing: None, hash: h })
         .collect();
     let stray_batch = propose_to_backup(store, &items, &backup_id, &backup_mount)?;
     Ok(AppliedPlan { adopt_batch, stray_batch, only_copies_on_backup })
@@ -427,17 +475,23 @@ pub fn propose_move_to_backup(store: &mut SqliteStore, group_id: &str, location_
         .flat_map(|(h, cs)| cs.iter().map(move |c| (c.id.clone(), (h, c))))
         .collect();
     let mut items = Vec::new();
+    let here: HashSet<&str> = group
+        .members
+        .iter()
+        .filter(|m| m.location_index == location_index)
+        .map(|m| m.file_id.as_str())
+        .collect();
     for m in group.members.iter().filter(|m| m.location_index == location_index) {
         let Some((h, member)) = by_id.get(&m.file_id) else { continue };
         let copies = &by_hash[*h];
-        let others: Vec<Copy> = copies.iter().filter(|c| c.id != member.id).cloned().collect();
+        let others: Vec<Copy> = copies.iter().filter(|c| !here.contains(c.id.as_str())).cloned().collect();
         let Some(k) = keeper(&others, &backup_id) else { continue };
         let existing = copies
             .iter()
             .find(|c| c.volume_id == backup_id && in_backup_area(&c.path, &backup_mount))
             .map(|c| c.id.clone());
         let k = copies.iter().find(|c| c.id == k.id).unwrap_or(member);
-        items.push(ToBackup { member, keeper: k, existing });
+        items.push(ToBackup { member, keeper: k, existing, hash: h.as_slice() });
     }
     propose_to_backup(store, &items, &backup_id, &backup_mount)?
         .ok_or_else(|| AegisError::InvalidInput("Nothing to move for this location.".into()))

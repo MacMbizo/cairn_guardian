@@ -501,3 +501,25 @@ fn usn_refresh_on_system_temp() {
         UsnRead::Reset => panic!("journal reported reset"),
     }
 }
+
+/// Review I1: an old, unmanaged volume row at the same mount point goes offline when a
+/// registered drive claims that mount, and a catalog files everything under the claimed drive.
+#[test]
+fn claimed_mount_retires_legacy_rows_and_catalog_uses_the_drive_id() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "f.txt", b"file");
+    store
+        .conn()
+        .execute(
+            "INSERT INTO volumes (id, mount_point, fs_type, status, last_seen) VALUES ('win-legacy', ?1, 'ntfs', 'online', 0)",
+            [common::canon(&a.mount_point)],
+        )
+        .unwrap();
+    let provider = FakeVolumeProvider::new();
+    let id = common::plug_and_catalog(&mut store, &provider, &a);
+    assert_eq!(common::status_of(&store, "win-legacy"), "offline");
+    assert_eq!(common::live_file_paths(&store, &id).len(), 1);
+    assert_eq!(common::live_file_paths(&store, "win-legacy").len(), 0);
+}

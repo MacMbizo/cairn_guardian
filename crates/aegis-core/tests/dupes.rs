@@ -481,3 +481,123 @@ fn undo_decision_reasks() {
     assert!(grouped_report(store.conn()).unwrap().groups[0].needs_question);
     assert!(list_decisions(store.conn()).unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------- final review fixes
+
+/// Review C1: drive C is unplugged and drive A is plugged in at C's mount point before the
+/// watcher notices. An approved "delete C's copy" must not quarantine A's file.
+#[test]
+fn quarantine_refuses_when_another_drive_took_the_letter() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 70);
+    for d in [&a, &b, &c] {
+        common::put(&d.mount_point, "x.bin", &body);
+    }
+    catalog_all(&mut store, &provider, &[&a, &b, &c]);
+    let survivor = file_id(&store, &b.mount_point.join("x.bin"));
+    let victim = file_id(&store, &c.mount_point.join("x.bin"));
+    let batch = propose_dupe_quarantine(&mut store, &survivor, &[victim]).unwrap();
+    approve_batch(&mut store, &batch, None).unwrap();
+
+    // The swap happens without a sync: C's row still says online at C's mount.
+    std::fs::rename(&c.mount_point, tmp.path().join("C-away")).unwrap();
+    std::fs::rename(&a.mount_point, &c.mount_point).unwrap();
+
+    execute_batch(&mut store, &batch).unwrap();
+    let (status, msg) = action_row(&store, &batch);
+    assert_eq!(status, "failed", "{msg:?}");
+    assert!(c.mount_point.join("x.bin").exists(), "drive A's file was not touched");
+}
+
+/// Review I3: copies on A, B and the Backup drive. With B's delete pending, "It's a backup"
+/// on A would leave only the Backup copy, so it is refused.
+#[test]
+fn backup_move_respects_pending_deletes_and_copy_floor() {
+    use aegis_core::dupes::decisions::{DupeChoice, decide};
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let x = common::fake_drive(&tmp, "X", "0009");
+    let body = common::noise(5 * KIB, 71);
+    let pa = common::put(&a.mount_point, "Docs/f.bin", &body);
+    let pb = common::put(&b.mount_point, "Docs/f.bin", &body);
+    common::put(&x.mount_point, "Aegis Backup/A/Docs/f.bin", &body);
+    let ids = catalog_all(&mut store, &provider, &[&a, &b, &x]);
+    store.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&ids[2]]).unwrap();
+    let (keep, drop) = (file_id(&store, &pa), file_id(&store, &pb));
+    let pending = propose_dupe_quarantine(&mut store, &keep, &[drop]).unwrap();
+    approve_batch(&mut store, &pending, None).unwrap();
+
+    let g = grouped_report(store.conn()).unwrap().groups.remove(0);
+    let at_a = g.locations.iter().position(|l| l.volume_id == ids[0]).unwrap();
+    let err = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: at_a }).unwrap_err();
+    assert!(err.to_string().contains("copies"), "{err}");
+}
+
+/// Review I4: identical folders that each hold two identical files. "It's a backup" must
+/// produce one copy per content, not a database error.
+#[test]
+fn backup_move_handles_internal_duplicates() {
+    use aegis_core::dupes::decisions::{DupeChoice, decide};
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 72);
+    let other = common::noise(6 * KIB, 73);
+    for d in [&a, &c] {
+        common::put(&d.mount_point, "Set/x.bin", &body);
+        common::put(&d.mount_point, "Set/x copy.bin", &body);
+        common::put(&d.mount_point, "Set/y.bin", &other);
+    }
+    common::put(&a.mount_point, "a-only.txt", b"a");
+    common::put(&c.mount_point, "c-only.txt", b"cc");
+    let ids = catalog_all(&mut store, &provider, &[&a, &b, &c]);
+    store.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&ids[1]]).unwrap();
+    let g = grouped_report(store.conn())
+        .unwrap()
+        .groups
+        .into_iter()
+        .find(|g| g.kind == DupeGroupKind::Folder)
+        .expect("folder group");
+    let at_c = g.locations.iter().position(|l| l.volume_id == ids[2]).unwrap();
+    let out = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: at_c }).unwrap();
+    let batch = out.batch_id.unwrap();
+    let copies: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM actions WHERE batch_id = ?1 AND action_type = 'copy'", [&batch], |r| r.get(0))
+        .unwrap();
+    assert_eq!(copies, 2, "one copy per distinct content");
+    approve_batch(&mut store, &batch, None).unwrap();
+    execute_batch(&mut store, &batch).unwrap();
+    let failed: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM actions WHERE batch_id = ?1 AND status = 'failed'", [&batch], |r| r.get(0))
+        .unwrap();
+    assert_eq!(failed, 0);
+    assert!(!c.mount_point.join("Set").join("x.bin").exists());
+    assert!(!c.mount_point.join("Set").join("x copy.bin").exists());
+}
+
+/// Review I6: a file turned online-only (OneDrive "free up space") after the catalog must not
+/// be opened by fingerprinting, which would download it.
+#[cfg(windows)]
+#[test]
+fn files_that_became_placeholders_are_not_opened() {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_OFFLINE, SetFileAttributesW};
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let body = common::noise(2 * KIB, 74);
+    let p1 = common::put(&a.mount_point, "one.bin", &body);
+    common::put(&a.mount_point, "two.bin", &body);
+    common::plug_and_catalog(&mut store, &provider, &a);
+    let wide: Vec<u16> = p1.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_OFFLINE) }, 0);
+    let stats = run_fingerprint(&mut store, &AtomicBool::new(false)).unwrap();
+    assert_eq!(stats.skipped_placeholder, 1, "{stats:?}");
+    assert!(common::hashes_at(&store, &p1).0.is_none());
+}

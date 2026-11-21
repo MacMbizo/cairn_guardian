@@ -30,7 +30,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 fn hash_file_blake3(path: &Path) -> Result<Option<Vec<u8>>> {
-    if !path.is_file() {
+    // Online-only cloud files are never opened (that would download them).
+    if !path.is_file() || crate::scanner::os_adapter::is_placeholder_now(path) {
         return Ok(None);
     }
     let mut f = File::open(path)?;
@@ -946,7 +947,33 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         }
 
         let from = Path::new(&row.from_path);
-        let pre_blake3 = if row.target_kind == TargetKind::File {
+
+        // The file must still be where the action says, on the drive it was catalogued on.
+        // Stored paths are absolute: a different drive at the same letter must never be touched.
+        let identity = match (row.file_id.as_deref(), row.target_kind, row.action_type) {
+            (Some(fid), TargetKind::File, ActionType::Quarantine | ActionType::Move | ActionType::Rename) => {
+                crate::dupes::safety::confirm_file_at(store.conn(), fid, &row.from_path)
+            }
+            _ => Ok(()),
+        }
+        .and_then(|_| {
+            let ev = serde_json::from_str::<serde_json::Value>(&row.evidence_json).unwrap_or_default();
+            if let Some(member) = ev.get("member_file_id").and_then(|v| v.as_str()) {
+                crate::dupes::safety::confirm_file_at(store.conn(), member, &row.from_path)?;
+            }
+            if let Some(vol) = ev.pointer("/backup_copy/backup_volume_id").and_then(|v| v.as_str()) {
+                crate::dupes::safety::confirm_drive_identity(store.conn(), vol)?;
+            }
+            Ok(())
+        });
+        if let Err(e) = identity {
+            failed_count += 1;
+            mark_action(store, &row.id, "failed", &e.to_string())?;
+            continue;
+        }
+
+        let hashes_content = row.target_kind == TargetKind::File || row.action_type == ActionType::Copy;
+        let pre_blake3 = if hashes_content {
             hash_file_blake3(from).ok().flatten()
         } else {
             None
@@ -982,6 +1009,28 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
                     "This copy could not be read to compare with the one being kept.".into(),
                 )),
             };
+            // Never the same physical file, and never below the copy floor (S1/S2), re-checked now.
+            let check = check.and_then(|_| {
+                let survivor_path: String =
+                    store.conn().query_row("SELECT path FROM files WHERE id = ?1", [survivor], |r| r.get(0))?;
+                let same = |a: &str, b: &str| a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"));
+                if same(&survivor_path, &row.from_path) {
+                    return Err(AegisError::SurvivorUnavailable(
+                        "The copy to keep is this same file, so nothing was removed.".into(),
+                    ));
+                }
+                let h = pre_blake3.as_deref().unwrap_or_default();
+                if crate::dupes::copy_count(store.conn(), h)? - 1 < crate::dupes::MIN_COPIES {
+                    return Err(AegisError::PolicyBlocked {
+                        rule: "min_copies".into(),
+                        detail: format!(
+                            "Removing this would leave fewer than {} copies, so it was kept.",
+                            crate::dupes::MIN_COPIES
+                        ),
+                    });
+                }
+                Ok(())
+            });
             if let Err(e) = check {
                 failed_count += 1;
                 mark_action(store, &row.id, "failed", &e.to_string())?;
@@ -1002,7 +1051,7 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
 
         let (post_blake3, post_state_json) = match outcome.dest() {
             Some(dest) => {
-                let hash = if row.target_kind == TargetKind::File {
+                let hash = if hashes_content {
                     hash_file_blake3(dest).ok().flatten()
                 } else {
                     None

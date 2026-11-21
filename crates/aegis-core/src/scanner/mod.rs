@@ -699,8 +699,25 @@ pub fn scan_root_with_progress(
     tiers: &[u8],
     progress: &mut dyn FnMut(&ScanProgress),
 ) -> Result<ScanStatus> {
+    scan_root_inner(store, root, tiers, None, progress)
+}
+
+fn scan_root_inner(
+    store: &mut SqliteStore,
+    root: &Path,
+    tiers: &[u8],
+    volume_id: Option<&str>,
+    progress: &mut dyn FnMut(&ScanProgress),
+) -> Result<ScanStatus> {
     let canonical_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let vol_info = store.ensure_volume_for_path(&canonical_root)?;
+    let vol_info = match volume_id {
+        Some(id) => store
+            .list_volumes()?
+            .into_iter()
+            .find(|v| v.id == id)
+            .ok_or_else(|| AegisError::NotFound(format!("volume {id}")))?,
+        None => store.ensure_volume_for_path(&canonical_root)?,
+    };
     let mut vol_meta = inspect_volume_for_path(&canonical_root)?;
     // The registered volume (passport-identified drives included) owns these files.
     vol_meta.id = vol_info.id.clone();
@@ -900,7 +917,7 @@ pub fn catalog_volume(
     }
     // Journal position is taken before the walk, so changes made during it are replayed later.
     let journal = crate::drives::refresh::journal_position(Path::new(&mount));
-    let result = scan_root_with_progress(store, Path::new(&mount), &[1], progress)?;
+    let result = scan_root_inner(store, Path::new(&mount), &[1], Some(volume_id), progress)?;
     store.conn().execute(
         "UPDATE volumes SET last_catalog_complete_at = ?2 WHERE id = ?1",
         params![volume_id, now_ms()],

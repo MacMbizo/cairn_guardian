@@ -47,19 +47,58 @@ fn full_hash(path: &Path) -> Option<Vec<u8>> {
     Some(h.finalize().as_bytes().to_vec())
 }
 
+/// Confirms the drive mounted where `volume_id` is registered is really that drive: online, and
+/// carrying the passport on record. Guards against another drive taking the same letter before
+/// Aegis noticed (any action uses stored absolute paths).
+pub fn confirm_drive_identity(conn: &Connection, volume_id: &str) -> Result<()> {
+    let (mount, status, label, passport): (String, String, Option<String>, Option<String>) = conn.query_row(
+        "SELECT mount_point, status, label, passport_id FROM volumes WHERE id = ?1",
+        [volume_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?;
+    let name = label.unwrap_or_else(|| mount.clone());
+    if status != "online" {
+        return Err(AegisError::DriveMismatch(format!("{name} isn't plugged in.")));
+    }
+    if let Some(expected) = passport {
+        let on_disk = crate::drives::read_passport(Path::new(&mount))?;
+        if on_disk.map(|p| p.passport_id) != Some(expected) {
+            return Err(AegisError::DriveMismatch(format!(
+                "The drive at {mount} isn't {name} any more. Plug {name} back in and try again."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Confirms file `file_id` is still the file at `expected_path`, on the right drive.
+pub fn confirm_file_at(conn: &Connection, file_id: &str, expected_path: &str) -> Result<()> {
+    let (path, volume_id): (String, String) = conn
+        .query_row("SELECT path, volume_id FROM files WHERE id = ?1", [file_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?
+        .ok_or_else(|| AegisError::NotFound(format!("file {file_id}")))?;
+    let norm = |p: &str| p.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    if norm(&path) != norm(expected_path) {
+        return Err(AegisError::DriveMismatch(
+            "This file has moved since the change was proposed. Propose it again.".into(),
+        ));
+    }
+    confirm_drive_identity(conn, &volume_id)
+}
+
 /// Confirms, right now, that the surviving copy exists on an online drive and still has the
 /// expected content. A catalog of an unplugged drive is never trusted for a delete (S3).
 pub fn verify_survivor(conn: &Connection, survivor_file_id: &str, expected: &[u8]) -> Result<()> {
-    let row: Option<(String, String, Option<String>, String, i64)> = conn
+    let row: Option<(String, String, Option<String>, String, i64, String)> = conn
         .query_row(
-            "SELECT f.path, v.status, v.label, v.mount_point, v.last_seen
+            "SELECT f.path, v.status, v.label, v.mount_point, v.last_seen, f.volume_id
              FROM files f JOIN volumes v ON v.id = f.volume_id
              WHERE f.id = ?1 AND f.deleted_at IS NULL AND f.state NOT IN ('quarantine','missing')",
             params![survivor_file_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         )
         .optional()?;
-    let Some((path, status, label, mount, last_seen)) = row else {
+    let Some((path, status, label, mount, last_seen, volume_id)) = row else {
         return Err(AegisError::SurvivorUnavailable(
             "The copy this was meant to keep is no longer in the catalog, so nothing was removed.".into(),
         ));
@@ -69,6 +108,12 @@ pub fn verify_survivor(conn: &Connection, survivor_file_id: &str, expected: &[u8
         return Err(AegisError::SurvivorUnavailable(format!(
             "The other copy is on {label} (last checked {}). Plug it in to confirm, or keep both.",
             format_date_ms(last_seen)
+        )));
+    }
+    confirm_drive_identity(conn, &volume_id)?;
+    if crate::scanner::os_adapter::is_placeholder_now(Path::new(&path)) {
+        return Err(AegisError::SurvivorUnavailable(format!(
+            "The other copy at {path} is online-only (in the cloud), so this copy was kept."
         )));
     }
     match full_hash(Path::new(&path)) {

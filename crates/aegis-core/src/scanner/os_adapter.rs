@@ -431,3 +431,12 @@ pub fn inspect_volume_for_path(path: &Path) -> Result<OsVolumeMeta> {
 pub fn disk_space_for_mount(mount_point: &str) -> (u64, u64) {
     platform::disk_space_for_mount(mount_point)
 }
+
+/// True when `path` is an online-only cloud file *right now* (OneDrive "free up space" and
+/// similar). Reads attributes only; opening such a file would download it.
+pub fn is_placeholder_now(path: &Path) -> bool {
+    inspect_path_metadata(path)
+        .ok()
+        .flatten()
+        .is_some_and(|s| s.cloud_state == "placeholder_remote")
+}

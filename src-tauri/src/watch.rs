@@ -17,8 +17,8 @@ use tauri::{AppHandle, Emitter, Manager};
 /// How often mounted drives are polled.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(3);
 
-/// `(arrived, departed)` between two snapshots of mount points.
-pub fn diff_mounts(prev: &[PathBuf], now: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+/// `(arrived, departed)` between two snapshots of mounted drives.
+pub fn diff_mounts<T: PartialEq + Clone>(prev: &[T], now: &[T]) -> (Vec<T>, Vec<T>) {
     let arrived = now.iter().filter(|m| !prev.contains(m)).cloned().collect();
     let departed = prev.iter().filter(|m| !now.contains(m)).cloned().collect();
     (arrived, departed)
@@ -52,11 +52,18 @@ pub fn spawn(app: AppHandle) {
             Err(e) => return fail(&app, "drive_watch", e),
         };
         let provider = provider();
-        let mut prev: Vec<PathBuf> = Vec::new();
+        let mut prev: Vec<DriveKey> = Vec::new();
         loop {
-            let now: Vec<PathBuf> = provider
+            // Keyed by identity, not just the letter: a different drive arriving at the same
+            // letter between two polls is still a change.
+            let now: Vec<DriveKey> = provider
                 .mounted()
-                .map(|v| v.into_iter().filter(|m| !m.is_system).map(|m| m.mount_point).collect())
+                .map(|v| {
+                    v.into_iter()
+                        .filter(|m| !m.is_system)
+                        .map(|m| (m.mount_point, m.serial, m.guid_path, m.total_bytes))
+                        .collect()
+                })
                 .unwrap_or_default();
             let (arrived, departed) = diff_mounts(&prev, &now);
             if !arrived.is_empty() || !departed.is_empty() {
@@ -71,6 +78,9 @@ pub fn spawn(app: AppHandle) {
         }
     });
 }
+
+/// `(mount point, serial, volume GUID, size)` of a mounted drive.
+type DriveKey = (PathBuf, Option<String>, Option<String>, u64);
 
 fn last_seen_map(store: &SqliteStore) -> HashMap<String, i64> {
     store
@@ -101,14 +111,24 @@ fn handle(app: &AppHandle, store: &mut SqliteStore, report: &SyncReport, seen_be
         if !known || v.last_catalog_complete_at.is_none() {
             continue; // cataloguing a new drive waits for the owner's click
         }
-        let cancel = std::sync::atomic::AtomicBool::new(false);
-        match refresh_volume(store, id, &cancel) {
-            Ok(r) => emit(app, AegisEvent::DriveRefreshed { v: 1, report: r }),
-            Err(e) => fail(app, "drive_refresh", e),
-        }
-        if v.role == "backup" && aegis_core::policy::has_standing_topup(store.conn(), id).unwrap_or(false) {
-            standing_topup(app, store, id);
-        }
+        // Refresh and top-up can take a long time: run them on a worker with its own
+        // connection, so the watcher keeps noticing drives come and go meanwhile.
+        let (app, id, is_backup) = (app.clone(), id.clone(), v.role == "backup");
+        std::thread::spawn(move || {
+            let db_path = app.state::<AppState>().db_path.clone();
+            let mut store = match SqliteStore::open(&db_path) {
+                Ok(s) => s,
+                Err(e) => return fail(&app, "drive_refresh", e),
+            };
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            match refresh_volume(&mut store, &id, &cancel) {
+                Ok(r) => emit(&app, AegisEvent::DriveRefreshed { v: 1, report: r }),
+                Err(e) => fail(&app, "drive_refresh", e),
+            }
+            if is_backup && aegis_core::policy::has_standing_topup(store.conn(), &id).unwrap_or(false) {
+                standing_topup(&app, &mut store, &id);
+            }
+        });
     }
 }
 
@@ -126,6 +146,8 @@ pub fn run_topup_job(app: &AppHandle, store: &mut SqliteStore, backup_id: &str, 
     state.topup_cancel.store(false, Ordering::SeqCst);
     let cancel = state.topup_cancel.clone();
     let result = (|| -> aegis_core::error::Result<()> {
+        // See edits made since the last scan, so "up to date" is true.
+        aegis_core::backup::topup::refresh_sources(store)?;
         let plan = plan_topup(store.conn(), backup_id)?;
         if !plan.halted_folders.is_empty() {
             emit(app, AegisEvent::GuardHalted {
@@ -170,5 +192,15 @@ mod tests {
         assert_eq!(departed, vec![e]);
         let (a, d) = diff_mounts(std::slice::from_ref(&f), std::slice::from_ref(&f));
         assert!(a.is_empty() && d.is_empty());
+    }
+
+    /// Review C1: a different drive at the same letter between two polls is a change.
+    #[test]
+    fn swapped_drive_at_same_letter_is_a_change() {
+        let e = PathBuf::from(r"E:\");
+        let before: Vec<DriveKey> = vec![(e.clone(), Some("aaaa".into()), Some("guid-a".into()), 1)];
+        let after: Vec<DriveKey> = vec![(e, Some("cccc".into()), Some("guid-c".into()), 1)];
+        let (arrived, departed) = diff_mounts(&before, &after);
+        assert_eq!((arrived.len(), departed.len()), (1, 1));
     }
 }

@@ -166,6 +166,12 @@ pub fn sync_mounted(store: &mut SqliteStore, provider: &dyn VolumeProvider) -> R
             {
                 rebase_volume_paths(tx, &r.id, &r.mount_point, &mount, false)?;
             }
+            // Whatever was registered at this mount before (another drive, a pre-passport row)
+            // is not mounted here any more.
+            tx.execute(
+                "UPDATE volumes SET status = 'offline' WHERE id != ?1 AND lower(mount_point) = lower(?2) AND status = 'online'",
+                params![id, mount],
+            )?;
             tx.execute(
                 "INSERT INTO volumes (id, mount_point, fs_type, is_removable, is_readonly, has_stable_inode,
                                       case_sensitive, quarantine_dir, status, last_seen,

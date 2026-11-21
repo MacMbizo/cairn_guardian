@@ -137,6 +137,18 @@ fn live_sources(conn: &Connection) -> Result<Vec<Source>> {
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
+/// Rescans every backed-up folder on an online drive (metadata only, no payload reads), so a
+/// plan sees the edits, new files and deletions made since the last scan.
+pub fn refresh_sources(store: &mut SqliteStore) -> Result<()> {
+    for src in live_sources(store.conn())?.into_iter().filter(|s| s.online) {
+        let folder = Path::new(&src.folder);
+        if folder.is_dir() {
+            crate::scanner::scan_root(store, folder, &[1])?;
+        }
+    }
+    Ok(())
+}
+
 fn norm(p: &str) -> String {
     p.replace('/', "\\").to_lowercase()
 }
@@ -608,7 +620,8 @@ pub fn run_topup(
         match it.kind {
             TopUpKind::Add | TopUpKind::Replace => {
                 let Some(src) = it.source_path.as_deref().map(PathBuf::from) else { continue };
-                if !src.is_file() {
+                // Online-only cloud files are never opened (that would download them).
+                if !src.is_file() || crate::scanner::os_adapter::is_placeholder_now(&src) {
                     continue;
                 }
                 let dest = backup_mount.join(&it.backup_rel_path);

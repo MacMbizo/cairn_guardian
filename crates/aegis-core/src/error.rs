@@ -50,6 +50,10 @@ pub enum AegisError {
     #[error("invalid argument: {0}")]
     InvalidInput(String),
 
+    /// The drive at a stored mount point is not the drive a file belongs to (swapped letters).
+    #[error("{0}")]
+    DriveMismatch(String),
+
     /// The copy a duplicate delete relies on could not be confirmed right now (spec §7.5 S3).
     #[error("{0}")]
     SurvivorUnavailable(String),
@@ -118,6 +122,12 @@ impl AegisError {
                 message: msg.clone(),
                 retryable: true,
                 remediation: Some("Ensure volume is online and writable for .aegis-quarantine.".into()),
+            },
+            Self::DriveMismatch(msg) => IpcError {
+                code: "drive_mismatch".into(),
+                message: msg.clone(),
+                retryable: true,
+                remediation: Some("Plug the right drive back in, let Aegis recognise it, then try again.".into()),
             },
             Self::SurvivorUnavailable(msg) => IpcError {
                 code: "survivor_unavailable".into(),

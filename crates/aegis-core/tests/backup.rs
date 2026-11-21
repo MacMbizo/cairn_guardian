@@ -895,3 +895,57 @@ fn end_to_end_three_drives() {
         1
     );
 }
+
+// ---------------------------------------------------------------- final review fixes
+
+/// Review I2: stray copies only ever come from General drives; a newer copy in a PC folder is
+/// the owner's working file and is never moved or quarantined by the drive plan.
+#[test]
+fn stray_copies_never_come_from_the_pc() {
+    let (tmp, mut store, provider) = setup();
+    let docs = tmp.path().join("Documents");
+    let body = common::noise(6 * KIB, 950);
+    let pc = common::put(&docs, "report.pdf", &body);
+    store.add_root(&docs).unwrap();
+    scan_root(&mut store, &docs, &[1]).unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let old = common::put(&a.mount_point, "old/report.pdf", &body);
+    set_mtime(&old, 5000); // the drive copy is older, so the PC copy looks like the "extra"
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let ids = catalog_all(&mut store, &provider, &[&a, &b]);
+    let applied = apply_plan(
+        &mut store,
+        &[(ids[0].clone(), DriveRole::General), (ids[1].clone(), DriveRole::Backup)],
+    )
+    .unwrap();
+    if let Some(batch) = applied.stray_batch {
+        let touches_pc: i64 = store
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM actions WHERE batch_id = ?1 AND action_type = 'quarantine' AND from_path = ?2",
+                rusqlite::params![batch, common::canon(&pc)],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(touches_pc, 0, "the PC copy must not be quarantined");
+    }
+}
+
+/// Review I5: a top-up first refreshes its source folders, so edits and new files made since
+/// the last scan are backed up instead of being reported as "up to date".
+#[test]
+fn topup_sees_changes_made_since_the_last_scan() {
+    use aegis_core::backup::topup::refresh_sources;
+    let files: Vec<(String, Vec<u8>)> = (0..8).map(|i| (format!("f{i}.txt"), format!("v1 {i}").into_bytes())).collect();
+    let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let mut fx = backup_fx(&refs);
+    topup(&mut fx);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(fx.docs.join("f0.txt"), b"edited without a rescan").unwrap();
+    std::fs::write(fx.docs.join("brand-new.txt"), b"new").unwrap();
+    refresh_sources(&mut fx.store).unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let kinds: Vec<TopUpKind> = plan.items.iter().map(|i| i.kind).collect();
+    assert!(kinds.contains(&TopUpKind::Replace), "{kinds:?}");
+    assert!(kinds.contains(&TopUpKind::Add), "{kinds:?}");
+}
