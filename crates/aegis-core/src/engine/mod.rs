@@ -116,6 +116,22 @@ pub fn record_run(conn: &Connection, name: &str, now: i64, error: Option<&str>) 
 pub mod batcher;
 pub mod reminders;
 pub mod tripwire;
+pub mod watches;
+
+/// Owner-facing size, 1024-based like Windows Explorer and the rest of the app ("3.2 GB").
+pub fn bytes_text(n: i64) -> String {
+    const KB: f64 = 1024.0;
+    let b = n.max(0) as f64;
+    if b >= KB * KB * KB * KB {
+        format!("{:.1} TB", b / (KB * KB * KB * KB))
+    } else if b >= KB * KB * KB {
+        format!("{:.1} GB", b / (KB * KB * KB))
+    } else if b >= KB * KB {
+        format!("{:.0} MB", b / (KB * KB))
+    } else {
+        format!("{} KB", (n.max(0) + 1023) / 1024)
+    }
+}
 
 use crate::db::SqliteStore;
 

@@ -387,3 +387,137 @@ fn stale_running_jobs_marked_interrupted() {
         c.query_row("SELECT status, finished_at FROM scan_jobs WHERE id = 'j1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!(st, ("interrupted".to_string(), 99));
 }
+
+// ---------- Task 6: safety watches ----------
+
+use aegis_core::contracts::{QuarantineEntry, TargetKind};
+use aegis_core::engine::watches::{
+    DriveErrorsWatch, OnlyCopyWatch, SelfCheckWatch, catalogs_to_resume, only_copy_finding, quarantine_expiry_finding,
+};
+
+const GB: i64 = 1_000_000_000;
+
+#[test]
+fn only_copy_raises_after_seven_days_with_a_gigabyte() {
+    assert!(only_copy_finding(GB, 6, "Seagate B").is_none());
+    let f = only_copy_finding(GB, 7, "Seagate B").unwrap();
+    assert_eq!(f.level, Level::Convenient);
+    assert_eq!(f.subject, "backup");
+    assert!(f.title.ends_with("exist only on this PC"), "{}", f.title);
+    assert_eq!(f.detail, "Your Backup drive Seagate B hasn't been plugged in for 7 days.");
+    assert!(only_copy_finding(GB - 1, 13, "B").is_none());
+}
+
+#[test]
+fn only_copy_raises_any_amount_after_fourteen_days() {
+    assert!(only_copy_finding(1, 14, "B").is_some());
+    assert!(only_copy_finding(0, 400, "B").is_none());
+}
+
+#[test]
+fn only_copy_silent_without_backup_drive() {
+    let mut s = store();
+    assert!(OnlyCopyWatch.run(&mut s, DAY * 100).unwrap().is_empty());
+}
+
+fn q_entry(id: &str, expires_at: i64) -> QuarantineEntry {
+    QuarantineEntry {
+        id: id.into(),
+        action_id: "a".into(),
+        target_kind: TargetKind::File,
+        file_id: None,
+        atomic_unit_id: None,
+        volume_id: "v".into(),
+        original_path: "C:/x".into(),
+        quarantine_path: "C:/q".into(),
+        size_bytes: 10,
+        quarantined_at: 0,
+        expires_at,
+        restored_at: None,
+        purged_at: None,
+    }
+}
+
+#[test]
+fn quarantine_expiry_counts_next_two_days_only() {
+    let now = 10 * DAY;
+    let entries = vec![
+        q_entry("past", now - 1),
+        q_entry("soon", now + DAY / 2),
+        q_entry("edge", now + 2 * DAY),
+        q_entry("later", now + 2 * DAY + 1),
+    ];
+    let f = quarantine_expiry_finding(&entries, now).unwrap();
+    assert_eq!(f.title, "2 files are deleted for good tomorrow");
+    assert_eq!(f.detail, "Keep any? They're in Disk Rescue & Quarantine.");
+    assert_eq!(f.action, FindingAction::Open { screen: Screen::Rescue });
+    assert!(quarantine_expiry_finding(&entries[3..], now).is_none());
+    assert_eq!(quarantine_expiry_finding(&[q_entry("x", now + DAY / 4)], now).unwrap().title, "1 file is deleted for good today");
+}
+
+#[test]
+fn drive_errors_raise_now_at_ten() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let drive = common::fake_drive(&tmp, "WD C", "0003");
+    let id = common::plug_and_catalog(&mut s, &provider, &drive);
+    let root = common::canon(&drive.mount_point);
+    let errors = |n: usize| serde_json::to_string(&vec![serde_json::json!({"path": "x", "reason": "io"}); n]).unwrap();
+    s.conn()
+        .execute(
+            "INSERT INTO scan_jobs (id, root_path, tier, status, started_at, finished_at, errors_json)
+             VALUES ('e9', ?1, 1, 'degraded', 9e15, 9e15, ?2)",
+            rusqlite::params![root, errors(9)],
+        )
+        .unwrap();
+    assert!(DriveErrorsWatch.run(&mut s, 1).unwrap().is_empty());
+    s.conn()
+        .execute(
+            "INSERT INTO scan_jobs (id, root_path, tier, status, started_at, finished_at, errors_json)
+             VALUES ('e14', ?1, 1, 'degraded', 9.1e15, 9.1e15, ?2)",
+            rusqlite::params![root, errors(14)],
+        )
+        .unwrap();
+    let f = DriveErrorsWatch.run(&mut s, 1).unwrap();
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].level, Level::Now);
+    assert_eq!(f[0].subject, id);
+    assert_eq!(f[0].title, "WD C had trouble reading 14 files");
+    assert_eq!(f[0].detail, "Copy what matters off it soon.");
+}
+
+#[test]
+fn self_check_reports_stale_heartbeat() {
+    let mut s = store();
+    record_run(s.conn(), "live_index", 0, None).unwrap();
+    record_run(s.conn(), "fresh", 4_500, None).unwrap();
+    let mut w = SelfCheckWatch::new(vec![("live_index", 1_000), ("fresh", 1_000)], None);
+    let f = w.run(&mut s, 5_000).unwrap();
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].subject, "live_index");
+    assert_eq!(f[0].level, Level::Note);
+    assert_eq!(f[0].title, "live_index stopped working and was restarted");
+}
+
+#[test]
+fn resume_only_previously_started_uncatalogued_drives() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let done = common::fake_drive(&tmp, "Done", "0001");
+    let started = common::fake_drive(&tmp, "Started", "0002");
+    let never = common::fake_drive(&tmp, "Never", "0003");
+    common::plug_and_catalog(&mut s, &provider, &done);
+    provider.plug(started.clone());
+    provider.plug(never.clone());
+    aegis_core::drives::sync_mounted(&mut s, &provider).unwrap();
+    let started_id = common::volume_id_at(&s, &started.mount_point);
+    s.conn()
+        .execute(
+            "INSERT INTO scan_jobs (id, root_path, tier, status, started_at) VALUES ('j', ?1, 1, 'interrupted', 1)",
+            [common::canon(&started.mount_point)],
+        )
+        .unwrap();
+    assert_eq!(catalogs_to_resume(s.conn()).unwrap(), vec![started_id]);
+}
