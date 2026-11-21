@@ -15,6 +15,7 @@ export * from './CoverageReport';
 export * from './DiskRescueReport';
 export * from './DoctorCheckResult';
 export * from './DoctorReport';
+export * from './DriveRole';
 export * from './DupeCluster';
 export * from './DupeReport';
 export * from './ExecuteResult';
