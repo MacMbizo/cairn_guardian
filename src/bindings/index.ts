@@ -36,6 +36,7 @@ export * from './FileDetail';
 export * from './Finding';
 export * from './FindingAction';
 export * from './FingerprintStats';
+export * from './Forecast';
 export * from './GroupedDupeReport';
 export * from './GuardHalt';
 export * from './HardwareProfile';

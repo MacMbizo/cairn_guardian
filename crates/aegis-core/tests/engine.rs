@@ -640,3 +640,83 @@ fn installed_programs_reads_the_registry() {
     assert!(!programs.is_empty(), "every Windows install lists some programs");
     assert!(programs.iter().all(|p| !p.trim().is_empty() && !p.contains('\0')));
 }
+
+// ---------- Task 8: space samples and forecast ----------
+
+use aegis_core::engine::space::{forecast, record_day};
+
+const GIB: i64 = 1_073_741_824;
+
+/// `days` daily samples ending 2026-11-(start+days-1); used grows by `per_day`, `free_at_end` left.
+fn samples(s: &SqliteStore, days: usize, per_day: i64, free_at_end: i64) {
+    let last_used = 100 * GIB + (days as i64 - 1) * per_day;
+    let total = last_used + free_at_end;
+    for i in 0..days {
+        let day = format!("2026-11-{:02}", i + 1);
+        record_day(s.conn(), &day, &[("C".into(), 100 * GIB + i as i64 * per_day, total)], &[]).unwrap();
+    }
+}
+
+#[test]
+fn forecast_needs_seven_samples() {
+    let s = store();
+    samples(&s, 6, 10 * GIB, 100 * GIB);
+    assert!(forecast(s.conn(), "C", "2026-11-06").unwrap().is_none());
+    record_day(s.conn(), "2026-11-07", &[("C".into(), 160 * GIB, 260 * GIB)], &[]).unwrap();
+    assert!(forecast(s.conn(), "C", "2026-11-07").unwrap().is_some());
+}
+
+#[test]
+fn steady_growth_gives_weeks_left() {
+    let s = store();
+    samples(&s, 10, 10 * GIB, 700 * GIB);
+    let f = forecast(s.conn(), "C", "2026-11-10").unwrap().unwrap();
+    assert!((f.weeks_left - 10.0).abs() < 0.1, "{}", f.weeks_left);
+}
+
+#[test]
+fn shrinking_or_far_off_gives_none() {
+    let s = store();
+    samples(&s, 10, -GIB, 500 * GIB);
+    assert!(forecast(s.conn(), "C", "2026-11-10").unwrap().is_none());
+    let s = store();
+    samples(&s, 10, GIB / 10, 500 * GIB); // ~0.1 GB/day: years away
+    assert!(forecast(s.conn(), "C", "2026-11-10").unwrap().is_none());
+}
+
+#[test]
+fn samples_older_than_four_weeks_are_ignored() {
+    let s = store();
+    samples(&s, 10, 10 * GIB, 700 * GIB);
+    assert!(forecast(s.conn(), "C", "2026-12-31").unwrap().is_none());
+}
+
+#[test]
+fn same_day_recorded_twice_keeps_one_row() {
+    let s = store();
+    record_day(s.conn(), "2026-11-01", &[("C".into(), 1, 10)], &[("R".into(), 5)]).unwrap();
+    record_day(s.conn(), "2026-11-01", &[("C".into(), 2, 10)], &[("R".into(), 6)]).unwrap();
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM space_samples", [], |r| r.get(0)).unwrap();
+    let used: i64 = s.conn().query_row("SELECT used_bytes FROM space_samples", [], |r| r.get(0)).unwrap();
+    let roots: i64 = s.conn().query_row("SELECT COUNT(*) FROM root_samples", [], |r| r.get(0)).unwrap();
+    assert_eq!((n, used, roots), (1, 2, 1));
+}
+
+#[test]
+fn fastest_root_picked() {
+    let s = store();
+    samples(&s, 10, 10 * GIB, 300 * GIB);
+    for i in 0..10 {
+        let day = format!("2026-11-{:02}", i + 1);
+        record_day(
+            s.conn(),
+            &day,
+            &[],
+            &[("C:/Users/me/Downloads".into(), GIB * (1 + 7 * i)), ("C:/Users/me/Music".into(), GIB * (50 + i)), ("C:/Old".into(), GIB * (90 - i))],
+        )
+        .unwrap();
+    }
+    let f = forecast(s.conn(), "C", "2026-11-10").unwrap().unwrap();
+    assert_eq!(f.fastest_root.as_deref(), Some("C:/Users/me/Downloads"));
+    assert_eq!(f.fastest_root_bytes_per_week, 49 * GIB);
+}
