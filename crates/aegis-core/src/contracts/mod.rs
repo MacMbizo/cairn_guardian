@@ -831,6 +831,9 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <DupeMember as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DupeGroup as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <GroupedDupeReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::dupes::decisions::DupeChoice as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::dupes::decisions::DecisionOutcome as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::dupes::decisions::DupeDecisionItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DiskRescueReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <HealthBreakdown as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AuditEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

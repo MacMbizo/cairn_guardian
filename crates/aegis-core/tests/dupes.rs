@@ -384,3 +384,100 @@ fn backup_copy_needs_no_question() {
     assert_eq!(report.groups.len(), 1);
     assert!(!report.groups[0].needs_question);
 }
+
+// ---------------------------------------------------------------- Task 8: decisions
+
+use aegis_core::dupes::decisions::{DupeChoice, decide, list_decisions, undo_decision};
+
+fn two_drive_copy(
+    tmp: &tempfile::TempDir,
+    store: &mut SqliteStore,
+    provider: &FakeVolumeProvider,
+) -> (aegis_core::drives::MountedVolume, aegis_core::drives::MountedVolume) {
+    let a = common::fake_drive(tmp, "A", "0001");
+    let c = common::fake_drive(tmp, "C", "0003");
+    for i in 0..3u64 {
+        let body = common::noise(2 * KIB + i as usize, 80 + i);
+        common::put(&a.mount_point, &format!("Docs/f{i}.bin"), &body);
+        common::put(&c.mount_point, &format!("Docs/f{i}.bin"), &body);
+    }
+    common::put(&a.mount_point, "a-only.txt", b"a");
+    common::put(&c.mount_point, "c-only.txt", b"cc");
+    catalog_all(store, provider, &[&a, &c]);
+    (a, c)
+}
+
+#[test]
+fn keep_both_suppresses_question_across_relettering() {
+    let (tmp, mut store, provider) = setup();
+    let (_a, c) = two_drive_copy(&tmp, &mut store, &provider);
+    let g = grouped_report(store.conn()).unwrap().groups.remove(0);
+    assert!(g.needs_question);
+    let out = decide(&mut store, &g.group_id, DupeChoice::KeepBoth).unwrap();
+    assert!(out.batch_id.is_none());
+    assert!(!grouped_report(store.conn()).unwrap().groups[0].needs_question);
+
+    // Drive C comes back under another letter: still answered.
+    provider.unplug(&c.mount_point);
+    sync_mounted(&mut store, &provider).unwrap();
+    let moved = tmp.path().join("C2");
+    std::fs::rename(&c.mount_point, &moved).unwrap();
+    let mut c2 = c.clone();
+    c2.mount_point = moved;
+    provider.plug(c2);
+    sync_mounted(&mut store, &provider).unwrap();
+    let after = grouped_report(store.conn()).unwrap();
+    assert_eq!(after.groups.len(), 1);
+    assert_eq!(after.groups[0].group_id, g.group_id, "group id survives a re-letter");
+    assert!(!after.groups[0].needs_question);
+    assert_eq!(list_decisions(store.conn()).unwrap().len(), 1);
+}
+
+#[test]
+fn delete_this_copy_creates_quarantine_batch() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let body = common::noise(5 * KIB, 90);
+    for d in [&a, &b, &c] {
+        common::put(&d.mount_point, "x.bin", &body);
+    }
+    catalog_all(&mut store, &provider, &[&a, &b, &c]);
+    let g = grouped_report(store.conn()).unwrap().groups.remove(0);
+    let victim = (0..g.locations.len()).find(|&i| i != g.keeper_index).unwrap();
+    let out = decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: victim }).unwrap();
+    let batch = out.batch_id.expect("a quarantine batch");
+    let (n, with_survivor): (i64, i64) = store
+        .conn()
+        .query_row(
+            "SELECT COUNT(*), COUNT(survivor_file_id) FROM actions WHERE batch_id = ?1 AND action_type = 'quarantine'",
+            [&batch],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((n, with_survivor), (1, 1));
+}
+
+#[test]
+fn delete_refused_suggests_backup_copy() {
+    let (tmp, mut store, provider) = setup();
+    two_drive_copy(&tmp, &mut store, &provider);
+    let g = grouped_report(store.conn()).unwrap().groups.remove(0);
+    let victim = 1 - g.keeper_index;
+    let err = decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: victim })
+        .unwrap_err();
+    assert!(err.to_string().contains("Make this the backup copy"), "{err}");
+    assert!(list_decisions(store.conn()).unwrap().is_empty(), "a refused answer is not recorded");
+}
+
+#[test]
+fn undo_decision_reasks() {
+    let (tmp, mut store, provider) = setup();
+    two_drive_copy(&tmp, &mut store, &provider);
+    let g = grouped_report(store.conn()).unwrap().groups.remove(0);
+    let out = decide(&mut store, &g.group_id, DupeChoice::KeepBoth).unwrap();
+    undo_decision(&mut store, &out.decision_id).unwrap();
+    assert!(grouped_report(store.conn()).unwrap().groups[0].needs_question);
+    assert!(list_decisions(store.conn()).unwrap().is_empty());
+}

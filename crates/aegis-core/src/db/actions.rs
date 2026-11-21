@@ -360,39 +360,64 @@ pub fn propose_dupe_quarantine(
     keeper_file_id: &str,
     member_file_ids: &[String],
 ) -> Result<String> {
-    let keeper_hash: Option<Vec<u8>> = store
-        .conn()
-        .query_row(
-            "SELECT blake3 FROM files WHERE id = ?1 AND deleted_at IS NULL AND state NOT IN ('quarantine','missing')",
-            params![keeper_file_id],
-            |r| r.get(0),
-        )
-        .optional()?
-        .flatten();
-    let keeper_hash = keeper_hash
-        .ok_or_else(|| AegisError::NotFound(format!("kept copy {keeper_file_id} has no fingerprint")))?;
-    let removing: Vec<&String> = member_file_ids
+    let pairs: Vec<(String, String)> = member_file_ids
         .iter()
         .filter(|f| f.as_str() != keeper_file_id)
+        .map(|m| (keeper_file_id.to_string(), m.clone()))
         .collect();
-    let pending: i64 = store.conn().query_row(
-        "SELECT COUNT(DISTINCT a.file_id) FROM actions a JOIN files f ON f.id = a.file_id
-         WHERE a.action_type = 'quarantine' AND a.status IN ('proposed','approved') AND f.blake3 = ?1",
-        params![keeper_hash],
-        |r| r.get(0),
-    )?;
-    let copies = crate::dupes::copy_count(store.conn(), &keeper_hash)?;
-    if copies - pending - (removing.len() as i64) < crate::dupes::MIN_COPIES {
-        return Err(AegisError::PolicyBlocked {
-            rule: "min_copies".into(),
-            detail: format!(
-                "Aegis keeps at least {} copies of every file, and only {copies} exist. Make this the backup copy instead of deleting it.",
-                crate::dupes::MIN_COPIES
-            ),
-        });
+    propose_dupe_quarantine_pairs(store, &pairs)
+}
+
+/// Proposes one quarantine per `(survivor, member)` pair in a single batch. Each action records
+/// its survivor, re-verified at execute time. Refused (`min_copies`) when any file would be left
+/// with fewer than [`crate::dupes::MIN_COPIES`] copies, counting quarantines already pending.
+pub fn propose_dupe_quarantine_pairs(
+    store: &mut SqliteStore,
+    pairs: &[(String, String)],
+) -> Result<String> {
+    if pairs.is_empty() {
+        return Err(AegisError::InvalidInput("Nothing to remove".into()));
+    }
+    let live_hash = |store: &SqliteStore, id: &str| -> Result<Vec<u8>> {
+        store
+            .conn()
+            .query_row(
+                "SELECT blake3 FROM files WHERE id = ?1 AND deleted_at IS NULL AND state NOT IN ('quarantine','missing')",
+                params![id],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?
+            .flatten()
+            .ok_or_else(|| AegisError::NotFound(format!("file {id} has no fingerprint")))
+    };
+    let mut removing: HashMap<Vec<u8>, i64> = HashMap::new();
+    for (keeper, member) in pairs {
+        let h = live_hash(store, member)?;
+        if live_hash(store, keeper)? != h {
+            return Err(AegisError::InvalidInput(format!("{member} is not a copy of {keeper}")));
+        }
+        *removing.entry(h).or_insert(0) += 1;
+    }
+    for (h, n) in &removing {
+        let pending: i64 = store.conn().query_row(
+            "SELECT COUNT(DISTINCT a.file_id) FROM actions a JOIN files f ON f.id = a.file_id
+             WHERE a.action_type = 'quarantine' AND a.status IN ('proposed','approved') AND f.blake3 = ?1",
+            params![h],
+            |r| r.get(0),
+        )?;
+        let copies = crate::dupes::copy_count(store.conn(), h)?;
+        if copies - pending - n < crate::dupes::MIN_COPIES {
+            return Err(AegisError::PolicyBlocked {
+                rule: "min_copies".into(),
+                detail: format!(
+                    "Aegis keeps at least {} copies of every file, and only {copies} exist. Make this the backup copy instead of deleting it.",
+                    crate::dupes::MIN_COPIES
+                ),
+            });
+        }
     }
     let mut actions = Vec::new();
-    for fid in removing {
+    for (keeper, fid) in pairs {
         let (path, atomic_unit_id): (String, Option<String>) = store
             .conn()
             .query_row(
@@ -413,7 +438,7 @@ pub fn propose_dupe_quarantine(
             to_path: None,
             reason: "Exact duplicate (identical BLAKE3) of the kept copy".into(),
             confidence: 0.99,
-            evidence_json: serde_json::json!([{ "keeper_file_id": keeper_file_id }]).to_string(),
+            evidence_json: serde_json::json!([{ "keeper_file_id": keeper }]).to_string(),
         });
     }
     let batch = propose_batch(
@@ -423,10 +448,12 @@ pub fn propose_dupe_quarantine(
             actions,
         },
     )?;
-    store.conn().execute(
-        "UPDATE actions SET survivor_file_id = ?2 WHERE batch_id = ?1",
-        params![batch, keeper_file_id],
-    )?;
+    for (keeper, member) in pairs {
+        store.conn().execute(
+            "UPDATE actions SET survivor_file_id = ?3 WHERE batch_id = ?1 AND file_id = ?2",
+            params![batch, member, keeper],
+        )?;
+    }
     Ok(batch)
 }
 

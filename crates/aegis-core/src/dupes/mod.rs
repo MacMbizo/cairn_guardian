@@ -1,6 +1,7 @@
 //! Exact duplicates across every drive, grouped so each question covers a folder or a batch
 //! of files rather than one file (spec §7.5).
 
+pub mod decisions;
 pub mod safety;
 
 pub use crate::contracts::{DupeGroup, DupeGroupKind, DupeLocation, DupeMember, GroupedDupeReport};
@@ -37,8 +38,9 @@ struct FileRow {
 
 /// A folder on a volume: `(volume id, lowercase path with '/' separators)`.
 type DirKey = (String, String);
-/// Volumes, live files, and `(backup volume, rel path)` of recorded backup copies.
-type Catalog = (HashMap<String, Vol>, Vec<FileRow>, HashSet<(String, String)>);
+/// Volumes, live files, `(backup volume, rel path)` of recorded backup copies, and the
+/// location pairs the owner answered "keep both" for.
+type Catalog = (HashMap<String, Vol>, Vec<FileRow>, HashSet<(String, String)>, HashSet<(String, String)>);
 /// Files under a folder keyed by lowercase relative path → (file index, hash).
 type RelSet = BTreeMap<String, (usize, Option<Vec<u8>>)>;
 
@@ -164,12 +166,45 @@ fn load(conn: &Connection) -> Result<Catalog> {
         let (v, rel) = r?;
         copies.insert((v, norm(&rel)));
     }
-    Ok((vols, files, copies))
+    let mut keep_both = HashSet::new();
+    let mut stmt = conn.prepare(
+        "SELECT a_passport, a_rel_path, b_passport, b_rel_path FROM dupe_decisions
+         WHERE decision = 'keep_both' AND undone_at IS NULL",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            format!("{}|{}", r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+            format!("{}|{}", r.get::<_, String>(2)?, r.get::<_, String>(3)?),
+        ))
+    })?;
+    for r in rows {
+        keep_both.insert(pair_key(r?));
+    }
+    Ok((vols, files, copies, keep_both))
+}
+
+/// Order-independent key for a pair of location identities.
+fn pair_key((a, b): (String, String)) -> (String, String) {
+    if a <= b { (a, b) } else { (b, a) }
+}
+
+/// Stable identity of a location: `"<passport or volume id>|<path relative to the mount>"`.
+pub fn location_identity(conn: &Connection, loc: &DupeLocation) -> Result<String> {
+    let (identity, mount): (Option<String>, String) = conn.query_row(
+        "SELECT passport_id, mount_point FROM volumes WHERE id = ?1",
+        [&loc.volume_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    Ok(format!(
+        "{}|{}",
+        identity.unwrap_or_else(|| loc.volume_id.clone()),
+        rel_to_mount(&loc.path, &mount)
+    ))
 }
 
 /// Builds the grouped duplicate report over the whole catalog.
 pub fn grouped_report(conn: &Connection) -> Result<GroupedDupeReport> {
-    let (vols, files, backup_copies) = load(conn)?;
+    let (vols, files, backup_copies, keep_both) = load(conn)?;
 
     // Duplicate hashes: ≥2 distinct copies (hardlinks count once).
     let mut by_hash: HashMap<&[u8], Vec<usize>> = HashMap::new();
@@ -367,6 +402,7 @@ pub fn grouped_report(conn: &Connection) -> Result<GroupedDupeReport> {
             &dirs,
             g,
             &backup_copies,
+            &keep_both,
         ));
     }
 
@@ -416,6 +452,7 @@ pub fn grouped_report(conn: &Connection) -> Result<GroupedDupeReport> {
             &dirs,
             &pair,
             &backup_copies,
+            &keep_both,
         ));
     }
 
@@ -517,6 +554,7 @@ pub fn grouped_report(conn: &Connection) -> Result<GroupedDupeReport> {
             &dirs,
             &key,
             &backup_copies,
+            &keep_both,
         ));
     }
 
@@ -566,6 +604,7 @@ fn finish_group(
     dirs: &HashMap<DirKey, DirStat>,
     keys: &[DirKey],
     backup_copies: &HashSet<(String, String)>,
+    keep_both: &HashSet<(String, String)>,
 ) -> DupeGroup {
     let by_id: HashMap<&str, &FileRow> = files.iter().map(|f| (f.id.as_str(), f)).collect();
     // Keeper (spec §7.5): not on the Backup drive → folder with more siblings → oldest → shortest path.
@@ -608,13 +647,19 @@ fn finish_group(
             })
     });
 
-    let mut ids: Vec<String> = locations
+    let loc_ids: Vec<String> = locations
         .iter()
         .map(|l| {
             let v = &vols[&l.volume_id];
             format!("{}|{}", v.identity, rel_to_mount(&l.path, &v.mount))
         })
         .collect();
+    // "Keep both" answered for the kept copy against every other location.
+    let answered = locations.len() >= 2
+        && (0..locations.len())
+            .filter(|&i| i != keeper_index)
+            .all(|i| keep_both.contains(&pair_key((loc_ids[keeper_index].clone(), loc_ids[i].clone()))));
+    let mut ids = loc_ids.clone();
     ids.sort();
     let group_id = blake3::hash(format!("{kind:?}\n{}", ids.join("\n")).as_bytes())
         .to_hex()[..32]
@@ -628,7 +673,7 @@ fn finish_group(
         locations,
         keeper_index,
         differences,
-        needs_question: !healthy_backup,
+        needs_question: !healthy_backup && !answered,
         members,
     }
 }
