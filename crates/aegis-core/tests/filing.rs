@@ -347,3 +347,75 @@ fn unreadable_kinds_get_meta_without_reading() {
     assert_eq!(load_meta(s.conn(), &file_id_of(&s, "clip.mp4")).unwrap().unwrap().kind, Kind::Video);
     assert_eq!(aegis_core::filing::reader::classify_unread(&mut s, 100).unwrap(), 0, "done once");
 }
+
+// ---------- Task 5: naming ----------
+
+use aegis_core::filing::classify::Classification;
+use aegis_core::filing::naming::{proposed_name, sanitize};
+
+fn invoice_class() -> Classification {
+    doc("scan0001.pdf", Some("TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due R 499.00"))
+}
+
+#[test]
+fn invoice_name() {
+    assert_eq!(proposed_name(&invoice_class(), "scan0001", "pdf", 0).as_deref(), Some("2026-03-14 Vodacom invoice.pdf"));
+}
+
+#[test]
+fn no_rename_when_date_only_from_mtime() {
+    let mut c = invoice_class();
+    c.date_source = DateSource::Modified;
+    assert_eq!(proposed_name(&c, "scan0001", "pdf", 0), None);
+}
+
+#[test]
+fn no_rename_below_080() {
+    let mut c = invoice_class();
+    c.type_confidence = 0.79;
+    assert_eq!(proposed_name(&c, "scan0001", "pdf", 0), None);
+}
+
+#[test]
+fn subject_used_when_no_organisation() {
+    let mut c = invoice_class();
+    c.who = None;
+    c.doc_type = Some("lease".into());
+    assert_eq!(
+        proposed_name(&c, "lease_agreement_2026 (1)", "pdf", 0).as_deref(),
+        Some("2026-03-14 Lease agreement.pdf")
+    );
+}
+
+#[test]
+fn screenshot_name() {
+    let c = classify(&ClassifyInput {
+        name: "Screenshot 2024-01-02 101010.png",
+        ext: "png",
+        text: None,
+        exif_taken_at: None,
+        mtime: 0,
+        in_atomic_unit: false,
+        learned_orgs: &[],
+    });
+    assert_eq!(
+        proposed_name(&c, "Screenshot 2024-01-02 101010", "png", 0).as_deref(),
+        Some("2024-01-02 10.10.10 Screenshot.png")
+    );
+}
+
+#[test]
+fn names_are_sanitised_and_capped() {
+    let mut c = invoice_class();
+    c.who = Some(format!("A<B>C:D|E\"F?G*H{}", "x".repeat(300)));
+    let n = proposed_name(&c, "scan", "pdf", 0).unwrap();
+    assert!(n.len() <= 120, "{}", n.len());
+    assert!(!n.chars().any(|ch| "<>:\"/\\|?*".contains(ch) || ch.is_control()), "{n}");
+    assert!(n.ends_with(".pdf"));
+    assert_eq!(sanitize("  report.  "), "report");
+}
+
+#[test]
+fn unchanged_name_is_not_proposed() {
+    assert_eq!(proposed_name(&invoice_class(), "2026-03-14 Vodacom invoice", "pdf", 0), None);
+}

@@ -254,7 +254,8 @@ fn ymd(ms: i64) -> String {
 
 fn words_of(name: &str) -> String {
     let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
-    stem.to_lowercase().replace(['_', '-', '.'], " ")
+    // Hyphens and dots stay: they belong to dates ("2024-01-02", "14.03.2024").
+    stem.to_lowercase().replace('_', " ")
 }
 
 /// Classifies one file. Deterministic and explainable: every conclusion has evidence.
