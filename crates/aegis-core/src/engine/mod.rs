@@ -115,6 +115,7 @@ pub fn record_run(conn: &Connection, name: &str, now: i64, error: Option<&str>) 
 
 pub mod batcher;
 pub mod janitor;
+pub mod note;
 pub mod reminders;
 pub mod space;
 pub mod tripwire;

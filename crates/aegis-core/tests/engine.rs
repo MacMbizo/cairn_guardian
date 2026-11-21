@@ -720,3 +720,129 @@ fn fastest_root_picked() {
     assert_eq!(f.fastest_root.as_deref(), Some("C:/Users/me/Downloads"));
     assert_eq!(f.fastest_root_bytes_per_week, 49 * GIB);
 }
+
+// ---------- Task 9: weekly note ----------
+
+use aegis_core::engine::note::{LocalNow, build, due_week, ensure_first_day, latest, mark_read, save};
+use aegis_core::engine::reminders::demoted_kinds;
+
+fn local(date: &str, weekday: u8, hour: u8) -> LocalNow {
+    LocalNow { date: date.into(), weekday, hour }
+}
+
+#[test]
+fn due_on_note_day_after_hour_once_per_week() {
+    let s = store();
+    let c = s.conn();
+    ensure_first_day(c, "2026-11-01").unwrap();
+    // Sunday 2026-11-22 (weekday 6), note day Sunday 18:00.
+    assert_eq!(due_week(c, &local("2026-11-22", 6, 17), 6, 18).unwrap(), Some("2026-11-15".into()));
+    let mut note = build(c, "2026-11-15", 0, "2026-11-15", 1).unwrap();
+    save(c, &note, 1).unwrap();
+    assert_eq!(due_week(c, &local("2026-11-22", 6, 17), 6, 18).unwrap(), None, "before 18:00 the last note is current");
+    assert_eq!(due_week(c, &local("2026-11-22", 6, 18), 6, 18).unwrap(), Some("2026-11-22".into()));
+    note.week = "2026-11-22".into();
+    save(c, &note, 2).unwrap();
+    assert_eq!(due_week(c, &local("2026-11-22", 6, 20), 6, 18).unwrap(), None);
+    assert_eq!(due_week(c, &local("2026-11-23", 0, 9), 6, 18).unwrap(), None);
+}
+
+#[test]
+fn missed_note_day_catches_up_next_time() {
+    let s = store();
+    let c = s.conn();
+    ensure_first_day(c, "2026-11-01").unwrap();
+    // PC was off on Sunday 2026-11-22; on Monday the note for that Sunday is due.
+    assert_eq!(due_week(c, &local("2026-11-23", 0, 9), 6, 18).unwrap(), Some("2026-11-22".into()));
+}
+
+#[test]
+fn fresh_install_waits_for_its_first_note_day() {
+    let s = store();
+    let c = s.conn();
+    ensure_first_day(c, "2026-11-23").unwrap();
+    ensure_first_day(c, "2026-12-30").unwrap(); // first call wins
+    assert_eq!(due_week(c, &local("2026-11-23", 0, 9), 6, 18).unwrap(), None);
+    assert_eq!(due_week(c, &local("2026-11-29", 6, 18), 6, 18).unwrap(), Some("2026-11-29".into()));
+}
+
+#[test]
+fn empty_sections_left_out() {
+    let s = store();
+    let n = build(s.conn(), "2026-11-22", 0, "2026-11-22", 1).unwrap();
+    assert!(n.needs_you.is_empty() && n.did.is_empty() && n.space.is_empty() && n.about_aegis.is_empty());
+    assert!(n.safety.is_none() && n.tidy.is_none());
+    assert_eq!(n.headline, "A quiet week.");
+}
+
+#[test]
+fn needs_you_capped_at_three_now_first() {
+    let s = store();
+    let c = s.conn();
+    let conv: Vec<Finding> = (0..3).map(|i| finding("k", &format!("s{i}"), Level::Convenient, "c")).collect();
+    sync_findings(c, &["k"], &conv, 1).unwrap();
+    sync_findings(c, &["n"], &[finding("n", "x", Level::Now, "urgent")], 2).unwrap();
+    let n = build(c, "2026-11-22", 0, "2026-11-22", 3).unwrap();
+    assert_eq!(n.needs_you.len(), 3);
+    assert_eq!(n.needs_you[0].level, Level::Now);
+    assert_eq!(n.headline, "Needs you: 4 things.");
+}
+
+#[test]
+fn headline_variants() {
+    let s = store();
+    let c = s.conn();
+    sync_findings(c, &["k"], &[finding("k", "a", Level::Convenient, "c"), finding("k", "b", Level::Note, "d")], 1).unwrap();
+    let n = build(c, "2026-11-22", 0, "2026-11-22", 2).unwrap();
+    assert_eq!(n.headline, "A quiet week. 2 things to look at when you have a minute.");
+}
+
+#[test]
+fn backed_up_headline_and_activity_lines() {
+    let mut fx_store = store();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let provider = FakeVolumeProvider::new();
+    let drive = common::fake_drive(&tmp, "B", "0002");
+    let id = common::plug_and_catalog(&mut fx_store, &provider, &drive);
+    let c = fx_store.conn();
+    c.execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&id]).unwrap();
+    c.execute(
+        "INSERT INTO backup_jobs (id, backup_volume_id, authority, status, started_at, finished_at) VALUES ('b1', ?1, 'standing', 'completed', 5, 6)",
+        [&id],
+    )
+    .unwrap();
+    let n = build(c, "2026-11-22", 0, "2026-11-22", 10).unwrap();
+    assert_eq!(n.safety.as_deref(), Some("Everything important is backed up."));
+    assert_eq!(n.headline, "A quiet week. Everything important is backed up.");
+    assert!(n.did.contains(&"Topped up the backup 1 time".to_string()), "{:?}", n.did);
+    assert!(n.did.contains(&"Catalogued 1 drive".to_string()), "{:?}", n.did);
+}
+
+#[test]
+fn demoted_kind_announced_once() {
+    let s = store();
+    let c = s.conn();
+    let f = [finding("only_copy", "backup", Level::Convenient, "t")];
+    sync_findings(c, &["only_copy"], &f, 0).unwrap();
+    let id = list_open(c).unwrap()[0].id.clone();
+    for t in 1..=3 {
+        dismiss(c, &id, t).unwrap();
+    }
+    let first = build(c, "2026-11-22", 0, "2026-11-22", 5).unwrap();
+    assert!(first.about_aegis.iter().any(|l| l.contains("only_copy")), "{:?}", first.about_aegis);
+    assert_eq!(demoted_kinds(c).unwrap(), vec![("only_copy".to_string(), true)]);
+    let second = build(c, "2026-11-29", 0, "2026-11-29", 6).unwrap();
+    assert!(!second.about_aegis.iter().any(|l| l.contains("only_copy")));
+}
+
+#[test]
+fn saved_note_reads_back_and_marks_read() {
+    let s = store();
+    let c = s.conn();
+    assert!(latest(c).unwrap().is_none());
+    let n = build(c, "2026-11-22", 0, "2026-11-22", 1).unwrap();
+    save(c, &n, 1).unwrap();
+    assert!(!latest(c).unwrap().unwrap().read);
+    mark_read(c, "2026-11-22", 2).unwrap();
+    assert!(latest(c).unwrap().unwrap().read);
+}

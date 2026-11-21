@@ -79,3 +79,4 @@ export * from './TopUpResult';
 export * from './TrayState';
 export * from './Trip';
 export * from './VolumeInfo';
+export * from './WeeklyNote';
