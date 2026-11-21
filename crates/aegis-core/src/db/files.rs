@@ -223,7 +223,9 @@ pub fn upsert_discovered_file(conn: &Connection, input: &DiscoveredFileInput) ->
                 "UPDATE files
                  SET path = ?1, name = ?2, ext = ?3, nlink = ?4, size = ?5, mtime = ?6, ctime = ?7,
                      atomic_unit_id = COALESCE(?8, atomic_unit_id), cloud_state = ?9,
-                     blake3 = COALESCE(?10, blake3), last_seen = ?11, updated_at = ?11
+                     blake3 = CASE WHEN size = ?5 AND mtime = ?6 THEN COALESCE(?10, blake3) ELSE ?10 END,
+                     quick_hash = CASE WHEN size = ?5 AND mtime = ?6 THEN quick_hash ELSE NULL END,
+                     last_seen = ?11, updated_at = ?11
                  WHERE id = ?12",
                 params![
                     display_path,
@@ -311,7 +313,9 @@ pub fn upsert_discovered_file(conn: &Connection, input: &DiscoveredFileInput) ->
                      SET path = ?1, path_hash = ?2, name = ?3, ext = ?4, nlink = ?5,
                          size = ?6, mtime = ?7, ctime = ?8, atomic_unit_id = ?9,
                          cloud_state = ?10, state = CASE WHEN state = 'missing' THEN 'active' ELSE state END,
-                         blake3 = COALESCE(?11, blake3), last_seen = ?12, updated_at = ?12
+                         blake3 = CASE WHEN size = ?6 AND mtime = ?7 THEN COALESCE(?11, blake3) ELSE ?11 END,
+                         quick_hash = CASE WHEN size = ?6 AND mtime = ?7 THEN quick_hash ELSE NULL END,
+                         last_seen = ?12, updated_at = ?12
                      WHERE id = ?13",
                     params![
                         display_path,
@@ -386,7 +390,9 @@ fn upsert_unstable_inode(
     if let Some(id) = existing {
         conn.execute(
             "UPDATE files SET path = ?1, name = ?2, ext = ?3, size = ?4, mtime = ?5, ctime = ?6,
-             atomic_unit_id = ?7, cloud_state = ?8, blake3 = COALESCE(?9, blake3),
+             atomic_unit_id = ?7, cloud_state = ?8,
+             blake3 = CASE WHEN size = ?4 AND mtime = ?5 THEN COALESCE(?9, blake3) ELSE ?9 END,
+             quick_hash = CASE WHEN size = ?4 AND mtime = ?5 THEN quick_hash ELSE NULL END,
              last_seen = ?10, updated_at = ?10 WHERE id = ?11",
             params![
                 display_path,

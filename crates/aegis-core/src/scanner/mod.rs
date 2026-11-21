@@ -898,11 +898,14 @@ pub fn catalog_volume(
     if status != "online" {
         return Err(AegisError::VolumeOffline(volume_id.to_string()));
     }
+    // Journal position is taken before the walk, so changes made during it are replayed later.
+    let journal = crate::drives::refresh::journal_position(Path::new(&mount));
     let result = scan_root_with_progress(store, Path::new(&mount), &[1], progress)?;
     store.conn().execute(
         "UPDATE volumes SET last_catalog_complete_at = ?2 WHERE id = ?1",
         params![volume_id, now_ms()],
     )?;
+    crate::drives::refresh::store_journal(store, volume_id, journal)?;
     Ok(result)
 }
 
@@ -966,4 +969,92 @@ pub fn seed_default_roots(store: &SqliteStore) -> Result<Vec<RootConfig>> {
         added.push(store.add_root(&p)?);
     }
     Ok(added)
+}
+
+/// True when any component of `path` is a folder the scanner never indexes.
+fn under_excluded_dir(path: &Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .is_some_and(is_immutable_excluded_dir_name)
+    }) || path.ancestors().any(|a| {
+        a.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.eq_ignore_ascii_case("_Previous versions")
+                && a.parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|p| p.to_str())
+                    .is_some_and(|p| p.eq_ignore_ascii_case("Aegis Backup"))
+        })
+    })
+}
+
+/// Re-indexes individual paths on a registered volume (USN-driven refresh, spec §7.4):
+/// existing files are upserted (renames keep `files.id` via the file index), vanished paths
+/// are soft-deleted. Metadata only, no payload reads. Returns the number of paths applied.
+pub fn index_paths(store: &mut SqliteStore, volume_id: &str, paths: &[PathBuf]) -> Result<usize> {
+    let vol = store
+        .list_volumes()?
+        .into_iter()
+        .find(|v| v.id == volume_id)
+        .ok_or_else(|| AegisError::NotFound(format!("volume {volume_id}")))?;
+    let units: Vec<(String, String)> = {
+        let mut stmt = store
+            .conn()
+            .prepare("SELECT id, root_path FROM atomic_units WHERE volume_id = ?1")?;
+        let rows = stmt.query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let unit_for = |p: &str| {
+        units
+            .iter()
+            .filter(|(_, root)| path_is_within(p, root, vol.case_sensitive))
+            .max_by_key(|(_, root)| root.len())
+            .map(|(id, _)| id.clone())
+    };
+    let mut applied = 0;
+    store.with_full_sync_tx(|tx| {
+        for path in paths {
+            if under_excluded_dir(path) || !path_is_within(&path.to_string_lossy(), &vol.mount_point, vol.case_sensitive) {
+                continue;
+            }
+            match inspect_path_metadata(path) {
+                Ok(Some(stat)) if !stat.is_dir && !stat.is_symlink => {
+                    let input = crate::db::files::DiscoveredFileInput {
+                        volume_id: vol.id.clone(),
+                        has_stable_inode: vol.has_stable_inode,
+                        case_sensitive: vol.case_sensitive,
+                        file_index: stat.file_index,
+                        nlink: stat.nlink,
+                        atomic_unit_id: unit_for(&path.to_string_lossy()),
+                        path: path.clone(),
+                        size: stat.size,
+                        mtime: stat.mtime,
+                        ctime: stat.ctime,
+                        blake3: None,
+                        cloud_state: stat.cloud_state.clone(),
+                    };
+                    crate::db::files::upsert_discovered_file(tx, &input)?;
+                    applied += 1;
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) if !path.exists() => {
+                    let (_, ph) = normalize_path(path, vol.case_sensitive);
+                    let id: Option<String> = tx
+                        .query_row(
+                            "SELECT id FROM files WHERE volume_id = ?1 AND path_hash = ?2 AND deleted_at IS NULL",
+                            params![vol.id, ph.as_slice()],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    if let Some(id) = id {
+                        crate::db::files::soft_delete_file_in_tx(tx, &id)?;
+                        applied += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    })?;
+    Ok(applied)
 }

@@ -371,3 +371,133 @@ fn seed_default_roots_only_when_empty() {
     // Idempotent: a second call adds nothing.
     assert!(seed_default_roots(&fresh).unwrap().is_empty());
 }
+
+use aegis_core::drives::{RefreshMode, refresh_volume};
+use std::sync::atomic::AtomicBool;
+
+fn file_id_at(store: &SqliteStore, path: &std::path::Path) -> Option<String> {
+    use rusqlite::OptionalExtension;
+    store
+        .conn()
+        .query_row(
+            "SELECT id FROM files WHERE path = ?1 AND deleted_at IS NULL",
+            [common::canon(path)],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+}
+
+#[test]
+fn walk_refresh_detects_create_modify_delete_rename() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let provider = FakeVolumeProvider::new();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "keep.txt", b"keep");
+    let m = common::put(&a.mount_point, "docs/mod.txt", b"old");
+    let d = common::put(&a.mount_point, "del.txt", b"gone soon");
+    let r = common::put(&a.mount_point, "ren.txt", b"rename me");
+    let id = common::plug_and_catalog(&mut store, &provider, &a);
+    let ren_id = file_id_at(&store, &r).unwrap();
+
+    common::put(&a.mount_point, "new.txt", b"brand new");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&m, b"new and longer").unwrap();
+    std::fs::remove_file(&d).unwrap();
+    let r2 = a.mount_point.join("renamed.txt");
+    std::fs::rename(&r, &r2).unwrap();
+
+    let report = refresh_volume(&mut store, &id, &AtomicBool::new(false)).unwrap();
+    assert_eq!(report.mode, RefreshMode::Walk);
+    assert_eq!(report.created, 1, "{report:?}");
+    assert_eq!(report.modified, 1, "{report:?}");
+    assert_eq!(report.deleted, 1, "{report:?}");
+    assert_eq!(report.renamed, 1, "{report:?}");
+    assert!(report.folders_changed >= 2);
+    assert_eq!(file_id_at(&store, &r2), Some(ren_id), "rename keeps the file's identity");
+    assert_eq!(file_id_at(&store, &d), None);
+}
+
+#[test]
+fn modified_file_loses_stale_hashes() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let provider = FakeVolumeProvider::new();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let p1 = common::put(&a.mount_point, "a.txt", b"same bytes");
+    common::put(&a.mount_point, "b.txt", b"same bytes");
+    let id = common::plug_and_catalog(&mut store, &provider, &a);
+    aegis_core::fingerprint::run_fingerprint(&mut store, &AtomicBool::new(false)).unwrap();
+    assert!(common::hashes_at(&store, &p1).1.is_some());
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&p1, b"diff bytes").unwrap(); // same size, new content
+    refresh_volume(&mut store, &id, &AtomicBool::new(false)).unwrap();
+    let (_, b) = common::hashes_at(&store, &p1);
+    assert_ne!(b, Some(blake3::hash(b"same bytes").as_bytes().to_vec()), "stale hash kept");
+}
+
+#[test]
+fn refresh_reuses_hashes_for_unchanged_files() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let provider = FakeVolumeProvider::new();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let p1 = common::put(&a.mount_point, "a.bin", &common::noise(4096, 7));
+    common::put(&a.mount_point, "b.bin", &common::noise(4096, 7));
+    let id = common::plug_and_catalog(&mut store, &provider, &a);
+    aegis_core::fingerprint::run_fingerprint(&mut store, &AtomicBool::new(false)).unwrap();
+    let before = common::hashes_at(&store, &p1);
+
+    let report = refresh_volume(&mut store, &id, &AtomicBool::new(false)).unwrap();
+    assert_eq!(report.fingerprint.quick_hashed, 0);
+    assert_eq!(report.created + report.modified + report.deleted + report.renamed, 0);
+    assert_eq!(common::hashes_at(&store, &p1), before);
+}
+
+#[test]
+fn usn_reset_falls_back_to_walk() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let provider = FakeVolumeProvider::new();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let id = common::plug_and_catalog(&mut store, &provider, &a);
+    store
+        .conn()
+        .execute(
+            "UPDATE volumes SET usn_journal_id = 'bogus', usn_next = 1 WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
+    let report = refresh_volume(&mut store, &id, &AtomicBool::new(false)).unwrap();
+    assert_eq!(report.mode, RefreshMode::Walk);
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "needs an NTFS volume with a change journal; run manually"]
+fn usn_refresh_on_system_temp() {
+    use aegis_core::drives::usn::{UsnRead, query_journal, read_changes};
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mount = std::path::PathBuf::from(&common::canon(tmp.path())[..3]); // e.g. C:\
+    let (journal, next) = query_journal(&mount).unwrap().expect("journal active");
+    let f = common::put(tmp.path(), "usn-probe.txt", b"probe");
+    let renamed = tmp.path().join("usn-probe-renamed.txt");
+    std::fs::rename(&f, &renamed).unwrap();
+    let gone = common::put(tmp.path(), "usn-gone.txt", b"bye");
+    std::fs::remove_file(&gone).unwrap();
+    match read_changes(&mount, &journal, next).unwrap() {
+        UsnRead::Changes(changes) => {
+            let want = common::canon(&renamed).to_lowercase();
+            let resolved: Vec<String> = changes
+                .iter()
+                .filter_map(|c| c.path.as_ref())
+                .map(|p| p.to_string_lossy().to_lowercase())
+                .collect();
+            assert!(resolved.contains(&want), "renamed file resolved by reference: {want}");
+            assert!(changes.iter().any(|c| c.path.is_none()), "deleted file has no path");
+        }
+        UsnRead::Reset => panic!("journal reported reset"),
+    }
+}

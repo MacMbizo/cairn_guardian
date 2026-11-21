@@ -36,7 +36,13 @@ pub fn put(root: &Path, rel: &str, content: &[u8]) -> PathBuf {
 
 /// Canonical display form of a path, as stored in `volumes.mount_point` / `files.path`.
 pub fn canon(path: &Path) -> String {
-    aegis_core::db::files::normalize_path(&std::fs::canonicalize(path).unwrap(), false).0
+    // Paths that no longer exist are resolved through their (existing) parent folder.
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| {
+        std::fs::canonicalize(path.parent().unwrap())
+            .unwrap()
+            .join(path.file_name().unwrap())
+    });
+    aegis_core::db::files::normalize_path(&resolved, false).0
 }
 
 /// Volume id of the registered drive whose mount is `mount`.
