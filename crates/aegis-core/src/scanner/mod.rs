@@ -4,7 +4,7 @@
 
 pub mod os_adapter;
 
-use crate::contracts::{CoverageErrorItem, CoverageReport, ScanStatus};
+use crate::contracts::{CoverageErrorItem, CoverageReport, RootConfig, ScanStatus};
 use crate::db::SqliteStore;
 use crate::db::files::{
     DiscoveredFileInput, delete_chunks_for_file, insert_chunk, normalize_path, path_is_within,
@@ -55,7 +55,26 @@ fn build_ignore_matcher(root: &Path, custom_rules: Option<&str>) -> Gitignore {
 }
 
 fn is_immutable_excluded_dir_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case(".aegis") || name.eq_ignore_ascii_case(".aegis-quarantine")
+    [".aegis", ".aegis-quarantine", "System Volume Information", "$RECYCLE.BIN"]
+        .iter()
+        .any(|n| name.eq_ignore_ascii_case(n))
+}
+
+/// Directories skipped because of where they sit: Windows `Recovery` at a volume root, and the
+/// Backup drive's `_Previous versions` area (spec §7.7), which holds old copies, not user files.
+fn is_positional_excluded_dir(dir: &Path, name: &str, canonical_root: &Path) -> bool {
+    let parent = dir.parent();
+    if name.eq_ignore_ascii_case("Recovery")
+        && parent == Some(canonical_root)
+        && canonical_root.parent().is_none()
+    {
+        return true;
+    }
+    name.eq_ignore_ascii_case("_Previous versions")
+        && parent
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("Aegis Backup"))
 }
 
 fn detect_cache_dir_kind(dir: &Path, name: &str) -> Option<&'static str> {
@@ -383,7 +402,9 @@ fn walk_root(
 
     while let Some((dir, inherited_unit)) = dir_stack.pop() {
         if let Some(dir_name) = dir.file_name().and_then(|s| s.to_str()) {
-            if is_immutable_excluded_dir_name(dir_name) {
+            if is_immutable_excluded_dir_name(dir_name)
+                || is_positional_excluded_dir(&dir, dir_name, w.canonical_root)
+            {
                 continue;
             }
             if dir != w.canonical_root && w.matcher.matched(&dir, true).is_ignore() {
@@ -856,4 +877,93 @@ pub fn get_coverage_report(conn: &Connection, job_id: Option<&str>) -> Result<Co
         coverage_pct: status.coverage_pct,
         errors,
     })
+}
+
+/// Catalogs a whole registered drive from its root: a Tier-1 walk (metadata only, no payload
+/// reads). Marks `volumes.last_catalog_complete_at` on success (spec §7.3 step 1).
+pub fn catalog_volume(
+    store: &mut SqliteStore,
+    volume_id: &str,
+    progress: &mut dyn FnMut(&ScanProgress),
+) -> Result<ScanStatus> {
+    let (mount, status): (String, String) = store
+        .conn()
+        .query_row(
+            "SELECT mount_point, status FROM volumes WHERE id = ?1",
+            params![volume_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| AegisError::NotFound(format!("volume {volume_id}")))?;
+    if status != "online" {
+        return Err(AegisError::VolumeOffline(volume_id.to_string()));
+    }
+    let result = scan_root_with_progress(store, Path::new(&mount), &[1], progress)?;
+    store.conn().execute(
+        "UPDATE volumes SET last_catalog_complete_at = ?2 WHERE id = ?1",
+        params![volume_id, now_ms()],
+    )?;
+    Ok(result)
+}
+
+/// The PC folders Aegis starts with (spec §7.8.1): Downloads, Documents, Desktop, Pictures, Music.
+pub fn default_root_paths() -> Vec<PathBuf> {
+    known_folders()
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
+#[cfg(windows)]
+fn known_folders() -> Vec<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{
+        FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_Music,
+        FOLDERID_Pictures, SHGetKnownFolderPath,
+    };
+    let ids = [
+        FOLDERID_Downloads,
+        FOLDERID_Documents,
+        FOLDERID_Desktop,
+        FOLDERID_Pictures,
+        FOLDERID_Music,
+    ];
+    let mut out = Vec::new();
+    for id in ids.iter() {
+        let mut raw: *mut u16 = std::ptr::null_mut();
+        let hr = unsafe { SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut raw) };
+        if hr == 0 && !raw.is_null() {
+            let len = (0..).take_while(|&i| unsafe { *raw.add(i) } != 0).count();
+            let slice = unsafe { std::slice::from_raw_parts(raw, len) };
+            out.push(PathBuf::from(std::ffi::OsString::from_wide(slice)));
+        }
+        if !raw.is_null() {
+            unsafe { CoTaskMemFree(raw as *const _) };
+        }
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn known_folders() -> Vec<PathBuf> {
+    let Ok(home) = std::env::var("HOME") else {
+        return Vec::new();
+    };
+    ["Downloads", "Documents", "Desktop", "Pictures", "Music"]
+        .iter()
+        .map(|n| Path::new(&home).join(n))
+        .collect()
+}
+
+/// Seeds the starting roots on first run; does nothing once any root exists.
+pub fn seed_default_roots(store: &SqliteStore) -> Result<Vec<RootConfig>> {
+    if !store.list_roots()?.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut added = Vec::new();
+    for p in default_root_paths() {
+        added.push(store.add_root(&p)?);
+    }
+    Ok(added)
 }

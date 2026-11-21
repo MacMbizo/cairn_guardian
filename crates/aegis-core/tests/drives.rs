@@ -299,3 +299,75 @@ fn readonly_drive_uses_fingerprint_id() {
     // Recognised again on the next sync.
     assert!(sync_mounted(&mut store, &provider).unwrap().new_drives.is_empty());
 }
+
+use aegis_core::scanner::{catalog_volume, seed_default_roots};
+
+#[test]
+fn catalog_reads_no_payload_and_skips_system_dirs() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "a.txt", b"hello");
+    common::put(&a.mount_point, "System Volume Information/x", b"x");
+    common::put(&a.mount_point, "$RECYCLE.BIN/y", b"y");
+    common::put(&a.mount_point, "Aegis Backup/_Previous versions/2026-01-01/z", b"z");
+    common::put(&a.mount_point, "Aegis Backup/Seagate A/kept.txt", b"k");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    let id = common::volume_id_at(&store, &a.mount_point);
+
+    catalog_volume(&mut store, &id, &mut |_| {}).unwrap();
+
+    let names: Vec<String> = common::live_file_paths(&store, &id)
+        .into_iter()
+        .map(|p| p.rsplit(['\\', '/']).next().unwrap().to_string())
+        .collect();
+    let mut names_sorted = names.clone();
+    names_sorted.sort();
+    assert_eq!(names_sorted, vec!["a.txt".to_string(), "kept.txt".to_string()]);
+    let hashed: i64 = store
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE volume_id = ?1 AND blake3 IS NOT NULL",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(hashed, 0, "a catalog must not read file contents");
+    let v = store.list_volumes().unwrap().into_iter().find(|v| v.id == id).unwrap();
+    assert!(v.last_catalog_complete_at.is_some());
+}
+
+#[test]
+fn catalog_offline_volume_errors() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    let id = common::volume_id_at(&store, &a.mount_point);
+    provider.unplug(&a.mount_point);
+    sync_mounted(&mut store, &provider).unwrap();
+    let err = catalog_volume(&mut store, &id, &mut |_| {}).unwrap_err();
+    assert!(matches!(err, aegis_core::error::AegisError::VolumeOffline(_)), "{err:?}");
+}
+
+#[test]
+fn seed_default_roots_only_when_empty() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let store = SqliteStore::open_in_memory().unwrap();
+    store.add_root(tmp.path()).unwrap();
+    assert!(seed_default_roots(&store).unwrap().is_empty());
+    assert_eq!(store.list_roots().unwrap().len(), 1);
+
+    let fresh = SqliteStore::open_in_memory().unwrap();
+    let seeded = seed_default_roots(&fresh).unwrap();
+    assert_eq!(fresh.list_roots().unwrap().len(), seeded.len());
+    for r in &seeded {
+        assert!(std::path::Path::new(&r.path).is_dir(), "{} should exist", r.path);
+    }
+    // Idempotent: a second call adds nothing.
+    assert!(seed_default_roots(&fresh).unwrap().is_empty());
+}
