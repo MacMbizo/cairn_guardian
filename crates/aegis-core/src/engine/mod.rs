@@ -114,6 +114,7 @@ pub fn record_run(conn: &Connection, name: &str, now: i64, error: Option<&str>) 
 }
 
 pub mod reminders;
+pub mod tripwire;
 
 use crate::db::SqliteStore;
 

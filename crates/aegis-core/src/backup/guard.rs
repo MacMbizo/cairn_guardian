@@ -150,9 +150,75 @@ fn overrides(conn: &Connection, backup_volume_id: &str) -> Result<HashSet<String
         .collect())
 }
 
+const LOCKS_KEY: &str = "backup.locked_folders";
+
+/// Folders the ransomware tripwire locked: their backup waits until the owner checks.
+pub fn locked_folders(conn: &Connection) -> Result<Vec<String>> {
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT value_json FROM settings WHERE key = ?1 AND scope = 'global'",
+            [LOCKS_KEY],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(raw.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()).unwrap_or_default())
+}
+
+fn save_locks(store: &SqliteStore, locks: &[String]) -> Result<()> {
+    store.set_setting(LOCKS_KEY, "global", &serde_json::to_string(locks)?)
+}
+
+/// Two folders overlap when one contains the other.
+fn overlaps(a: &str, b: &str) -> bool {
+    path_is_within(a, b, false) || path_is_within(b, a, false)
+}
+
+/// Locks `folder`'s backup after a suspicious burst of changes (spec §6.2). Audited.
+pub fn lock_folder(store: &mut SqliteStore, folder: &str, reason: &str) -> Result<()> {
+    let mut locks = locked_folders(store.conn())?;
+    if !locks.iter().any(|l| l == folder) {
+        locks.push(folder.to_string());
+        save_locks(store, &locks)?;
+    }
+    store.with_full_sync_tx(|tx| {
+        append_audit_in_tx(
+            tx,
+            "system",
+            "backup.tripwire_lock",
+            folder,
+            &serde_json::json!({ "reason": reason }).to_string(),
+        )?;
+        Ok(())
+    })
+}
+
+fn unlock_overlapping(store: &SqliteStore, folder: &str) -> Result<()> {
+    let locks = locked_folders(store.conn())?;
+    let kept: Vec<String> = locks.iter().filter(|l| !overlaps(l, folder)).cloned().collect();
+    if kept.len() != locks.len() {
+        save_locks(store, &kept)?;
+    }
+    Ok(())
+}
+
+/// "It was me": lifts the tripwire lock on `folder` and lets the next top-up of the Backup
+/// drive copy those changes without asking again. Audited.
+pub fn release_lock(store: &mut SqliteStore, backup_volume_id: Option<&str>, folder: &str) -> Result<()> {
+    unlock_overlapping(store, folder)?;
+    match backup_volume_id {
+        Some(id) => override_halt(store, id, folder),
+        None => store.with_full_sync_tx(|tx| {
+            append_audit_in_tx(tx, "user", "backup.tripwire_release", folder, "{}")?;
+            Ok(())
+        }),
+    }
+}
+
 /// The owner answered "back them up anyway" for `source_folder`: the next top-up of this drive
-/// skips the guard for that folder once. Audited.
+/// skips the guard for that folder (and folders inside it) once, and any tripwire lock around
+/// or inside it is lifted. Audited.
 pub fn override_halt(store: &mut SqliteStore, backup_volume_id: &str, source_folder: &str) -> Result<()> {
+    unlock_overlapping(store, source_folder)?;
     let mut set = overrides(store.conn(), backup_volume_id)?;
     set.insert(source_folder.to_string());
     let list: Vec<&String> = set.iter().collect();
@@ -181,10 +247,19 @@ pub(crate) fn clear_overrides(store: &SqliteStore, backup_volume_id: &str) -> Re
 /// Checks a planned top-up, folder by folder.
 pub fn check(conn: &Connection, plan: &TopUpPlan) -> Result<GuardVerdict> {
     let skip = overrides(conn, &plan.backup_volume_id)?;
+    let locks = locked_folders(conn)?;
+    let mut locked_hit: HashSet<&str> = HashSet::new();
     let mut by_folder: BTreeMap<&str, (i64, i64)> = BTreeMap::new(); // (changed, suspect)
     for it in &plan.items {
-        if it.source_folder.is_empty() || skip.contains(&it.source_folder) {
+        if it.source_folder.is_empty() || skip.iter().any(|s| path_is_within(&it.source_folder, s, false)) {
             continue;
+        }
+        let in_lock = locks.iter().any(|l| {
+            path_is_within(&it.source_folder, l, false)
+                || it.source_path.as_deref().is_some_and(|p| path_is_within(p, l, false))
+        });
+        if in_lock {
+            locked_hit.insert(it.source_folder.as_str());
         }
         let entry = by_folder.entry(it.source_folder.as_str()).or_insert((0, 0));
         match it.kind {
@@ -204,6 +279,11 @@ pub fn check(conn: &Connection, plan: &TopUpPlan) -> Result<GuardVerdict> {
     }
     let mut halts = Vec::new();
     for (folder, (changed, suspect)) in by_folder {
+        if locked_hit.contains(folder) {
+            let total = backed_up_in(conn, &plan.backup_volume_id, folder)?;
+            halts.push(GuardHalt { source_folder: folder.to_string(), changed, total, suspect_encrypted: suspect });
+            continue;
+        }
         if changed == 0 {
             continue;
         }

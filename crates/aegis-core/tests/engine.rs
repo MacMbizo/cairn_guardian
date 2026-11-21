@@ -243,3 +243,89 @@ fn tray_state_reflects_worst_open_level() {
     sync_findings(c, &["n"], &[finding("n", "x", Level::Now, "t")], 0).unwrap();
     assert_eq!(tray_state(c).unwrap(), TrayState::Urgent);
 }
+
+// ---------- Task 4: tripwire ----------
+
+use aegis_core::engine::tripwire::{ChangeKind, Tripwire};
+use aegis_core::scanner::scan_root;
+use std::path::{Path, PathBuf};
+
+/// A PC root with `n` indexed text files.
+fn indexed_root(n: usize) -> (tempfile::TempDir, SqliteStore, PathBuf, String) {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let root = tmp.path().join("Documents");
+    for i in 0..n {
+        common::put(&root, &format!("f{i}.txt"), format!("ordinary words in file {i}. ").repeat(20).as_bytes());
+    }
+    let mut s = store();
+    s.add_root(&root).unwrap();
+    scan_root(&mut s, &root, &[1]).unwrap();
+    let canon = common::canon(&root);
+    (tmp, s, root, canon)
+}
+
+fn file(root: &Path, i: usize) -> PathBuf {
+    PathBuf::from(common::canon(&root.join(format!("f{i}.txt"))))
+}
+
+#[test]
+fn burst_of_random_rewrites_trips() {
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon.clone()]);
+    for i in 0..250 {
+        std::fs::write(root.join(format!("f{i}.txt")), common::noise(8192, i as u64)).unwrap();
+        tw.observe(&file(&root, i), ChangeKind::Modified, 1_000 + i as i64 * 40);
+    }
+    let trips = tw.evaluate(s.conn(), 11_000).unwrap();
+    assert_eq!(trips.len(), 1);
+    assert_eq!(trips[0].root, canon);
+    assert_eq!(trips[0].changed, 250);
+    assert!(trips[0].suspect_encrypted >= 1);
+    assert!(tw.evaluate(s.conn(), 12_000).unwrap().is_empty(), "reported once per burst");
+}
+
+#[test]
+fn burst_of_normal_edits_does_not_trip() {
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..250 {
+        std::fs::write(root.join(format!("f{i}.txt")), format!("edited {i}")).unwrap();
+        tw.observe(&file(&root, i), ChangeKind::Modified, 1_000);
+    }
+    assert!(tw.evaluate(s.conn(), 2_000).unwrap().is_empty());
+}
+
+#[test]
+fn small_folder_change_below_fraction_does_not_trip() {
+    let (_t, s, root, canon) = indexed_root(1_500);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..210 {
+        std::fs::write(root.join(format!("f{i}.txt")), common::noise(8192, i as u64)).unwrap();
+        tw.observe(&file(&root, i), ChangeKind::Modified, 1_000);
+    }
+    assert!(tw.evaluate(s.conn(), 2_000).unwrap().is_empty());
+}
+
+#[test]
+fn mass_rename_to_new_extension_trips() {
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..250 {
+        let to = root.join(format!("f{i}.txt.locked"));
+        tw.observe(&file(&root, i), ChangeKind::Renamed { to }, 1_000);
+    }
+    let trips = tw.evaluate(s.conn(), 2_000).unwrap();
+    assert_eq!(trips.len(), 1);
+    assert_eq!(trips[0].new_ext_renames, 250);
+}
+
+#[test]
+fn old_events_fall_out_of_window() {
+    let (_t, s, root, canon) = indexed_root(300);
+    let mut tw = Tripwire::new(vec![canon]);
+    for i in 0..250 {
+        std::fs::write(root.join(format!("f{i}.txt")), common::noise(8192, i as u64)).unwrap();
+        tw.observe(&file(&root, i), ChangeKind::Modified, 1_000);
+    }
+    assert!(tw.evaluate(s.conn(), 1_000 + 61_000).unwrap().is_empty());
+}

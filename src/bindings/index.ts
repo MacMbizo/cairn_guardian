@@ -74,4 +74,5 @@ export * from './TopUpKind';
 export * from './TopUpPlan';
 export * from './TopUpResult';
 export * from './TrayState';
+export * from './Trip';
 export * from './VolumeInfo';

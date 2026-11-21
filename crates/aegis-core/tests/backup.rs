@@ -949,3 +949,49 @@ fn topup_sees_changes_made_since_the_last_scan() {
     assert!(kinds.contains(&TopUpKind::Replace), "{kinds:?}");
     assert!(kinds.contains(&TopUpKind::Add), "{kinds:?}");
 }
+
+// ---------------------------------------------------------------- engine: tripwire lock
+
+use aegis_core::backup::guard::{lock_folder, locked_folders, release_lock};
+
+#[test]
+fn locked_folder_halts_topup() {
+    let mut fx = two_source_fx(10, 10, "txt");
+    change(&mut fx, &["A/f0.txt".to_string(), "B/f0.txt".to_string()], false); // 10%: below mass
+    let docs = common::canon(&fx.docs);
+    lock_folder(&mut fx.store, &format!("{docs}/A"), "tripwire").unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.halted_folders.len(), 1);
+    assert!(plan.halted_folders[0].source_folder.ends_with('A'));
+    assert_eq!(plan.items.len(), 1, "B is not locked");
+}
+
+#[test]
+fn owner_override_unlocks_tripped_folder() {
+    let mut fx = two_source_fx(10, 0, "txt");
+    change(&mut fx, &["A/f0.txt".to_string()], false);
+    let docs = common::canon(&fx.docs);
+    // The tripwire locks the whole PC root; the Drives card overrides the source folder inside it.
+    lock_folder(&mut fx.store, &docs, "tripwire").unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let folder = plan.halted_folders[0].source_folder.clone();
+    override_halt(&mut fx.store, &fx.backup_id, &folder).unwrap();
+    assert!(locked_folders(fx.store.conn()).unwrap().is_empty());
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert!(plan.halted_folders.is_empty());
+    assert_eq!(plan.items.len(), 1);
+}
+
+#[test]
+fn it_was_me_releases_lock_and_skips_mass_guard_once() {
+    let mut fx = two_source_fx(10, 0, "txt");
+    let all: Vec<String> = (0..5).map(|i| format!("A/f{i}.txt")).collect(); // 50%: mass change
+    change(&mut fx, &all, false);
+    let docs = common::canon(&fx.docs);
+    lock_folder(&mut fx.store, &docs, "tripwire").unwrap();
+    release_lock(&mut fx.store, Some(&fx.backup_id), &docs).unwrap();
+    assert!(locked_folders(fx.store.conn()).unwrap().is_empty());
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert!(plan.halted_folders.is_empty(), "{:?}", plan.halted_folders);
+    assert_eq!(plan.items.len(), 5);
+}
