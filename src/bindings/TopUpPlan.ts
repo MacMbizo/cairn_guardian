@@ -3,4 +3,8 @@ import type { GuardHalt } from "./GuardHalt";
 import type { TierShortfall } from "./TierShortfall";
 import type { TopUpItem } from "./TopUpItem";
 
-export type TopUpPlan = { backup_volume_id: string, items: Array<TopUpItem>, halted_folders: Array<GuardHalt>, skipped_for_space: Array<TierShortfall>, };
+export type TopUpPlan = { backup_volume_id: string, items: Array<TopUpItem>, halted_folders: Array<GuardHalt>, skipped_for_space: Array<TierShortfall>, 
+/**
+ * Bytes of the oldest previous versions that must be pruned first to make room.
+ */
+prune_bytes: number, };

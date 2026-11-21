@@ -845,6 +845,8 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::backup::topup::PreviousVersionItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::guard::GuardHalt as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::backup::priority::TierShortfall as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::priority::TierCoverage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::backup::priority::BackupCoverage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DiskRescueReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <HealthBreakdown as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AuditEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

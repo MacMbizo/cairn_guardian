@@ -638,3 +638,133 @@ fn override_allows_next_run_once() {
     change(&mut fx, &again, false);
     assert_eq!(plan_topup(fx.store.conn(), &fx.backup_id).unwrap().halted_folders.len(), 1, "one-shot");
 }
+
+// ---------------------------------------------------------------- Task 13: priority fill
+
+use aegis_core::backup::priority::{add_source, coverage_summary, remove_source, tier_for_file};
+
+fn fid(store: &SqliteStore, path: &Path) -> String {
+    store
+        .conn()
+        .query_row(
+            "SELECT id FROM files WHERE path = ?1 AND deleted_at IS NULL",
+            [common::canon(path)],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+fn set_backup_capacity(fx: &BackupFx, bytes: i64) {
+    fx.store
+        .conn()
+        .execute("UPDATE volumes SET total_bytes = ?2 WHERE id = ?1", rusqlite::params![fx.backup_id, bytes])
+        .unwrap();
+}
+
+#[test]
+fn only_copies_are_tier_one() {
+    let shared = common::noise(3 * KIB, 600);
+    let mut fx = backup_fx(&[("unique.txt", b"only here"), ("shared.bin", &shared)]);
+    common::put(&fx.backup.mount_point, "elsewhere/shared.bin", &shared);
+    aegis_core::scanner::catalog_volume(&mut fx.store, &fx.backup_id, &mut |_| {}).unwrap();
+    run_fingerprint(&mut fx.store, &AtomicBool::new(false)).unwrap();
+    assert_eq!(tier_for_file(fx.store.conn(), &fid(&fx.store, &fx.docs.join("unique.txt"))).unwrap(), Some(1));
+    assert_eq!(tier_for_file(fx.store.conn(), &fid(&fx.store, &fx.docs.join("shared.bin"))).unwrap(), Some(2));
+}
+
+#[test]
+fn installers_and_caches_never_backed_up() {
+    let mut fx = backup_fx(&[("notes.txt", b"keep me"), ("proj/node_modules/dep/index.js", b"module.exports = 1;"), ("proj/package.json", b"{}")]);
+    let downloads = fx.tmp.path().join("Downloads");
+    let setup_exe = common::put(&downloads, "setup.exe", b"MZ installer bytes");
+    common::put(&downloads, "manual.pdf", b"%PDF-1.4 manual");
+    fx.store.add_root(&downloads).unwrap();
+    scan_root(&mut fx.store, &downloads, &[1]).unwrap();
+    add_source_for(&fx.store, &downloads);
+    assert_eq!(tier_for_file(fx.store.conn(), &fid(&fx.store, &setup_exe)).unwrap(), None);
+
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let names: Vec<String> = plan
+        .items
+        .iter()
+        .map(|i| i.backup_rel_path.rsplit(['\\', '/']).next().unwrap().to_string())
+        .collect();
+    assert!(names.contains(&"notes.txt".to_string()));
+    assert!(names.contains(&"manual.pdf".to_string()));
+    assert!(!names.contains(&"setup.exe".to_string()), "{names:?}");
+    assert!(!names.contains(&"index.js".to_string()), "{names:?}");
+}
+
+#[test]
+fn fills_by_tier_when_space_short() {
+    let doc = common::noise(3 * KIB, 601);
+    let song = common::noise(8 * KIB, 602);
+    let mut fx = backup_fx(&[("letter.txt", &doc), ("Music/song.mp3", &song)]);
+    set_backup_capacity(&fx, 10 * KIB as i64);
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let names: Vec<String> = plan
+        .items
+        .iter()
+        .map(|i| i.backup_rel_path.rsplit(['\\', '/']).next().unwrap().to_string())
+        .collect();
+    assert_eq!(names, vec!["letter.txt".to_string()]);
+    assert_eq!(plan.skipped_for_space.len(), 1);
+    assert_eq!(plan.skipped_for_space[0].tier, 3);
+    assert_eq!(plan.skipped_for_space[0].bytes_skipped, (8 * KIB) as i64);
+
+    run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    let cov = coverage_summary(fx.store.conn()).unwrap().expect("a backup drive");
+    let music = cov.tiers.iter().find(|t| t.tier == 3).unwrap();
+    assert_eq!(music.unprotected_bytes, (8 * KIB) as i64);
+    assert!(cov.suggestion.as_deref().unwrap_or("").contains("doesn't fit"), "{:?}", cov.suggestion);
+}
+
+#[test]
+fn prunes_oldest_versions_before_skipping_live() {
+    let files: Vec<(String, Vec<u8>)> = (0..6).map(|i| (format!("f{i}.bin"), common::noise(2 * KIB, 700 + i))).collect();
+    let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let mut fx = backup_fx(&refs);
+    topup(&mut fx); // 12 KiB live
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(fx.docs.join("f0.bin"), common::noise(2 * KIB, 800)).unwrap();
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    topup(&mut fx); // old f0 becomes a 2 KiB previous version
+    assert_eq!(list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap().len(), 1);
+
+    // Room for exactly one more 2 KiB file only if the previous version goes.
+    aegis_core::scanner::catalog_volume(&mut fx.store, &fx.backup_id, &mut |_| {}).unwrap();
+    set_backup_capacity(&fx, (14 * KIB) as i64);
+    common::put(&fx.docs, "new.bin", &common::noise(2 * KIB, 801));
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.items.len(), 1, "the new file is planned, not skipped");
+    assert!(plan.skipped_for_space.is_empty());
+    assert!(plan.prune_bytes > 0);
+    let res = run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(res.added, 1);
+    assert!(list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap().is_empty(), "oldest version pruned");
+}
+
+#[test]
+fn remove_source_asks_bytes_and_retires_as_uncovered() {
+    let mut fx = backup_fx(&[("a.txt", b"alpha"), ("b.txt", b"beta!")]);
+    topup(&mut fx);
+    let (src, vol, rel): (String, String, String) = fx
+        .store
+        .conn()
+        .query_row("SELECT id, volume_id, rel_path FROM backup_sources", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap();
+    let bytes = remove_source(&mut fx.store, &src).unwrap();
+    assert_eq!(bytes, 10);
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.items.iter().filter(|i| i.kind == TopUpKind::RetireUncovered).count(), 2);
+    run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    let versions = list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(versions.len(), 2);
+    assert!(versions.iter().all(|v| v.reason == "uncovered"));
+
+    // Adding it back, pinned, makes everything in it tier 1.
+    add_source(&mut fx.store, &vol, &rel, true).unwrap();
+    assert_eq!(tier_for_file(fx.store.conn(), &fid(&fx.store, &fx.docs.join("a.txt"))).unwrap(), Some(1));
+    assert_eq!(count(&fx.store, "SELECT COUNT(*) FROM backup_sources WHERE removed_at IS NULL"), 1);
+}

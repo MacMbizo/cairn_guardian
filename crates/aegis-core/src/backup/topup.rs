@@ -68,6 +68,9 @@ pub struct TopUpPlan {
     pub items: Vec<TopUpItem>,
     pub halted_folders: Vec<GuardHalt>,
     pub skipped_for_space: Vec<TierShortfall>,
+    /// Bytes of the oldest previous versions that must be pruned first to make room.
+    #[ts(type = "number")]
+    pub prune_bytes: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -265,13 +268,91 @@ pub fn plan_topup(conn: &Connection, backup_volume_id: &str) -> Result<TopUpPlan
         items,
         halted_folders: Vec::new(),
         skipped_for_space: Vec::new(),
+        prune_bytes: 0,
     };
     if let GuardVerdict::Halt(halts) = guard::check(conn, &plan)? {
         let halted: HashSet<String> = halts.iter().map(|h| h.source_folder.clone()).collect();
         plan.items.retain(|i| !halted.contains(&i.source_folder));
         plan.halted_folders = halts;
     }
+    fill_by_priority(conn, &mut plan)?;
     Ok(plan)
+}
+
+/// Keeps copies in tier order while they fit (spec §7.7.2). Space held by previous versions
+/// counts as available: the oldest are pruned first (`prune_bytes`). Live copies are never
+/// removed to make room; whatever doesn't fit is skipped and reported per tier.
+fn fill_by_priority(conn: &Connection, plan: &mut TopUpPlan) -> Result<()> {
+    let (free, versions) = priority::backup_space(conn, &plan.backup_volume_id)?;
+    let mut free_left = free;
+    let mut versions_left = versions;
+    let mut needed: std::collections::BTreeMap<i64, (i64, i64)> = Default::default();
+    plan.items.retain(|it| {
+        if !matches!(it.kind, TopUpKind::Add | TopUpKind::Replace) {
+            return true;
+        }
+        let slot = needed.entry(it.tier).or_insert((0, 0));
+        slot.0 += it.bytes;
+        if it.bytes <= free_left {
+            free_left -= it.bytes;
+            true
+        } else if it.bytes <= free_left + versions_left {
+            versions_left -= it.bytes - free_left;
+            free_left = 0;
+            true
+        } else {
+            slot.1 += it.bytes;
+            false
+        }
+    });
+    plan.prune_bytes = versions - versions_left;
+    plan.skipped_for_space = needed
+        .into_iter()
+        .filter(|(_, (_, skipped))| *skipped > 0)
+        .map(|(tier, (bytes_needed, bytes_skipped))| TierShortfall { tier, bytes_needed, bytes_skipped })
+        .collect();
+    Ok(())
+}
+
+/// Deletes the oldest previous versions until at least `bytes` are freed. Audited.
+fn prune_oldest(store: &mut SqliteStore, backup_volume_id: &str, mount: &Path, bytes: i64) -> Result<i64> {
+    let rows: Vec<(String, String, i64)> = {
+        let mut stmt = store.conn().prepare(
+            "SELECT id, rel_path, size_bytes FROM backup_versions
+             WHERE backup_volume_id = ?1 AND pruned_at IS NULL ORDER BY moved_at ASC, id ASC",
+        )?;
+        let r = stmt.query_map([backup_volume_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        r.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let now = now_ms();
+    let mut freed = 0i64;
+    let mut count = 0i64;
+    for (id, rel, size) in rows {
+        if freed >= bytes {
+            break;
+        }
+        match std::fs::remove_file(mount.join(&rel)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => continue,
+        }
+        store.conn().execute("UPDATE backup_versions SET pruned_at = ?2 WHERE id = ?1", params![id, now])?;
+        freed += size;
+        count += 1;
+    }
+    if count > 0 {
+        store.with_full_sync_tx(|tx| {
+            append_audit_in_tx(
+                tx,
+                "system",
+                "backup.prune",
+                backup_volume_id,
+                &serde_json::json!({ "pruned": count, "bytes": freed, "reason": "space" }).to_string(),
+            )?;
+            Ok(())
+        })?;
+    }
+    Ok(freed)
 }
 
 fn remove_partials(dir: &Path) {
@@ -482,6 +563,9 @@ pub fn run_topup(
         }
     }
     remove_partials(&area);
+    if plan.prune_bytes > 0 {
+        prune_oldest(store, &plan.backup_volume_id, &backup_mount, plan.prune_bytes)?;
+    }
 
     let job_id = new_id();
     let started = now_ms();
