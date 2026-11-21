@@ -1,33 +1,87 @@
 pub mod commands;
+pub mod engine_host;
+pub mod shell;
 pub mod watch;
 
 use aegis_core::db::SqliteStore;
+use aegis_core::engine::Screen;
 use commands::AppState;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, RunEvent, WindowEvent};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_global_shortcut::ShortcutState;
+
+/// Started by Windows at login: stay in the tray, no window.
+const BACKGROUND_ARG: &str = "--background";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // Plugin order matters: see `shell::plugin_order`.
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::open_main(app, None)))
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![BACKGROUND_ARG])))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        shell::open_main(app, Some(Screen::Search));
+                    }
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data_dir = app
-                .path()
-                .app_local_data_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("aegis-guardian"));
+            // AEGIS_DATA_DIR points test and dev runs at their own database, never the owner's.
+            let data_dir = std::env::var_os("AEGIS_DATA_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| {
+                app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("aegis-guardian"))
+            });
             let db_path = data_dir.join("aegis.db");
             let store = SqliteStore::open(&db_path)?;
             // First run: start with the PC folders where clutter lands (spec §7.8.1).
             let _ = aegis_core::scanner::seed_default_roots(&store);
+            let first_run = store.get_setting("engine.autostart_initialised", "global")?.is_none();
+            let shortcut = store
+                .get_setting("engine.shortcut", "global")?
+                .and_then(|j| serde_json::from_str::<String>(&j).ok())
+                .unwrap_or_else(|| shell::DEFAULT_SHORTCUT.to_string());
+            if first_run {
+                store.set_setting("engine.autostart_initialised", "global", "true")?;
+            }
+            let (tx, rx) = std::sync::mpsc::channel();
             app.manage(AppState {
                 store: Mutex::new(store),
                 db_path,
                 topup_cancel: Default::default(),
                 topup_running: Default::default(),
                 cataloguing: Default::default(),
+                nav: Default::default(),
+                paused_until: Default::default(),
+                shortcut_ok: Default::default(),
+                engine_tx: Mutex::new(tx),
+                tray_items: Mutex::new(None),
             });
-            watch::spawn(app.handle().clone());
+            // Start with Windows by default (spec §8); the owner can turn it off in Settings.
+            // Dev builds never register themselves to run at login.
+            if first_run && !cfg!(debug_assertions) {
+                let _ = app.autolaunch().enable();
+            }
+            let handle = app.handle().clone();
+            let items = shell::build_tray(&handle)?;
+            if let Ok(mut g) = app.state::<AppState>().tray_items.lock() {
+                *g = Some(items);
+            }
+            shell::register_shortcut(&handle, &shortcut);
+            if !std::env::args().any(|a| a == BACKGROUND_ARG) {
+                shell::open_main(&handle, None);
+            }
+            watch::spawn(handle.clone());
+            engine_host::spawn(handle, rx);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::Destroyed = event {
+                shell::first_close_hint(window.app_handle());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::roots_list,
@@ -88,7 +142,26 @@ pub fn run() {
             commands::drives::backup_standing_status,
             commands::drives::previous_versions_list,
             commands::drives::previous_version_restore,
+            commands::engine::reminders_open,
+            commands::engine::reminder_dismiss,
+            commands::engine::reminder_act,
+            commands::engine::reminder_undemote,
+            commands::engine::note_latest,
+            commands::engine::note_mark_read,
+            commands::engine::engine_pause,
+            commands::engine::engine_status,
+            commands::engine::engine_settings_set,
+            commands::engine::nav_take,
+            commands::engine::tripwire_was_me,
+            #[cfg(debug_assertions)]
+            commands::engine::engine_debug_raise,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Aegis Guardian");
+        .build(tauri::generate_context!())
+        .expect("error while building Aegis Guardian");
+    app.run(|_app, event| {
+        // Closing the last window keeps Aegis running in the tray; only "Quit Aegis" exits.
+        if let RunEvent::ExitRequested { code: None, api, .. } = event {
+            api.prevent_exit();
+        }
+    });
 }

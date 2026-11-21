@@ -31,6 +31,7 @@ export * from './DupeGroupKind';
 export * from './DupeLocation';
 export * from './DupeMember';
 export * from './DupeReport';
+export * from './EngineStatus';
 export * from './ExecuteResult';
 export * from './FileDetail';
 export * from './Finding';

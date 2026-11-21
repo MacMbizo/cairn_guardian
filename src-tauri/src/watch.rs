@@ -109,7 +109,13 @@ fn handle(app: &AppHandle, store: &mut SqliteStore, report: &SyncReport, seen_be
             },
         );
         if !known || v.last_catalog_complete_at.is_none() {
-            continue; // cataloguing a new drive waits for the owner's click
+            // A brand-new drive waits for the owner's click; one whose catalog was started
+            // before and interrupted picks up again (spec §6.7).
+            let resume = aegis_core::engine::watches::catalogs_to_resume(store.conn()).unwrap_or_default();
+            if resume.contains(id) {
+                crate::commands::drives::start_catalog(app, id.clone());
+            }
+            continue;
         }
         // Refresh and top-up can take a long time: run them on a worker with its own
         // connection, so the watcher keeps noticing drives come and go meanwhile.

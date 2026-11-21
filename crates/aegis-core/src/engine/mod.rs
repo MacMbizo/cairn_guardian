@@ -77,6 +77,23 @@ pub struct Finding {
     pub action: FindingAction,
 }
 
+/// What the Settings screen and the Home pause chip show.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EngineStatus {
+    #[ts(type = "number | null")]
+    pub paused_until: Option<i64>,
+    pub tray: reminders::TrayState,
+    pub autostart: bool,
+    /// 0 = Monday … 6 = Sunday.
+    pub note_day: u8,
+    pub note_hour: u8,
+    pub shortcut: String,
+    pub shortcut_ok: bool,
+    /// Reminder kinds moved to the weekly note.
+    pub demoted: Vec<String>,
+}
+
 /// Bookkeeping for one watch.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WatchState {

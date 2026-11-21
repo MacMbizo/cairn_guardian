@@ -844,6 +844,20 @@ pub enum AegisEvent {
         job: String,
         message: String,
     },
+    /// Open this screen (from the tray, a notification or the search shortcut).
+    Navigate {
+        v: u8,
+        screen: crate::engine::Screen,
+    },
+    /// Reminders, the weekly note or pause state changed.
+    EngineUpdated {
+        v: u8,
+    },
+    /// The ransomware tripwire fired; that folder's backup is locked.
+    Tripped {
+        v: u8,
+        trip: crate::engine::tripwire::Trip,
+    },
 }
 
 /// Generates TypeScript bindings and barrel file `index.ts` into `out_dir`.
@@ -914,6 +928,7 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::engine::janitor::JanitorItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::engine::space::Forecast as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::engine::note::WeeklyNote as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::engine::EngineStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::SyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

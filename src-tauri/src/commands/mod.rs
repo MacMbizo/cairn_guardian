@@ -1,6 +1,7 @@
 //! Tauri 2 IPC command handlers aligned with `C1_IPC_Action_Contracts.md` (v1.2).
 
 pub mod drives;
+pub mod engine;
 
 use aegis_core::contracts::{
     ActionItem, ActionStatus, AegisEvent, AtomicUnit, AuditEntry, ConflictResolutionChoice,
@@ -42,6 +43,14 @@ pub struct AppState {
     pub topup_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Drives with a catalog running, so a repeat click never starts a second walk.
     pub cataloguing: InFlight,
+    /// Screen a notification or the tray asked for, until the page takes it.
+    pub nav: crate::shell::NavSlot,
+    /// Pause end (ms since epoch); 0 or past = not paused.
+    pub paused_until: std::sync::atomic::AtomicI64,
+    pub shortcut_ok: std::sync::atomic::AtomicBool,
+    /// Wakes the engine thread and carries file-system events to it.
+    pub engine_tx: Mutex<std::sync::mpsc::Sender<crate::engine_host::EngineMsg>>,
+    pub tray_items: Mutex<Option<crate::shell::TrayItems>>,
 }
 
 /// A set of ids with a job in flight. `try_start` hands out a guard that removes the id

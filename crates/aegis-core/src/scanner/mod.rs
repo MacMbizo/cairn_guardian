@@ -935,6 +935,11 @@ pub fn mark_interrupted_jobs(conn: &rusqlite::Connection, now: i64) -> Result<us
     )?)
 }
 
+/// The owner's Downloads folder (the first known folder), when it exists.
+pub fn downloads_dir() -> Option<PathBuf> {
+    known_folders().into_iter().next().filter(|p| p.is_dir())
+}
+
 /// The PC folders Aegis starts with (spec §7.8.1): Downloads, Documents, Desktop, Pictures, Music.
 pub fn default_root_paths() -> Vec<PathBuf> {
     known_folders()

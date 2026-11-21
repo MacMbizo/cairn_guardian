@@ -1,6 +1,5 @@
 //! Always-on engine: scheduling, reminders, watches, tripwire, janitor, space and the weekly note.
 
-#[allow(dead_code)]
 mod common;
 
 use aegis_core::db::SqliteStore;

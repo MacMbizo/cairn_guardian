@@ -71,11 +71,17 @@ pub fn drives_sync(state: State<'_, AppState>) -> Result<SyncReport, IpcError> {
 /// A repeat call while that drive's catalog is running does nothing: two walks of one drive
 /// fight over the database and the losers fail.
 #[tauri::command(async)]
-pub fn drive_catalog(app: AppHandle, state: State<'_, AppState>, volume_id: String) -> Result<(), IpcError> {
-    let Some(guard) = state.cataloguing.try_start(&volume_id) else {
-        return Ok(());
+pub fn drive_catalog(app: AppHandle, volume_id: String) -> Result<(), IpcError> {
+    start_catalog(&app, volume_id);
+    Ok(())
+}
+
+/// Starts (or resumes) a drive's catalog in the background, unless one is already running.
+pub fn start_catalog(app: &AppHandle, volume_id: String) {
+    let Some(guard) = app.state::<AppState>().cataloguing.try_start(&volume_id) else {
+        return;
     };
-    background(app, "drive_catalog", move |app, store| {
+    background(app.clone(), "drive_catalog", move |app, store| {
         let _guard = guard;
         let mut emit_progress = |p: &ScanProgress| {
             let _ = app.emit(
@@ -101,7 +107,6 @@ pub fn drive_catalog(app: AppHandle, state: State<'_, AppState>, volume_id: Stri
         );
         Ok(())
     });
-    Ok(())
 }
 
 /// Drives whose catalog is running right now.
