@@ -90,3 +90,19 @@ fn evaluate_policy(action: &Action, ctx: &PolicyContext) -> PolicyVerdict {
 - **Open:** None for MVP.
 - **Assumptions:** `rules.priority` defaults to `100`; built-in safety rules use priority `1–20`.
 - **Traceability:** Upstream `A2` `FR-005.1`–`FR-005.3`, `B8` `ADR-004`, `B6` §3; Downstream `C1 v1.2` `actions.simulate/execute`, `D3 v1.1` Simulator UX.
+
+## 6. Amendment 2026-11-21: Standing approval for backup top-ups
+*Source: Drives & Duplicates design (`docs/superpowers/specs/2026-11-21-drives-and-duplicates-design.md` §7.8.6).*
+
+This is the first and only exception to the v1.0 invariant that no proposal auto-executes.
+
+- **Scope.** Only `backup_topup` runs on the drive holding the Backup role. A run may (a) copy files onto that drive, under `Aegis Backup\`, and (b) move or prune copies inside `Aegis Backup\` (previous versions, the 90-day prune). It never deletes, moves or renames anything at a source. Duplicate quarantines and copy-then-quarantine moves always go through normal approval.
+- **Earning it.** It is granted by the owner (`grant_standing_topup`). A grant requires at least one completed top-up on that drive that the owner approved.
+- **Binding.** The approval is tied to the drive's **passport id**, not its volume id or letter. A drive that no longer carries that passport does not match.
+- **Revocation (audited).** Each of these revokes it:
+  - clone detection involving the passport;
+  - re-passporting the drive;
+  - the drive leaving the Backup role;
+  - a new grant, which supersedes the old one.
+- **Guards still apply.** Every run re-checks that each planned path stays inside `Aegis Backup\` on that drive. The mass-change and encryption guard halts affected folders for an explicit owner answer.
+- **Audit.** The grant, every revocation and a summary of every standing run are written to `audit_log` (`standing_approval.granted`, `standing_approval.revoked`, `backup.topup` with `authority: standing`).

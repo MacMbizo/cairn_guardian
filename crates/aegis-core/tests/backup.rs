@@ -465,3 +465,74 @@ fn walk_count(dir: &Path, suffix: &str) -> usize {
         })
         .sum()
 }
+
+// ---------------------------------------------------------------- Task 11: standing approval
+
+use aegis_core::policy::{grant_standing_topup, has_standing_topup};
+
+#[test]
+fn standing_requires_first_approved_topup() {
+    let mut fx = backup_fx(&[("a.txt", b"alpha")]);
+    assert!(grant_standing_topup(&mut fx.store, &fx.backup_id).is_err(), "no approved run yet");
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert!(
+        run_topup(&mut fx.store, &plan, TopUpAuthority::Standing, &AtomicBool::new(false), &mut |_, _| {}).is_err(),
+        "standing runs need a grant"
+    );
+
+    topup(&mut fx); // first run, approved by the owner
+    grant_standing_topup(&mut fx.store, &fx.backup_id).unwrap();
+    assert!(has_standing_topup(fx.store.conn(), &fx.backup_id).unwrap());
+
+    std::fs::write(fx.docs.join("new.txt"), b"new").unwrap();
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let res = run_topup(&mut fx.store, &plan, TopUpAuthority::Standing, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(res.added, 1);
+    assert_eq!(
+        count(&fx.store, "SELECT COUNT(*) FROM audit_log WHERE action IN ('standing_approval.granted','backup.topup')"),
+        3
+    );
+}
+
+#[test]
+fn standing_revoked_on_clone_and_role_change() {
+    let mut fx = backup_fx(&[("a.txt", b"alpha")]);
+    topup(&mut fx);
+    grant_standing_topup(&mut fx.store, &fx.backup_id).unwrap();
+
+    // A clone of the Backup drive appears.
+    let clone = common::fake_drive(&fx.tmp, "B-clone", "0002");
+    std::fs::create_dir_all(clone.mount_point.join(".aegis")).unwrap();
+    std::fs::copy(
+        fx.backup.mount_point.join(".aegis").join("volume.json"),
+        clone.mount_point.join(".aegis").join("volume.json"),
+    )
+    .unwrap();
+    fx.provider.plug(clone);
+    sync_mounted(&mut fx.store, &fx.provider).unwrap();
+    assert!(!has_standing_topup(fx.store.conn(), &fx.backup_id).unwrap(), "clone revokes");
+
+    topup(&mut fx);
+    grant_standing_topup(&mut fx.store, &fx.backup_id).unwrap();
+    assert!(has_standing_topup(fx.store.conn(), &fx.backup_id).unwrap());
+    apply_plan(&mut fx.store, &[(fx.backup_id.clone(), DriveRole::General)]).unwrap();
+    assert!(!has_standing_topup(fx.store.conn(), &fx.backup_id).unwrap(), "role change revokes");
+}
+
+#[test]
+fn standing_run_refuses_paths_outside_backup_root() {
+    let mut fx = backup_fx(&[("a.txt", b"alpha")]);
+    topup(&mut fx);
+    grant_standing_topup(&mut fx.store, &fx.backup_id).unwrap();
+    std::fs::write(fx.docs.join("b.txt"), b"beta").unwrap();
+    scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    let mut plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    assert_eq!(plan.items.len(), 1);
+    plan.items[0].backup_rel_path = "Aegis Backup\\..\\..\\escaped.txt".into();
+    let err = run_topup(&mut fx.store, &plan, TopUpAuthority::Standing, &AtomicBool::new(false), &mut |_, _| {})
+        .unwrap_err();
+    assert!(err.to_string().contains("outside"), "{err}");
+    assert!(!fx.tmp.path().join("escaped.txt").exists());
+    assert!(!fx.backup.mount_point.join("escaped.txt").exists());
+}

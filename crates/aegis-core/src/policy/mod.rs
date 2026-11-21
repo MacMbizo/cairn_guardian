@@ -383,3 +383,58 @@ pub fn has_standing_topup(conn: &rusqlite::Connection, backup_volume_id: &str) -
         |r| r.get(0),
     )?)
 }
+
+/// Grants a standing approval for automatic top-ups of the Backup drive `backup_volume_id`
+/// (spec §7.8.6). Requires at least one completed top-up the owner approved on this drive, and
+/// binds the approval to the drive's current passport. Audited. Returns the approval id.
+pub fn grant_standing_topup(
+    store: &mut crate::db::SqliteStore,
+    backup_volume_id: &str,
+) -> crate::error::Result<String> {
+    use crate::error::AegisError;
+    let (role, passport): (String, Option<String>) = store.conn().query_row(
+        "SELECT role, passport_id FROM volumes WHERE id = ?1",
+        [backup_volume_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if role != "backup" {
+        return Err(AegisError::InvalidInput("Only the Backup drive can back up automatically.".into()));
+    }
+    let passport = passport.ok_or_else(|| {
+        AegisError::InvalidInput("This drive can't carry an Aegis passport (read-only), so it can't back up automatically.".into())
+    })?;
+    let approved_run: bool = store.conn().query_row(
+        "SELECT EXISTS(SELECT 1 FROM backup_jobs
+           WHERE backup_volume_id = ?1 AND authority = 'user' AND status = 'completed')",
+        [backup_volume_id],
+        |r| r.get(0),
+    )?;
+    if !approved_run {
+        return Err(AegisError::PolicyBlocked {
+            rule: "standing_approval".into(),
+            detail: "Approve one backup on this drive first; after that it can run by itself.".into(),
+        });
+    }
+    let id = crate::new_id();
+    let now = crate::now_ms();
+    store.with_full_sync_tx(|tx| {
+        tx.execute(
+            "UPDATE standing_approvals SET revoked_at = ?2, revoke_reason = 'superseded'
+             WHERE volume_passport = ?1 AND scope = 'backup_topup' AND revoked_at IS NULL",
+            rusqlite::params![passport, now],
+        )?;
+        tx.execute(
+            "INSERT INTO standing_approvals (id, scope, volume_passport, created_at) VALUES (?1, 'backup_topup', ?2, ?3)",
+            rusqlite::params![id, passport, now],
+        )?;
+        crate::db::audit::append_audit_in_tx(
+            tx,
+            "user",
+            "standing_approval.granted",
+            backup_volume_id,
+            &serde_json::json!({ "scope": "backup_topup", "passport": passport }).to_string(),
+        )?;
+        Ok(())
+    })?;
+    Ok(id)
+}
