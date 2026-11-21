@@ -191,9 +191,10 @@ pub trait Watch: Send {
     fn run(&mut self, store: &mut SqliteStore, now: i64) -> Result<Vec<Finding>>;
 }
 
-/// Whether a watch should run now.
+/// Whether a watch should run now. A heavy watch that has never run waits for a calm moment too
+/// (the engine applies the [`IDLE_GRACE_MS`] fallback from when it first saw the watch).
 pub fn is_due(every_ms: i64, last_run_at: Option<i64>, now: i64, needs_idle: bool, calm: bool) -> bool {
-    let Some(last) = last_run_at else { return true };
+    let Some(last) = last_run_at else { return !needs_idle || calm };
     let elapsed = now - last;
     if elapsed < every_ms {
         return false;
@@ -211,11 +212,13 @@ pub struct TickReport {
 /// Runs due watches and turns their findings into reminders.
 pub struct Engine {
     watches: Vec<Box<dyn Watch>>,
+    /// When this engine first saw each never-run watch (grace for heavy first runs).
+    first_seen: std::collections::HashMap<&'static str, i64>,
 }
 
 impl Engine {
     pub fn new(watches: Vec<Box<dyn Watch>>) -> Self {
-        Self { watches }
+        Self { watches, first_seen: Default::default() }
     }
 
     /// One pass over the watches. A failing watch is recorded and never stops the others.
@@ -228,7 +231,9 @@ impl Engine {
                 continue;
             }
             let state = watch_state(store.conn(), w.name())?;
-            if !is_due(w.every_ms(), state.last_run_at, now, w.needs_idle(), calm_now) {
+            let first_seen = *self.first_seen.entry(w.name()).or_insert(now);
+            let grace_over = state.last_run_at.is_none() && now - first_seen >= IDLE_GRACE_MS;
+            if !grace_over && !is_due(w.every_ms(), state.last_run_at, now, w.needs_idle(), calm_now) {
                 continue;
             }
             report.ran.push(w.name());

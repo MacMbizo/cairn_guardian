@@ -167,6 +167,10 @@ pub fn scan_downloads(conn: &Connection, downloads: &Path, installed: &[String],
             });
         }
     }
+    // One item per file: a repeat download of an old installer matches two rules. Items were
+    // pushed partial → repeat → installer, so the first (most specific) reason wins.
+    let mut seen = HashSet::new();
+    items.retain(|i| seen.insert(i.path.to_lowercase()));
     Ok(items)
 }
 
@@ -334,6 +338,15 @@ pub fn propose(store: &mut SqliteStore, items: &[JanitorItem]) -> Result<Option<
             )
             .optional()?)
     };
+    // A file may have only one proposed/approved action at a time (any feature, any batch).
+    let has_active = |store: &SqliteStore, file_id: &str| -> Result<bool> {
+        Ok(store.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM actions WHERE file_id = ?1 AND status IN ('proposed', 'approved'))",
+            [file_id],
+            |r| r.get(0),
+        )?)
+    };
+    let mut taken = HashSet::new();
     let mut actions = Vec::new();
     for it in items {
         let mut file_id = lookup(store, &it.path)?;
@@ -344,6 +357,9 @@ pub fn propose(store: &mut SqliteStore, items: &[JanitorItem]) -> Result<Option<
             file_id = lookup(store, &it.path)?;
         }
         let Some(file_id) = file_id else { continue };
+        if !taken.insert(file_id.clone()) || has_active(store, &file_id)? {
+            continue;
+        }
         let file_id = Some(file_id);
         actions.push(ProposedActionInput {
             agent: Some(AGENT.into()),

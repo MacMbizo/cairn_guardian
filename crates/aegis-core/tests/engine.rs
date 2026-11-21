@@ -43,9 +43,23 @@ fn calm_requires_idle_power_and_not_busy() {
 fn idle_watch_runs_anyway_after_grace() {
     assert!(!is_due(1000, Some(0), 1000, true, false));
     assert!(is_due(1000, Some(0), 1000 + 86_400_000, true, false));
-    assert!(is_due(1000, None, 0, true, false));
     assert!(is_due(1000, Some(0), 1000, true, true));
     assert!(!is_due(1000, Some(0), 999, false, true));
+    // Never run: light watches start at once; heavy ones wait for a calm moment (spec §7).
+    assert!(is_due(1000, None, 0, false, false));
+    assert!(!is_due(1000, None, 0, true, false));
+    assert!(is_due(1000, None, 0, true, true));
+}
+
+#[test]
+fn first_heavy_run_waits_for_calm_then_grace() {
+    let mut s = store();
+    let busy = Calm { idle_secs: 5, on_ac: true, battery_pct: None, busy: false };
+    let mut engine = Engine::new(vec![Box::new(FakeWatch { name: "heavy", idle: true, fail: false })]);
+    assert!(engine.tick(&mut s, 1_000, &busy, false).unwrap().ran.is_empty());
+    assert!(engine.tick(&mut s, 1_000 + 3_600_000, &busy, false).unwrap().ran.is_empty());
+    // A day after the engine first saw it, it runs anyway.
+    assert_eq!(engine.tick(&mut s, 1_000 + 86_400_000, &busy, false).unwrap().ran, vec!["heavy"]);
 }
 
 struct FakeWatch {
@@ -849,4 +863,40 @@ fn saved_note_reads_back_and_marks_read() {
     assert!(!latest(c).unwrap().unwrap().read);
     mark_read(c, "2026-11-22", 2).unwrap();
     assert!(latest(c).unwrap().unwrap().read);
+}
+
+#[test]
+fn file_matching_two_rules_is_proposed_once() {
+    // A repeat download of an old installer ("ChromeSetup (2).exe") matches both rules.
+    let (_t, mut s, dl) = downloads();
+    aged(&common::put(&dl, "ChromeSetup (1).exe", b"MZ chrome setup"), 30.0);
+    aged(&common::put(&dl, "ChromeSetup (2).exe", b"MZ chrome setup"), 29.0);
+    let items = scan_downloads(s.conn(), &dl, &["Google Chrome".to_string()], now_ms()).unwrap();
+    assert_eq!(names(&items), vec!["ChromeSetup (1).exe", "ChromeSetup (2).exe"], "one item per file");
+    let repeat = items.iter().find(|i| i.path.ends_with("(2).exe")).unwrap();
+    assert_eq!(repeat.kind, JanitorKind::Repeat { of: "ChromeSetup (1).exe".into() }, "repeat wins over installer");
+    let batch = propose(&mut s, &items).unwrap().unwrap();
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM actions WHERE batch_id = ?1", [batch], |r| r.get(0)).unwrap();
+    assert_eq!(n, 2);
+}
+
+#[test]
+fn file_with_an_action_elsewhere_is_skipped() {
+    let (_t, mut s, dl) = downloads();
+    aged(&common::put(&dl, "a.crdownload", b"x"), 2.0);
+    aged(&common::put(&dl, "b.crdownload", b"y"), 2.0);
+    let items = scan_downloads(s.conn(), &dl, &[], now_ms()).unwrap();
+    // Another feature already proposed one of these files, recorded with different path casing.
+    let a = items.iter().find(|i| i.path.ends_with("a.crdownload")).unwrap().clone();
+    let mut upper = a.clone();
+    upper.path = a.path.to_uppercase();
+    aegis_core::engine::janitor::propose(&mut s, &[upper]).unwrap().unwrap();
+    s.conn().execute("UPDATE actions SET agent = 'dupes'", []).unwrap();
+    let batch = propose(&mut s, &items).unwrap().unwrap();
+    let paths: Vec<String> = {
+        let mut st = s.conn().prepare("SELECT from_path FROM actions WHERE batch_id = ?1").unwrap();
+        st.query_map([batch], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+    };
+    assert_eq!(paths.len(), 1);
+    assert!(paths[0].ends_with("b.crdownload"));
 }
