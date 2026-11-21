@@ -3,6 +3,7 @@
 //! 1. Pinned folders and **only copies** (files with exactly one copy anywhere Aegis knows).
 //! 2. Everything else in the backup sources (the PC's Documents, Desktop, Pictures …).
 //! 3. Music and video that isn't personal footage.
+//!
 //! Never: installers in Downloads, caches and build output, OS junk.
 
 use super::BACKUP_DIR;
