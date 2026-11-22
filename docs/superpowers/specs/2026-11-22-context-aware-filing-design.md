@@ -1,4 +1,6 @@
-# Project-aware filing: design
+# Context-aware filing: design
+
+Projects are the first module of a context layer that covers the whole PC.
 
 Follow-up to Auto-filing (`2026-11-21-auto-filing-design.md`). Owner brief, 2026-11-22:
 
@@ -6,7 +8,7 @@ Follow-up to Auto-filing (`2026-11-21-auto-filing-design.md`). Owner brief, 2026
 
 And earlier: moving favicons and `.md` files out of `Dev Set` into Pictures and Archives *"means we will misplace those assets"*. Pictures that start with "SmoothLite" are a design project for the SmoothLite brand and belong together. Inside a `2026` photo folder Aegis should *"dig further to classify"*. The owner has stopped approving batches that touch project folders until this is fixed.
 
-The owner chose **approach A, projects first** (§15). Everything not quoted above is the builder's call and is marked as such where it matters.
+The owner chose **approach A, projects first** (§15), then added (2026-11-22): *"Do not be blinkered into making the system about projects. Remember that it is a complete system for my PC. So whilst projects are definitely important, everything else is as well. If you want, you could make projects a module of the system, if it works."* So this design defines a **context layer** for everything on the PC (§1A), and projects are its first, fullest module. Everything not quoted above is the builder's call and is marked as such where it matters.
 
 ## 1. Intent
 
@@ -19,6 +21,36 @@ This shows in three ways:
 3. **Sets inside the big buckets are recognised.** The SmoothLite artwork in all its formats, or the photos of one subject in `Pictures\2026`, are kept together and named after their subject.
 
 Success: the owner can approve filing anywhere, including project folders, without first checking that Aegis won't scatter something. A good proposal reads like something the owner would have done with a free weekend, and spots relationships the owner had forgotten.
+
+## 1A. The whole system: a context layer with modules
+
+**The idea.** Before Aegis files any single file, it asks *"what does this belong to?"* for the whole PC. The answer is a **collection**: a group of files that belong together, recognised by a **module**. Filing then works in two passes:
+
+1. **Collections first.** Every file inside a collection is handled by that collection's plan, never on its own.
+2. **Everything else, file by file**, exactly as Auto-filing does today (kind, content, date, learned rules).
+
+A collection, whatever its module, has the same shape: a **name**, a **kind**, a **confidence with evidence**, one or more **locations**, a **relationship** between each pair of locations (§6, the same engine for every module), and a **plan** the owner approves on one card, with one undo. Owner corrections ("same", "not the same", "this is a …", "leave as is") work the same way for every module (§12).
+
+**The modules.** Each one is a recogniser plus placement rules. They are built in order of value; some already exist in simpler form.
+
+| Module | What it recognises (examples from this PC) | Where it goes (Fresh) | Today |
+|---|---|---|---|
+| **Projects** | Things the owner made: apps, specs and prompt sets, brand artwork (`C:\Prj\*`, `Projectsv2\Dev Set\*`, SmoothLite) | One projects home, `C:\Prj\<name>` (§8) | Code units only (build markers) |
+| **Software packages** | Folders that are a program or tool and break if split: an `.exe` with its DLLs, data and config (`Downloads\DDU v18.1.5.7`, `Armoury_Crate_Uninstall_Tool`, `drivers`) | `Software\Tools\<name>` or `Software\Installers\<name>`, whole | Not recognised (would be split by kind) |
+| **Owner's folders** | A folder the owner named for a purpose whose contents agree with the name (`Documents\CVs`, `Finance`, `PhD`, `PM`, `Ass. Bursar`) | Whole, into the matching life area (`Documents\Work\CVs`), name kept | Not recognised (files filed one by one) |
+| **Resources** | Downloaded kits and references the owner keeps for reuse: UI kits, templates, design packs (`glassmorphism`, `stitch_pwa_screen_interface_design`) | `Documents\Resources\<topic>`, whole | Not recognised |
+| **Courses** | Lesson videos with subtitles and section folders | `Videos\Courses\<name>` | Exists |
+| **Series** | Episodes of one show or a season (`Arkanaut S01E01 …`) | `Videos\Shows\<show>\Season <n>` | Not recognised |
+| **Photo events and subjects** | A named photo folder; photos sharing a subject (SmoothLite photos, a trip) | `Photos\<year>\<subject or event>` (§10) | Named albums only |
+| **Music albums** | Tracks sharing artist/album tags | `Music\<artist>\<album>` | Exists (by tags) |
+| **Sets** | Loose files across kinds sharing a subject or one artwork in several formats | With their subject; a design set becomes a project (§10) | Not recognised |
+| **Old copies** | Copies of another PC's or an earlier backup's folders (`msidownloads`, `msidocuments`, "Backup of …"), on any drive | Compared with the live folders by the shared relationship engine; identical and older copies go to quarantine (asks), changed ones are kept as `Archive\<device or date>` | Duplicates only, file by file |
+
+Anything no module claims is filed file by file, as today. A module never claims a folder another module claimed with higher confidence; a project wins over a set, and a software package inside a project stays part of the project.
+
+**Why modules.** Each one can be built, tested against the owner's folders and switched on alone. New ones (game folders, e-book series, phone backups) can be added later without changing filing. The shared parts (recognising folders, the relationship engine, cards, batches, undo, learning) are built once, with the Projects module.
+
+**This document** specifies the shared layer and the Projects module in full (§6–§14), and Sets and photo subjects in outline (§10). The other modules each get a short design of their own when their turn comes (§16), against this layer.
 
 ## 2. What exists today (facts the design builds on)
 
@@ -192,7 +224,7 @@ Cards are offered one at a time, simplest and safest first: identical copies (sp
 
 ## 9. Filing changes (what stops today)
 
-- `blueprint::plan` treats every file inside a project root at confidence ≥ 0.6 like a code group: **stays, reason "Part of project X"**. No file-by-file move, no rename, in both Tidy and Fresh.
+- `blueprint::plan` asks the context layer first. It treats every file inside a collection root (in step 1: a project) at confidence ≥ 0.6 like a code group: **stays, reason "Part of project X"**. No file-by-file move, no rename, in both Tidy and Fresh.
 - The Fresh structure no longer files *project containers'* contents at all; they are handled by project plans.
 - A batch that was proposed before this change and still waits is re-checked when opened; items now inside a project are dropped from it (marked `superseded`).
 - Filing rules (learn-then-take-over) never apply inside a project.
@@ -252,7 +284,7 @@ Builder's call in detail. The shape:
 
 ## 16. Build order
 
-Each step is usable on its own.
+Each step is usable on its own. Steps 1–6 build the shared layer together with the Projects module; step 7 onward adds the other modules (§1A), each with a short design of its own.
 
 1. **Protection now.** Folder-level project recognition (§7.1–7.2) at ≥ 0.6 feeds `blueprint::plan` (§9). The 15 rejected moves above become tests and are no longer proposed. Waiting batches are re-checked.
 2. **Projects list (read-only).** Identity, locations and relationships (§6, §7.3), shown on a Projects screen under Filing with evidence. "Is this a project?" and "same / not the same" answers.
@@ -260,6 +292,7 @@ Each step is usable on its own.
 4. **Sets and photo subjects** (§10).
 5. **Put back together** (§11).
 6. **Learning** wired through (§12), and the weekly-note line.
+7. **Software packages** (cheap and protective: splitting a program breaks it), then **Owner's folders**, **Old copies**, **Resources**, **Series**, in that order unless the owner's dry-run results suggest another.
 
 ## 17. Settled after the builder check (designer's calls)
 
