@@ -364,6 +364,8 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
                 today: Box::new(|| Local::now().format("%Y-%m-%d").to_string()),
             }),
         ];
+        watches.push(Box::new(aegis_core::filing::reader::ReaderWatch));
+        watches.push(Box::new(aegis_core::filing::watch::FilingWatch));
         if let Some(dl) = aegis_core::scanner::downloads_dir() {
             watches.push(Box::new(JanitorWatch { downloads: dl, installed: Box::new(installed_programs) }));
         }

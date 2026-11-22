@@ -8,8 +8,14 @@ import type {
   DrivePlan,
   DriveRole,
   DupeChoice,
+  BlueprintChoice,
+  BlueprintSummary,
   DupeDecisionItem,
   EngineStatus,
+  FilingRule,
+  Placement,
+  Scope,
+  ScopeStatus,
   GroupedDupeReport,
   PreviousVersionItem,
   Reminder,
@@ -212,6 +218,23 @@ export const aegis = {
     previousVersions: () => call<PreviousVersionItem[]>("previous_versions_list"),
     restoreVersion: (id: string, to?: string) =>
       call<string>("previous_version_restore", { id, to }),
+  },
+  filing: {
+    scopes: () => call<ScopeStatus[]>("filing_scopes"),
+    /** Both structures for a scope: `[tidy, fresh]`. */
+    blueprints: (scope: Scope) => call<[BlueprintSummary, BlueprintSummary]>("filing_blueprints", { scope }),
+    choose: (scope: Scope, choice: BlueprintChoice) => call<void>("filing_choose", { scope, choice }),
+    nextBatch: (scope: Scope) => call<string | null>("filing_next_batch", { scope }),
+    /** Approves the ticked items (all when none given), runs them and records the result. */
+    approve: (batch: string, selection?: string[]) => call<ExecuteResult>("filing_approve", { batch, selection }),
+    undo: (batch: string) => call<void>("filing_undo", { batch }),
+    toSort: (scope: Scope) => call<Placement[]>("filing_to_sort", { scope }),
+    destinations: (scope: Scope) => call<string[]>("filing_destinations", { scope }),
+    place: (scope: Scope, fileId: string, destFolder: string) =>
+      call<void>("filing_place", { scope, fileId, destFolder }),
+    rules: () => call<FilingRule[]>("filing_rules"),
+    stopRule: (id: string) => call<void>("filing_rule_stop", { id }),
+    deleteRule: (id: string) => call<void>("filing_rule_delete", { id }),
   },
   engine: {
     remindersOpen: () => call<Reminder[]>("reminders_open"),

@@ -942,6 +942,13 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::filing::FileMeta as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::filing::Scope as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::filing::BlueprintChoice as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::ScopeStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::classify::DateSource as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::blueprint::Target as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::blueprint::Placement as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::blueprint::TreeNode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::blueprint::BlueprintSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::filing::rules::FilingRule as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::RefreshMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::drives::SyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

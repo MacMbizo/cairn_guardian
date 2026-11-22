@@ -692,7 +692,12 @@ pub fn summarize(placements: &[Placement], choice: BlueprintChoice, store: &Sqli
         if examples.len() < 6 && (p.new_name.is_some() || (moved && matches!(p.target, Target::File { .. }))) {
             let name = |s: &str| Path::new(s).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             if let Some(t) = &p.to {
-                examples.push((name(&p.from), name(t)));
+                // A move shows where it lands; a rename in place just the new name.
+                let after = match roots.iter().find(|r| path_is_within(t, r, false)) {
+                    Some(r) if moved => Path::new(t).strip_prefix(r).map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|_| name(t)),
+                    _ => name(t),
+                };
+                examples.push((name(&p.from), after));
             }
         }
         let final_path = p.to.clone().unwrap_or_else(|| p.from.clone());

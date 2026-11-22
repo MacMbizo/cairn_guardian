@@ -154,6 +154,18 @@ pub fn run() {
             commands::engine::nav_take,
             commands::engine::tripwire_was_me,
             commands::engine::tripwire_locks,
+            commands::filing::filing_scopes,
+            commands::filing::filing_blueprints,
+            commands::filing::filing_choose,
+            commands::filing::filing_next_batch,
+            commands::filing::filing_approve,
+            commands::filing::filing_undo,
+            commands::filing::filing_to_sort,
+            commands::filing::filing_destinations,
+            commands::filing::filing_place,
+            commands::filing::filing_rules,
+            commands::filing::filing_rule_stop,
+            commands::filing::filing_rule_delete,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

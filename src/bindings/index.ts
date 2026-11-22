@@ -70,6 +70,7 @@ export * from './RollbackResult';
 export * from './RootConfig';
 export * from './ScanStatus';
 export * from './Scope';
+export * from './ScopeStatus';
 export * from './Screen';
 export * from './SearchFilters';
 export * from './SearchHit';

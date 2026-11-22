@@ -2,6 +2,7 @@
 
 pub mod drives;
 pub mod engine;
+pub mod filing;
 
 use aegis_core::contracts::{
     ActionItem, ActionStatus, AegisEvent, AtomicUnit, AuditEntry, ConflictResolutionChoice,
@@ -431,7 +432,19 @@ pub fn actions_execute(
     batch: String,
 ) -> Result<ExecuteResult, IpcError> {
     let mut store = lock_store(&state)?;
-    map_err(execute_batch(&mut store, &batch))
+    let res = map_err(execute_batch(&mut store, &batch))?;
+    // Filing batches also record where files were and teach the filing rules.
+    if is_filing_batch(&store, &batch) {
+        map_err(aegis_core::filing::batches::after_execute(&mut store, &batch))?;
+    }
+    Ok(res)
+}
+
+fn is_filing_batch(store: &SqliteStore, batch: &str) -> bool {
+    store
+        .conn()
+        .query_row("SELECT origin FROM action_batches WHERE id = ?1", [batch], |r| r.get::<_, String>(0))
+        .is_ok_and(|o| o.starts_with("filing"))
 }
 
 #[tauri::command(async)]
@@ -450,7 +463,11 @@ pub fn actions_rollback(
     batch: String,
 ) -> Result<RollbackResult, IpcError> {
     let mut store = lock_store(&state)?;
-    map_err(rollback_batch(&mut store, &batch))
+    let res = map_err(rollback_batch(&mut store, &batch))?;
+    if is_filing_batch(&store, &batch) {
+        map_err(aegis_core::filing::batches::after_rollback(&mut store, &batch))?;
+    }
+    Ok(res)
 }
 
 #[tauri::command(async)]

@@ -1,11 +1,11 @@
-import { CopyCheck, DatabaseBackup, HardDrive, NotebookText, PauseCircle, ShieldAlert, Usb } from "lucide-react";
+import { CopyCheck, DatabaseBackup, FolderTree, HardDrive, NotebookText, PauseCircle, ShieldAlert, Usb } from "lucide-react";
 import { aegis } from "../bindings/client";
 import type { EngineData } from "../screens/useEngine";
 import type { DrivesData } from "../screens/useDrives";
 import { driveName, formatBytes, formatDay } from "../format";
 
 export type DrivesTab = "drives" | "dupes";
-export type HomeTab = DrivesTab | "week";
+export type HomeTab = DrivesTab | "week" | "filing";
 
 const ROLE_CHIP: Record<string, string> = {
   backup: "bg-sky-500/15 text-sky-300",
@@ -19,7 +19,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /** Command-centre tiles for the home screen: drives at a glance, and what needs the owner. */
-export function HomeTiles({ data, engine, onOpen }: { data: DrivesData; engine?: EngineData; onOpen: (tab: HomeTab) => void }) {
+export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: DrivesData; engine?: EngineData; filingReady?: number; onOpen: (tab: HomeTab) => void }) {
   const pausedUntil = engine?.status?.paused_until ?? null;
   const noteUnread = !!engine?.note && !engine.note.read;
   const { drives, plan, coverage, dupes, topupPlan, unknownDrives } = data;
@@ -29,7 +29,9 @@ export function HomeTiles({ data, engine, onOpen }: { data: DrivesData; engine?:
   const planPending = !!plan?.ready && !drives.some((d) => d.role === "backup") && drives.length > 0;
   const unprotected = coverage?.tiers.filter((t) => t.tier !== 0).reduce((s, t) => s + t.unprotected_bytes, 0) ?? 0;
 
-  const needs: { key: string; icon: typeof Usb; text: string; action: string; tab: DrivesTab }[] = [];
+  const needs: { key: string; icon: typeof Usb; text: string; action: string; tab: HomeTab }[] = [];
+  if (filingReady > 0)
+    needs.push({ key: "filing", icon: FolderTree, text: `Next filing batch ready${filingReady > 1 ? ` on ${filingReady} drives` : ""}`, action: "Review", tab: "filing" });
   if (planPending) needs.push({ key: "plan", icon: DatabaseBackup, text: "Drive plan ready: choose your Backup drive", action: "Review", tab: "drives" });
   if (unknownDrives.length > 0)
     needs.push({ key: "new", icon: Usb, text: `${unknownDrives.length} new drive${unknownDrives.length > 1 ? "s" : ""} plugged in`, action: "Catalog", tab: "drives" });

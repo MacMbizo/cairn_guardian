@@ -9,6 +9,7 @@ import {
   Cpu,
   FolderGit2,
   FolderOpen,
+  FolderTree,
   HardDrive,
   Lock,
   NotebookText,
@@ -30,6 +31,8 @@ import { PlugBanner } from "./components/PlugBanner";
 import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
 import { EngineSettings } from "./screens/EngineSettings";
+import { FilingScreen } from "./screens/Filing";
+import { useFiling } from "./screens/useFiling";
 import { ThisWeek } from "./screens/ThisWeek";
 import { useEngine } from "./screens/useEngine";
 import { useDrives } from "./screens/useDrives";
@@ -59,7 +62,7 @@ import {
   type Simulation,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "search" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -71,6 +74,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   simulator: "simulator",
   week: "week",
   settings: "settings",
+  filing: "filing",
 };
 
 function formatBytes(bytes: number): string {
@@ -89,6 +93,7 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("dashboard");
   const drivesData = useDrives();
   const engineData = useEngine();
+  const filingData = useFiling();
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
       ? "Aegis Guardian core ready."
@@ -299,6 +304,9 @@ export default function App() {
             before_ts: null,
             sensitivity: null,
             include_quarantined: includeQuarantined,
+            category: null,
+            who: null,
+            year: null,
           },
           30
         );
@@ -467,6 +475,7 @@ export default function App() {
     { id: "week", label: "This week", icon: NotebookText },
     { id: "drives", label: "Drives & Backup", icon: Usb },
     { id: "dupes", label: "Duplicates", icon: CopyCheck },
+    { id: "filing", label: "Filing", icon: FolderTree },
     { id: "search", label: "Keyword Search (Ctrl+K)", icon: Search },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -568,12 +577,13 @@ export default function App() {
           )}
           {tab === "week" && <ThisWeek data={engineData} onOpen={goTo} />}
           {tab === "settings" && <EngineSettings data={engineData} />}
+          {tab === "filing" && <FilingScreen data={filingData} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}
           {tab === "dashboard" && (
             <div className="space-y-6">
-              <HomeTiles data={drivesData} engine={engineData} onOpen={setTab} />
+              <HomeTiles data={drivesData} engine={engineData} filingReady={filingData.scopes.filter((f) => f.open_batch).length} onOpen={setTab} />
               {/* Honest Coverage Banner (D3 §2) */}
               {scanStatus && (
                 <section
@@ -822,7 +832,12 @@ export default function App() {
                       <p className="mt-1 font-mono text-xs text-slate-400">
                         {hit.path}
                       </p>
-                      <p className="mt-2 text-xs text-slate-200">{hit.snippet}</p>
+                      {hit.was && (
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          was: {hit.was.split(/[\\/]/).pop()} in {hit.was.split(/[\\/]/).slice(0, -1).join("\\")}
+                        </p>
+                      )}
+                      {hit.snippet && <p className="mt-2 text-xs text-slate-200">{hit.snippet}</p>}
                     </article>
                   ))}
                 </div>

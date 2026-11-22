@@ -1020,3 +1020,34 @@ fn filters_by_category_who_and_year() {
     assert_eq!(names(f(Some("Finance"), Some("vodacom"), None)), vec!["inv.docx"]);
     assert_eq!(names(f(None, None, Some(2025))), vec!["ita.docx"]);
 }
+
+// ---------- Task 11: scope statuses ----------
+
+#[test]
+fn scope_statuses_list_pc_and_general_drives_not_backup() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        common::put(m, "setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let st = aegis_core::filing::scope_statuses(&mut s).unwrap();
+    assert_eq!(st.len(), 2, "{st:?}");
+    assert_eq!(st[0].scope, Scope::Pc);
+    assert_eq!(st[0].label, "This PC");
+    let d = &st[1];
+    assert_eq!(d.label, "Data");
+    assert_eq!(d.blueprint, Some(BlueprintChoice::Fresh));
+    assert_eq!(d.remaining, 1);
+    let Scope::Volume { volume_id } = &scope else { unreachable!() };
+    s.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [volume_id]).unwrap();
+    assert_eq!(aegis_core::filing::scope_statuses(&mut s).unwrap().len(), 1);
+}
+
+#[test]
+fn move_only_examples_show_the_destination_folder() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        common::put(&m.join("junk"), "setup.exe", b"MZ");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let sum = summarize(&ps, BlueprintChoice::Fresh, &s).unwrap();
+    assert_eq!(sum.examples, vec![("setup.exe".to_string(), "Software\\Installers\\setup.exe".to_string())]);
+}

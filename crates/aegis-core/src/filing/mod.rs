@@ -243,3 +243,91 @@ pub mod blueprint;
 pub mod rules;
 pub mod batches;
 pub mod watch;
+
+/// One row on the Filing screen: the PC or a drive, and how far filing has got.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ScopeStatus {
+    pub scope: Scope,
+    pub label: String,
+    pub online: bool,
+    /// Share of files Aegis has read or classified, 0–1.
+    pub read_pct: f64,
+    pub blueprint: Option<BlueprintChoice>,
+    pub open_batch: Option<String>,
+    #[ts(type = "number")]
+    pub filed: i64,
+    /// Files the chosen structure would still move (0 without a choice).
+    #[ts(type = "number")]
+    pub remaining: i64,
+    #[ts(type = "number")]
+    pub to_sort: i64,
+}
+
+/// The PC and every catalogued general drive (never the Backup drive), with progress.
+pub fn scope_statuses(store: &mut crate::db::SqliteStore) -> Result<Vec<ScopeStatus>> {
+    let mut scopes: Vec<(Scope, String, bool)> = vec![(Scope::Pc, "This PC".into(), true)];
+    {
+        let mut stmt = store.conn().prepare(
+            "SELECT id, COALESCE(label, mount_point), status = 'online' FROM volumes
+             WHERE passport_id IS NOT NULL AND last_catalog_complete_at IS NOT NULL AND COALESCE(role, '') != 'backup'
+             ORDER BY 2",
+        )?;
+        for r in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?)))? {
+            let (id, label, online) = r?;
+            scopes.push((Scope::Volume { volume_id: id }, label, online));
+        }
+    }
+    let mut out = Vec::new();
+    for (scope, label, online) in scopes {
+        let roots: Vec<String> = blueprint::scope_roots(store, &scope)?.into_iter().map(|(p, _)| p).collect();
+        let (files, read): (i64, i64) = {
+            let vol = match &scope {
+                Scope::Volume { volume_id } => Some(volume_id.clone()),
+                Scope::Pc => None,
+            };
+            let mut stmt = store.conn().prepare(
+                "SELECT f.path, m.file_id IS NOT NULL FROM files f LEFT JOIN file_meta m ON m.file_id = f.id
+                 WHERE f.deleted_at IS NULL AND (?1 IS NULL OR f.volume_id = ?1)",
+            )?;
+            let rows = stmt.query_map([vol], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)))?;
+            let mut n = (0, 0);
+            for r in rows {
+                let (p, has) = r?;
+                if roots.iter().any(|root| crate::db::files::path_is_within(&p, root, false)) {
+                    n.0 += 1;
+                    n.1 += i64::from(has);
+                }
+            }
+            n
+        };
+        let filed: i64 = store.conn().query_row(
+            "SELECT COUNT(*) FROM file_history h JOIN action_batches b ON b.id = h.batch_id
+             WHERE b.origin IN (?1, ?2)",
+            [format!("filing:{}", scope.key()), format!("filing-auto:{}", scope.key())],
+            |r| r.get(0),
+        )?;
+        let choice = blueprint_of(store.conn(), &scope)?;
+        let (mut remaining, mut to_sort) = (0, 0);
+        if let Some(c) = choice
+            && online
+        {
+            let ps = blueprint::plan(store, &scope, c)?;
+            let s = blueprint::summarize(&ps, c, store)?;
+            remaining = s.moves;
+            to_sort = s.to_sort;
+        }
+        out.push(ScopeStatus {
+            open_batch: batches::open_filing_batch(store.conn(), &scope)?,
+            scope,
+            label,
+            online,
+            read_pct: if files == 0 { 1.0 } else { read as f64 / files as f64 },
+            blueprint: choice,
+            filed,
+            remaining,
+            to_sort,
+        });
+    }
+    Ok(out)
+}
