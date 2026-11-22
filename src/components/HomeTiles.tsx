@@ -19,7 +19,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /** Command-centre tiles for the home screen: drives at a glance, and what needs the owner. */
-export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: DrivesData; engine?: EngineData; filingReady?: number; onOpen: (tab: HomeTab) => void }) {
+export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: DrivesData; engine?: EngineData; /** Files waiting in filing batches, across all drives. */ filingReady?: number; onOpen: (tab: HomeTab) => void }) {
   const pausedUntil = engine?.status?.paused_until ?? null;
   const noteUnread = !!engine?.note && !engine.note.read;
   const { drives, plan, coverage, dupes, topupPlan, unknownDrives } = data;
@@ -31,7 +31,7 @@ export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: Dri
 
   const needs: { key: string; icon: typeof Usb; text: string; action: string; tab: HomeTab }[] = [];
   if (filingReady > 0)
-    needs.push({ key: "filing", icon: FolderTree, text: `Next filing batch ready${filingReady > 1 ? ` on ${filingReady} drives` : ""}`, action: "Review", tab: "filing" });
+    needs.push({ key: "filing", icon: FolderTree, text: `Next filing batch ready (${filingReady.toLocaleString()} file${filingReady === 1 ? "" : "s"})`, action: "Review", tab: "filing" });
   if (planPending) needs.push({ key: "plan", icon: DatabaseBackup, text: "Drive plan ready: choose your Backup drive", action: "Review", tab: "drives" });
   if (unknownDrives.length > 0)
     needs.push({ key: "new", icon: Usb, text: `${unknownDrives.length} new drive${unknownDrives.length > 1 ? "s" : ""} plugged in`, action: "Catalog", tab: "drives" });

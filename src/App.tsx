@@ -599,7 +599,7 @@ export default function App() {
           )}
           {tab === "dashboard" && (
             <div className="space-y-6">
-              <HomeTiles data={drivesData} engine={engineData} filingReady={filingData.scopes.filter((f) => f.open_batch).length} onOpen={setTab} />
+              <HomeTiles data={drivesData} engine={engineData} filingReady={filingData.scopes.reduce((n, f) => n + (f.open_batch ? Math.max(f.open_batch_files, 1) : 0), 0)} onOpen={setTab} />
               {/* Honest Coverage Banner (D3 §2) */}
               {scanStatus && (
                 <section

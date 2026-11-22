@@ -1340,6 +1340,25 @@ fn recent_batches_list_manual_and_automatic_with_undo() {
     assert!(again.undone && !again.can_undo, "{again:?}");
 }
 
+#[test]
+fn scope_status_counts_files_in_the_waiting_batch() {
+    let (_t, mut s, _mount, scope) = two_installers();
+    assert_eq!(status_of(&mut s, &scope).open_batch_files, 0);
+    next_batch(&mut s, &scope).unwrap().unwrap();
+    assert_eq!(status_of(&mut s, &scope).open_batch_files, 2);
+
+    // A folder that moves whole counts its files.
+    let (_t2, mut s2, _m2, scope2) = drive_with(|m| {
+        let c = m.join("self development").join("Learn Rust");
+        for i in 1..=3 {
+            common::put(&c, &format!("{i:02} Lesson.mp4"), b"vid");
+        }
+    });
+    set_blueprint(s2.conn(), &scope2, BlueprintChoice::Fresh, 1).unwrap();
+    next_batch(&mut s2, &scope2).unwrap().unwrap();
+    assert_eq!(status_of(&mut s2, &scope2).open_batch_files, 3);
+}
+
 // ---------- Final review fixes ----------
 
 use aegis_core::filing::batches::skip_batch;

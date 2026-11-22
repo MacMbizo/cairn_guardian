@@ -9,7 +9,11 @@ export type ScopeStatus = { scope: Scope, label: string, online: boolean,
 /**
  * Share of files Aegis has read or classified, 0–1.
  */
-read_pct: number, blueprint: BlueprintChoice | null, open_batch: string | null, filed: number, 
+read_pct: number, blueprint: BlueprintChoice | null, open_batch: string | null, 
+/**
+ * Files in the waiting batch (a folder that moves whole counts its files).
+ */
+open_batch_files: number, filed: number, 
 /**
  * Files the chosen structure would still move (0 without a choice).
  */

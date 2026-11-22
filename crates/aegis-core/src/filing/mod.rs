@@ -299,6 +299,9 @@ pub struct ScopeStatus {
     pub read_pct: f64,
     pub blueprint: Option<BlueprintChoice>,
     pub open_batch: Option<String>,
+    /// Files in the waiting batch (a folder that moves whole counts its files).
+    #[ts(type = "number")]
+    pub open_batch_files: i64,
     #[ts(type = "number")]
     pub filed: i64,
     /// Files the chosen structure would still move (0 without a choice).
@@ -356,8 +359,21 @@ pub fn scope_statuses(store: &mut crate::db::SqliteStore) -> Result<Vec<ScopeSta
                 counts_known = false;
             }
         }
+        let open_batch = batches::open_filing_batch(store.conn(), &scope)?;
+        let open_batch_files: i64 = match &open_batch {
+            None => 0,
+            Some(b) => store.conn().query_row(
+                "SELECT COALESCE(SUM(CASE WHEN a.target_kind = 'file' THEN 1 ELSE (
+                    SELECT COUNT(*) FROM files f WHERE f.deleted_at IS NULL
+                    AND lower(substr(f.path, 1, length(a.from_path) + 1)) = lower(a.from_path || '\\')) END), 0)
+                 FROM actions a WHERE a.batch_id = ?1 AND a.status IN ('proposed', 'approved')",
+                [b],
+                |r| r.get(0),
+            )?,
+        };
         out.push(ScopeStatus {
-            open_batch: batches::open_filing_batch(store.conn(), &scope)?,
+            open_batch,
+            open_batch_files,
             scope,
             label,
             online,
