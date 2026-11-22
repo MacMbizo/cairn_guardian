@@ -8,13 +8,18 @@ Updated 2026-11-21 (evening). Read this first in a new chat.
 - **Design:** `docs/superpowers/specs/2026-11-21-auto-filing-design.md`
 - **Plan:** `docs/superpowers/plans/2026-11-21-auto-filing.md`
 - **Ledger with rulings:** `.superpowers/sdd/2026-11-21-auto-filing/progress.md` (git-ignored; keep it).
-- **Done:** tasks 1–8, all committed. Task 8 (rules) was built before Task 7 (batches). `cargo test -p aegis-core --test filing` gives 55 passed.
-- **Next:**
-  1. Task 9: filing watch.
-  2. Task 10: search by name and former name, plus filters.
-  3. Task 11: commands and the Filing UI.
-  4. Task 12: live dry run on a scratch copy of the database, then the final review and a fix pass.
-- **Resume with:** the superpowers:executing-plans skill on the plan. It reads the ledger and continues from Task 9.
+- **Built:** all 12 tasks.
+  - The whole branch had a fresh review, and every critical and important finding was fixed.
+  - `cargo test --workspace` and clippy are green; `pnpm build` is clean.
+  - Not merged and not pushed; that waits for the owner.
+- **Ledger copy:** `<scratchpad>\ledger-auto-filing.md`. The rulings and deferred minors are also in the final chat message.
+- **Dry-run tool:** `cargo run --release -p aegis-core --example filing_dry_run -- <COPY of aegis.db>`.
+  - Make the copy first with the SQLite backup API (see `scratchpad/copy_db.py`).
+  - Never point it at the live database: it writes metadata into whatever database it is given.
+- **Owner next:**
+  1. Merge.
+  2. Plug in the external drive and re-run the dry run. The drive holds most personal documents; the first run only read the PC.
+  3. Try Filing on the PC first, starting with the Fresh structure.
 
 ## Where things stand
 
