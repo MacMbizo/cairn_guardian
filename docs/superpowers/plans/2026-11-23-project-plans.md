@@ -191,8 +191,15 @@ Make a checkpoint commit first. These changes touch `execute_batch`, which every
 - `copy_with_unique_file_goes_to_versions_not_quarantine`
 - `copy_fully_in_home_is_quarantined_and_restorable`
 - `changed_folder_stops_the_plan`
-- `quarantined_folder_files_leave_search_and_come_back_on_undo`
+- `exact_destination_is_never_suffixed`: a plan step whose destination is taken fails instead of creating ` (2)`.
 - `quarantined_folder_purges_recursively`
+- The check that quarantined files leave search and come back on undo was folded into `copy_fully_in_home_is_quarantined_and_restorable`.
+
+**As built:**
+- Plan steps carry their rules in action evidence: `step`, `expect {files, newest}`, `verify_against`, `fallback` and `exact_dest`.
+- `propose_batch` writes `step` from the evidence.
+- The folder state is read from disk (`context::plan::folder_state`), so the propose-time and run-time checks measure the same thing.
+- A content-check failure rewrites the action to a move to its fallback, and the action's reason says how many files weren't proven.
 
 **Steps:** the same five steps; commit `feat(actions): ordered, checked folder steps`.
 

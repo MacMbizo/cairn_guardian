@@ -87,6 +87,76 @@ pub struct ProjectPlan {
     pub summary: String,
 }
 
+fn is_build_name(name: &str) -> bool {
+    super::profile::BUILD_DIRS.iter().any(|d| d.eq_ignore_ascii_case(name))
+}
+
+/// Every file under `dir` that isn't build output, as (path relative to `dir`, full path).
+fn walk_files(dir: &Path) -> Result<Vec<(String, std::path::PathBuf)>> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d)? {
+            let e = e?;
+            let name = e.file_name().to_string_lossy().to_string();
+            let ft = e.file_type()?;
+            if ft.is_dir() {
+                if !is_build_name(&name) {
+                    stack.push(e.path());
+                }
+            } else if ft.is_file() && !name.to_lowercase().ends_with(".pyc") {
+                let p = e.path();
+                let rel = p.strip_prefix(dir).map(|r| r.to_string_lossy().to_lowercase()).unwrap_or_default();
+                out.push((rel, p));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// A folder as it is on disk now: how many files it holds (build output aside) and the newest
+/// modified time among them (ms). A plan records it, and each step checks it again before it
+/// runs, so a folder that changed after the owner approved is never moved on a stale plan.
+pub fn folder_state(dir: &Path) -> Result<(i64, i64)> {
+    let mut newest = 0i64;
+    let files = walk_files(dir)?;
+    for (_, p) in &files {
+        if let Ok(m) = std::fs::metadata(p).and_then(|m| m.modified()) {
+            let ms = m.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+            newest = newest.max(ms);
+        }
+    }
+    Ok((files.len() as i64, newest))
+}
+
+/// How many files in `copy` (build output aside) are **not** proven to be in `home`: a file
+/// counts as proven only when a file with the same BLAKE3 hash is in `home`, read from disk now.
+/// Files that can't be read (cloud placeholders, locked files) are not proven.
+pub fn unproven_files(copy: &Path, home: &Path) -> Result<usize> {
+    let hash = |p: &Path| crate::db::actions::file_blake3(p).ok().flatten();
+    let mut missing: Vec<Vec<u8>> = Vec::new();
+    let mut unreadable = 0usize;
+    for (rel, p) in walk_files(copy)? {
+        let Some(h) = hash(&p) else {
+            unreadable += 1;
+            continue;
+        };
+        // Usually the same file sits at the same place in the home.
+        let twin = home.join(&rel);
+        if twin.is_file() && hash(&twin).as_deref() == Some(h.as_slice()) {
+            continue;
+        }
+        missing.push(h);
+    }
+    if !missing.is_empty() {
+        // Otherwise it may have moved inside the home: compare with everything there.
+        let all: std::collections::HashSet<Vec<u8>> =
+            if home.is_dir() { walk_files(home)?.into_iter().filter_map(|(_, p)| hash(&p)).collect() } else { Default::default() };
+        missing.retain(|h| !all.contains(h));
+    }
+    Ok(missing.len() + unreadable)
+}
+
 fn join(base: &str, leaf: &str) -> String {
     format!("{}{SEP}{leaf}", base.trim_end_matches(SEP))
 }

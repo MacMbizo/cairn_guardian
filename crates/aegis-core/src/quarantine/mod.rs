@@ -369,6 +369,13 @@ pub fn purge_entries(
                     "UPDATE cache_dirs SET state = 'missing', updated_at = ?1 WHERE path = ?2 AND state = 'quarantine'",
                     params![now, row.original_path],
                 )?;
+                // The files that went into quarantine with the folder are gone with it.
+                let prefix = format!("{}{}", row.original_path.trim_end_matches(['\\', '/']), std::path::MAIN_SEPARATOR);
+                tx.execute(
+                    "UPDATE files SET deleted_at = ?1, updated_at = ?1
+                     WHERE deleted_at IS NULL AND state = 'quarantine' AND lower(substr(path, 1, ?3)) = lower(?2)",
+                    params![now, prefix, prefix.chars().count() as i64],
+                )?;
             }
 
             let action_id = new_id();

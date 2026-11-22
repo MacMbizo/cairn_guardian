@@ -325,3 +325,210 @@ fn keep_here_location_gets_no_step() {
     let mv = p.steps.iter().find(|st| st.kind == StepKind::MoveHome).unwrap();
     assert!(!mv.to.eq_ignore_ascii_case(&target), "the kept copy keeps its name: {}", mv.to);
 }
+
+// ---- Task 3: executor hardening ----
+
+use aegis_core::contracts::{ActionType, ProposedActionInput, RefilePlan, TargetKind};
+use aegis_core::db::actions::{approve_batch, execute_batch, propose_batch, rollback_batch};
+use std::path::PathBuf;
+
+/// An empty store and a folder `Prj` to become its root.
+fn scanned_prj() -> (tempfile::TempDir, SqliteStore, PathBuf) {
+    let t = tempfile::TempDir::new().unwrap();
+    let prj = t.path().join("Prj");
+    std::fs::create_dir_all(&prj).unwrap();
+    let s = SqliteStore::open_in_memory().unwrap();
+    (t, s, prj)
+}
+
+fn scan(s: &mut SqliteStore, prj: &Path) {
+    if s.list_roots().unwrap().is_empty() {
+        s.add_root(prj).unwrap();
+    }
+    aegis_core::scanner::scan_root(s, prj, &[1]).unwrap();
+}
+
+fn files(root: &Path, rels: &[&str]) {
+    for r in rels {
+        fixtures_context::put(root, r);
+    }
+}
+
+fn dir_action(kind: ActionType, from: &Path, to: Option<&Path>, ev: serde_json::Value) -> ProposedActionInput {
+    ProposedActionInput {
+        agent: None,
+        action_type: kind,
+        target_kind: TargetKind::Dir,
+        file_id: None,
+        atomic_unit_id: None,
+        from_path: common::canon(from),
+        to_path: to.map(common::canon),
+        reason: "test".into(),
+        confidence: 1.0,
+        evidence_json: ev.to_string(),
+    }
+}
+
+fn run(s: &mut SqliteStore, actions: Vec<ProposedActionInput>) -> String {
+    let id = propose_batch(s, &RefilePlan { origin: "project:test".into(), actions }).unwrap();
+    approve_batch(s, &id, None).unwrap();
+    execute_batch(s, &id).unwrap();
+    id
+}
+
+fn statuses(s: &SqliteStore, batch: &str) -> Vec<(String, String, Option<String>)> {
+    let mut st = s
+        .conn()
+        .prepare("SELECT action_type, status, error_message FROM actions WHERE batch_id = ?1 ORDER BY step, created_at, id")
+        .unwrap();
+    st.query_map([batch], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(Result::unwrap).collect()
+}
+
+#[test]
+fn actions_run_in_step_order() {
+    let (_t, mut s, prj) = scanned_prj();
+    files(&prj.join("a"), &["x.md"]);
+    files(&prj.join("c"), &["y.md"]);
+    scan(&mut s, &prj);
+    // Listed out of order: "c to a" needs "a" moved away first.
+    let id = run(
+        &mut s,
+        vec![
+            dir_action(ActionType::Move, &prj.join("c"), Some(&prj.join("a")), serde_json::json!({"step": 2, "exact_dest": true})),
+            dir_action(ActionType::Move, &prj.join("a"), Some(&prj.join("b")), serde_json::json!({"step": 1, "exact_dest": true})),
+        ],
+    );
+    assert!(statuses(&s, &id).iter().all(|(_, st, _)| st == "executed"), "{:?}", statuses(&s, &id));
+    assert!(prj.join("b/x.md").is_file() && prj.join("a/y.md").is_file());
+}
+
+#[test]
+fn existing_batches_keep_their_order() {
+    let (_t, mut s, prj) = scanned_prj();
+    files(&prj.join("a"), &["x.md"]);
+    scan(&mut s, &prj);
+    let id = run(&mut s, vec![dir_action(ActionType::Move, &prj.join("a"), Some(&prj.join("b")), serde_json::json!({}))]);
+    let step: i64 = s.conn().query_row("SELECT step FROM actions WHERE batch_id = ?1", [&id], |r| r.get(0)).unwrap();
+    assert_eq!(step, 0);
+    assert_eq!(statuses(&s, &id)[0].1, "executed");
+}
+
+#[test]
+fn exact_destination_is_never_suffixed() {
+    let (_t, mut s, prj) = scanned_prj();
+    files(&prj.join("a"), &["x.md"]);
+    files(&prj.join("b"), &["other.md"]);
+    scan(&mut s, &prj);
+    let id = run(&mut s, vec![dir_action(ActionType::Move, &prj.join("a"), Some(&prj.join("b")), serde_json::json!({"step": 1, "exact_dest": true}))]);
+    let st = &statuses(&s, &id)[0];
+    assert_eq!(st.1, "failed", "{st:?}");
+    assert!(st.2.as_deref().unwrap_or_default().contains("in the way"), "{st:?}");
+    assert!(!prj.join("b (2)").exists());
+    assert!(prj.join("a/x.md").is_file());
+}
+
+fn expect(dir: &Path) -> serde_json::Value {
+    let (files, newest) = aegis_core::context::plan::folder_state(dir).unwrap();
+    serde_json::json!({"files": files, "newest": newest})
+}
+
+#[test]
+fn changed_folder_stops_the_plan() {
+    let (_t, mut s, prj) = scanned_prj();
+    files(&prj.join("a"), &["x.md", "y.md"]);
+    scan(&mut s, &prj);
+    let ev = serde_json::json!({"step": 1, "exact_dest": true, "expect": expect(&prj.join("a"))});
+    // Changed after the plan was made.
+    files(&prj.join("a"), &["new notes.md"]);
+    let id = run(&mut s, vec![dir_action(ActionType::Move, &prj.join("a"), Some(&prj.join("b")), ev)]);
+    let st = &statuses(&s, &id)[0];
+    assert_eq!(st.1, "failed");
+    assert!(st.2.as_deref().unwrap_or_default().contains("changed since this plan was made"), "{st:?}");
+    assert!(prj.join("a/new notes.md").is_file());
+}
+
+fn quarantine_ev(copy: &Path, home: &Path, fallback: &Path) -> serde_json::Value {
+    let fb = Path::new(&common::canon(fallback.parent().unwrap().parent().unwrap()))
+        .join(fallback.parent().unwrap().file_name().unwrap())
+        .join(fallback.file_name().unwrap());
+    serde_json::json!({
+        "step": 1,
+        "expect": expect(copy),
+        "verify_against": common::canon(home),
+        "fallback": fb.to_string_lossy(),
+    })
+}
+
+/// The catalog state of `rel` (one folder level, then a file) under the resolved folder `dir`.
+fn state_of(s: &SqliteStore, dir: &str, sub: &str, file: &str) -> String {
+    let p = Path::new(dir).join(sub).join(file).to_string_lossy().to_string();
+    s.conn()
+        .query_row("SELECT state FROM files WHERE lower(path) = lower(?1) AND deleted_at IS NULL", [&p], |r| r.get(0))
+        .unwrap_or_else(|e| panic!("{p}: {e}"))
+}
+
+#[test]
+fn copy_with_unique_file_goes_to_versions_not_quarantine() {
+    let (_t, mut s, prj) = scanned_prj();
+    let (home, copy) = (prj.join("fx"), prj.join("fx old"));
+    files(&home, &["src/a.py", "docs/b.md"]);
+    files(&copy, &["src/a.py", "docs/b.md", "notes only here.md"]);
+    scan(&mut s, &prj);
+    let fallback = home.join("Versions").join("2026-01-01 Prj");
+    let id = run(&mut s, vec![dir_action(ActionType::Quarantine, &copy, None, quarantine_ev(&copy, &home, &fallback))]);
+    let st = &statuses(&s, &id)[0];
+    assert_eq!((st.0.as_str(), st.1.as_str()), ("move", "executed"), "{st:?}");
+    assert!(fallback.join("notes only here.md").is_file(), "kept whole as a version");
+    assert!(!copy.exists());
+    let quarantined: i64 = s.conn().query_row("SELECT COUNT(*) FROM quarantine_entries", [], |r| r.get(0)).unwrap();
+    assert_eq!(quarantined, 0);
+    let reason: String = s.conn().query_row("SELECT reason FROM actions WHERE batch_id = ?1", [&id], |r| r.get(0)).unwrap();
+    assert!(reason.contains("1 file here isn't in the main copy"), "{reason}");
+}
+
+#[test]
+fn copy_fully_in_home_is_quarantined_and_restorable() {
+    let (_t, mut s, prj) = scanned_prj();
+    let (home, copy) = (prj.join("fx"), prj.join("fx old"));
+    files(&home, &["src/a.py", "docs/b.md", "src/newer.py"]);
+    // The same files, one of them under another path; build output only here doesn't count.
+    files(&copy, &["src/a.py", "docs/b.md"]);
+    fixtures_context::put_as(&copy, "old/newer.py", "src/newer.py");
+    files(&copy, &["node_modules/pkg/index.js"]);
+    scan(&mut s, &prj);
+    let copy_path = common::canon(&copy);
+    assert_eq!(state_of(&s, &copy_path, "src", "a.py"), "active");
+    let fallback = home.join("Versions").join("2026-01-01 Prj");
+    let id = run(&mut s, vec![dir_action(ActionType::Quarantine, &copy, None, quarantine_ev(&copy, &home, &fallback))]);
+    let st = &statuses(&s, &id)[0];
+    assert_eq!((st.0.as_str(), st.1.as_str()), ("quarantine", "executed"), "{st:?}");
+    assert!(!copy.exists() && !fallback.exists());
+    // Its files leave search and duplicates with it...
+    assert_eq!(state_of(&s, &copy_path, "src", "a.py"), "quarantine");
+    // ...and come back on undo.
+    rollback_batch(&mut s, &id).unwrap();
+    assert!(copy.join("docs/b.md").is_file());
+    assert_eq!(state_of(&s, &copy_path, "src", "a.py"), "active");
+}
+
+#[test]
+fn quarantined_folder_purges_recursively() {
+    let (_t, mut s, prj) = scanned_prj();
+    let (home, copy) = (prj.join("fx"), prj.join("fx old"));
+    files(&home, &["src/a.py"]);
+    files(&copy, &["src/a.py"]);
+    scan(&mut s, &prj);
+    let fallback = home.join("Versions").join("x");
+    run(&mut s, vec![dir_action(ActionType::Quarantine, &copy, None, quarantine_ev(&copy, &home, &fallback))]);
+    let (entry, qpath): (String, String) =
+        s.conn().query_row("SELECT id, quarantine_path FROM quarantine_entries", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert!(Path::new(&qpath).is_dir());
+    aegis_core::quarantine::purge_entries(&mut s, &[entry], true).unwrap();
+    assert!(!Path::new(&qpath).exists());
+    let prefix = format!("{}{}%", common::canon(&copy), std::path::MAIN_SEPARATOR);
+    let live: i64 = s
+        .conn()
+        .query_row("SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND lower(path) LIKE lower(?1)", [prefix], |r| r.get(0))
+        .unwrap();
+    assert_eq!(live, 0, "the purged files are gone from the catalog");
+}

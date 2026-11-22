@@ -47,6 +47,44 @@ fn hash_file_blake3(path: &Path) -> Result<Option<Vec<u8>>> {
     Ok(Some(hasher.finalize().as_bytes().to_vec()))
 }
 
+/// BLAKE3 of the file at `path`, read now; `None` for folders, missing files and online-only
+/// cloud files (which are never opened).
+pub fn file_blake3(path: &Path) -> Result<Option<Vec<u8>>> {
+    hash_file_blake3(path)
+}
+
+/// SQL condition (and its two parameters) for catalogued files strictly inside `dir`.
+fn files_inside_sql(dir: &str, first_param: usize) -> (String, String, i64) {
+    let prefix = format!("{}{}", dir.trim_end_matches(['\\', '/']), std::path::MAIN_SEPARATOR);
+    let n = prefix.chars().count() as i64;
+    (
+        format!("deleted_at IS NULL AND lower(substr(path, 1, ?{})) = lower(?{})", first_param + 1, first_param),
+        prefix,
+        n,
+    )
+}
+
+/// The evidence of a project-plan folder step (plan 2026-11-23-project-plans): what the folder
+/// looked like when the plan was made, and for a quarantine, the home it must be proven against
+/// and where it goes instead if it can't be.
+#[derive(Default)]
+struct PlanEvidence {
+    expect: Option<(i64, i64)>,
+    verify_against: Option<String>,
+    fallback: Option<String>,
+    exact_dest: bool,
+}
+
+fn plan_evidence(evidence_json: &str) -> PlanEvidence {
+    let v = serde_json::from_str::<serde_json::Value>(evidence_json).unwrap_or_default();
+    PlanEvidence {
+        expect: v.get("expect").and_then(|e| Some((e.get("files")?.as_i64()?, e.get("newest")?.as_i64()?))),
+        verify_against: v.get("verify_against").and_then(|x| x.as_str()).map(str::to_string),
+        fallback: v.get("fallback").and_then(|x| x.as_str()).map(str::to_string),
+        exact_dest: v.get("exact_dest").and_then(|x| x.as_bool()).unwrap_or(false),
+    }
+}
+
 fn capture_state_json(path: &Path) -> String {
     match inspect_path_metadata(path) {
         Ok(Some(st)) => serde_json::json!({
@@ -138,6 +176,7 @@ pub fn build_policy_context(store: &SqliteStore) -> Result<PolicyContext> {
     })
 }
 
+#[derive(Clone)]
 struct DbActionRow {
     id: String,
     batch_id: String,
@@ -185,7 +224,7 @@ fn load_batch_actions(conn: &Connection, batch_id: &str) -> Result<Vec<DbActionR
         "SELECT id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
                 from_path, to_path, post_blake3, reason, confidence,
                 status, rollback_conflict, error_message, survivor_file_id, evidence_json
-         FROM actions WHERE batch_id = ?1 ORDER BY created_at ASC, id ASC",
+         FROM actions WHERE batch_id = ?1 ORDER BY step ASC, created_at ASC, id ASC",
     )?;
     let rows = stmt.query_map(params![batch_id], |r| {
         let at_str: String = r.get(3)?;
@@ -346,11 +385,16 @@ pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<Strin
                 item.to_path.clone()
             };
 
+            // Steps that must run in order carry `"step": n` in their evidence.
+            let step = serde_json::from_str::<serde_json::Value>(&item.evidence_json)
+                .ok()
+                .and_then(|v| v.get("step").and_then(|s| s.as_i64()))
+                .unwrap_or(0);
             tx.execute(
                 "INSERT INTO actions (
                     id, batch_id, agent, action_type, target_kind, file_id, atomic_unit_id,
-                    from_path, to_path, reason, confidence, evidence_json, status, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'proposed', ?13)",
+                    from_path, to_path, reason, confidence, evidence_json, status, created_at, step
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'proposed', ?13, ?14)",
                 params![
                     action_id,
                     batch_id,
@@ -364,7 +408,8 @@ pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<Strin
                     item.reason,
                     item.confidence,
                     item.evidence_json,
-                    now
+                    now,
+                    step
                 ],
             )?;
         }
@@ -670,6 +715,12 @@ fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOu
             if !from.exists() {
                 return Err(AegisError::NotFound(row.from_path.clone()));
             }
+            // A project plan names its folders exactly: never " (2)", stop instead.
+            if plan_evidence(&row.evidence_json).exact_dest && Path::new(raw_to).exists() && !case_only(from, Path::new(raw_to)) {
+                return Err(AegisError::InvalidInput(format!(
+                    "{raw_to} appeared in the way. Aegis will make a fresh plan."
+                )));
+            }
             let (eff_to, _) = if case_only(from, Path::new(raw_to)) {
                 (PathBuf::from(raw_to), false)
             } else {
@@ -824,6 +875,13 @@ fn record_executed_in_tx(
                     "UPDATE cache_dirs SET state = 'quarantine', updated_at = ?1 WHERE path = ?2 AND state = 'active'",
                     params![now, row.from_path],
                 )?;
+                // The folder's catalogued files went with it: out of search, duplicates and
+                // recognition until it is restored or purged. Their paths stay the originals.
+                let (inside, prefix, n) = files_inside_sql(&row.from_path, 2);
+                tx.execute(
+                    &format!("UPDATE files SET state = 'quarantine', updated_at = ?1 WHERE {inside} AND state != 'quarantine'"),
+                    params![now, prefix, n],
+                )?;
             }
         }
         FsOutcome::Moved { dest, .. } => {
@@ -901,6 +959,54 @@ fn mark_action(store: &mut SqliteStore, action_id: &str, status: &str, msg: &str
     })
 }
 
+/// Checks a project-plan folder step just before it runs (plan 2026-11-23-project-plans):
+/// - the folder must hold what it held when the plan was made (`expect`), or the step stops;
+/// - a quarantine with `verify_against` goes ahead only if every file in the folder is proven
+///   to be in that home by BLAKE3, read now. Otherwise the step becomes a move of the whole
+///   folder to its `fallback` (a dated version), and the returned row says so.
+///
+/// Folder actions without plan evidence pass unchanged.
+fn check_plan_folder(store: &mut SqliteStore, row: &DbActionRow) -> Result<Option<DbActionRow>> {
+    let ev = plan_evidence(&row.evidence_json);
+    let from = Path::new(&row.from_path);
+    if let Some(expected) = ev.expect {
+        if !from.is_dir() {
+            return Err(AegisError::NotFound(format!(
+                "{} is no longer there. Aegis will make a fresh plan.",
+                row.from_path
+            )));
+        }
+        if crate::context::plan::folder_state(from)? != expected {
+            return Err(AegisError::InvalidInput(format!(
+                "{} changed since this plan was made. Aegis will make a fresh plan.",
+                row.from_path
+            )));
+        }
+    }
+    if row.action_type != ActionType::Quarantine {
+        return Ok(None);
+    }
+    let Some(home) = ev.verify_against.as_deref() else { return Ok(None) };
+    let missing = crate::context::plan::unproven_files(from, Path::new(home))?;
+    if missing == 0 {
+        return Ok(None);
+    }
+    let what = if missing == 1 { "1 file here isn't".to_string() } else { format!("{missing} files here aren't") };
+    let Some(fallback) = ev.fallback else {
+        return Err(AegisError::InvalidInput(format!("{what} in the main copy, so nothing was quarantined.")));
+    };
+    let reason = format!("{what} in the main copy, so it was kept whole as a version in {fallback}.");
+    store.conn().execute(
+        "UPDATE actions SET action_type = 'move', to_path = ?1, reason = ?2 WHERE id = ?3",
+        params![fallback, reason, row.id],
+    )?;
+    let mut moved = row.clone();
+    moved.action_type = ActionType::Move;
+    moved.to_path = Some(fallback);
+    moved.reason = reason;
+    Ok(Some(moved))
+}
+
 /// Executes all `approved` actions in `batch_id` through `C4 v1.1` Policy Engine (`C1` `actions.execute`).
 ///
 /// Each action is applied to disk and then committed in its own short transaction; a failed
@@ -943,6 +1049,21 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
             skipped_count += 1;
             continue;
         }
+        // Project-plan folder steps: the folder must be as it was when the plan was made, and a
+        // copy is quarantined only if every file in it is proven to be in the home.
+        let rewritten: Option<DbActionRow> = if row.target_kind == TargetKind::Dir {
+            match check_plan_folder(store, row) {
+                Ok(r) => r,
+                Err(e) => {
+                    failed_count += 1;
+                    mark_action(store, &row.id, "failed", &e.to_string())?;
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let row: &DbActionRow = rewritten.as_ref().unwrap_or(row);
         let meta = &metas[&row.id];
         let verdict = evaluate_policy(&policy_action_for(row, meta), &ctx);
         if let PolicyVerdict::Block(rule) = verdict {
@@ -1255,6 +1376,19 @@ fn db_revert_in_tx(
                     "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2 AND state = 'quarantine'",
                     params![now, row.from_path],
                 )?;
+                // Its files are back, at their original paths. Only files really there again
+                // become active: a file quarantined on its own earlier keeps its state.
+                let (inside, prefix, n) = files_inside_sql(&row.from_path, 1);
+                let ids: Vec<(String, String)> = {
+                    let mut stmt = tx.prepare(&format!("SELECT id, path FROM files WHERE {inside} AND state = 'quarantine'"))?;
+                    stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+                };
+                for (id, path) in ids {
+                    let back = Path::new(&path).strip_prefix(&row.from_path).map(|rest| dest.join(rest)).unwrap_or_else(|_| PathBuf::from(&path));
+                    if back.is_file() {
+                        tx.execute("UPDATE files SET state = 'active', updated_at = ?1 WHERE id = ?2", params![now, id])?;
+                    }
+                }
             }
         }
     }
