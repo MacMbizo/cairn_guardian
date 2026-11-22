@@ -543,6 +543,62 @@ fn title_case(name: &str) -> String {
         .join(" ")
 }
 
+/// Folders to suggest for each unsure item, keyed by file id: where filing has put this
+/// category most (or the category's folder in the fresh structure), then the category's
+/// parent, then the catch-all `Documents\Other documents`. On the PC these live under the
+/// Documents folder, never under whichever root happens to be listed first.
+pub fn destinations(store: &SqliteStore, scope: &Scope, file_ids: &[String]) -> Result<HashMap<String, Vec<String>>> {
+    let roots = scope_roots(store, scope)?;
+    let bases = Bases {
+        volume_root: matches!(scope, Scope::Volume { .. }).then(|| PathBuf::from(&roots[0].0)),
+        known: roots.iter().filter_map(|(p, k)| k.map(|k| (k, PathBuf::from(p)))).collect(),
+    };
+    let documents = bases.of("Documents");
+
+    // Where filing has put things before, by category, most used first.
+    let mut stmt = store.conn().prepare(
+        "SELECT m.category, h.new_path FROM file_history h JOIN action_batches b ON b.id = h.batch_id
+         LEFT JOIN file_meta m ON m.file_id = h.file_id WHERE b.origin IN (?1, ?2)",
+    )?;
+    let mut used: HashMap<Option<String>, HashMap<String, usize>> = HashMap::new();
+    for row in stmt.query_map([format!("filing:{}", scope.key()), format!("filing-auto:{}", scope.key())], |r| {
+        Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?))
+    })? {
+        let (cat, path) = row?;
+        if let Some(d) = Path::new(&path).parent() {
+            *used.entry(cat).or_default().entry(d.to_string_lossy().to_string()).or_default() += 1;
+        }
+    }
+    let most_used = |cat: &Option<String>| -> Option<String> {
+        let dirs = used.get(cat)?;
+        dirs.iter().max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0))).map(|(d, _)| d.clone())
+    };
+
+    let mut out = HashMap::new();
+    for id in file_ids {
+        let cat = super::load_meta(store.conn(), id)?.and_then(|m| m.category);
+        let mut list: Vec<String> = Vec::new();
+        let mut push = |d: Option<String>| {
+            if let Some(d) = d
+                && !list.iter().any(|x| x.eq_ignore_ascii_case(&d))
+            {
+                list.push(d);
+            }
+        };
+        let cat_dir = documents.as_ref().zip(cat.as_ref()).map(|(base, c)| c.split('/').fold(base.clone(), |p, s| p.join(s)));
+        push(cat.is_some().then(|| most_used(&cat)).flatten());
+        push(cat_dir.as_ref().map(|p| p.to_string_lossy().to_string()));
+        push(cat_dir.as_ref().and_then(|p| p.parent()).filter(|p| Some(*p) != documents.as_deref()).map(|p| p.to_string_lossy().to_string()));
+        if cat.is_none() {
+            push(most_used(&None));
+        }
+        push(documents.as_ref().map(|d| d.join("Other documents").to_string_lossy().to_string()));
+        list.truncate(4);
+        out.insert(id.clone(), list);
+    }
+    Ok(out)
+}
+
 /// Plans every file in `scope` under `choice`.
 pub fn plan(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice) -> Result<Vec<Placement>> {
     plan_files(store, scope, choice, None)

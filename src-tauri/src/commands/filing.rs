@@ -8,7 +8,7 @@ use aegis_core::db::SqliteStore;
 use aegis_core::db::actions::{approve_batch, execute_batch, rollback_batch};
 use aegis_core::error::IpcError;
 use aegis_core::filing::batches::{after_execute, after_rollback, next_batch, propose_placements};
-use aegis_core::filing::blueprint::{BlueprintSummary, Placement, Target, plan, rule_key, scope_roots, summarize};
+use aegis_core::filing::blueprint::{BlueprintSummary, Placement, Target, destinations, plan, rule_key, summarize};
 use aegis_core::filing::rules::{FilingRule, delete_rule, list_rules, stop_automatic};
 use aegis_core::filing::{BlueprintChoice, Scope, ScopeStatus, load_meta, scope_statuses, set_blueprint};
 use aegis_core::now_ms;
@@ -101,36 +101,15 @@ pub fn filing_to_sort(state: State<'_, AppState>, scope: Scope) -> Result<Vec<Pl
     Ok(map_err(plan(&store, &scope, choice))?.into_iter().filter(|p| p.to_sort).take(500).collect())
 }
 
-/// Folders worth suggesting for an unsure item: where filing put things most, then the
-/// structure's catch-all.
+/// Folders worth suggesting for each unsure item, keyed by file id (see `blueprint::destinations`).
 #[tauri::command(async)]
-pub fn filing_destinations(state: State<'_, AppState>, scope: Scope) -> Result<Vec<String>, IpcError> {
+pub fn filing_destinations(
+    state: State<'_, AppState>,
+    scope: Scope,
+    file_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, Vec<String>>, IpcError> {
     let store = own_store(&state)?;
-    let roots = map_err(scope_roots(&store, &scope))?;
-    let mut stmt = map_err(store.conn().prepare(
-        "SELECT new_path FROM file_history h JOIN action_batches b ON b.id = h.batch_id WHERE b.origin IN (?1, ?2)",
-    ).map_err(Into::into))?;
-    let paths: Vec<String> = stmt
-        .query_map([format!("filing:{}", scope.key()), format!("filing-auto:{}", scope.key())], |r| r.get(0))
-        .map_err(|e| aegis_core::error::AegisError::from(e).to_ipc())?
-        .filter_map(|r| r.ok())
-        .collect();
-    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for p in paths {
-        if let Some(d) = Path::new(&p).parent() {
-            *counts.entry(d.to_string_lossy().to_string()).or_default() += 1;
-        }
-    }
-    let mut top: Vec<(String, usize)> = counts.into_iter().collect();
-    top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-    let mut out: Vec<String> = top.into_iter().map(|(d, _)| d).take(3).collect();
-    if let Some((root, _)) = roots.first() {
-        let catch_all = Path::new(root).join("Documents").join("Other documents").to_string_lossy().to_string();
-        if !out.contains(&catch_all) {
-            out.push(catch_all);
-        }
-    }
-    Ok(out)
+    map_err(destinations(&store, &scope, &file_ids))
 }
 
 /// The owner chose a folder for one item: moved at once, and remembered as an approval.

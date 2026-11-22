@@ -449,7 +449,8 @@ fn unchanged_name_is_not_proposed() {
 // ---------- Task 6: blueprints ----------
 
 use aegis_core::drives::FakeVolumeProvider;
-use aegis_core::filing::blueprint::{Placement, Target, plan, summarize};
+use aegis_core::filing::blueprint::{Placement, Target, destinations, plan, summarize};
+use aegis_core::filing::batches::propose_placements;
 use aegis_core::filing::reader::classify_unread;
 
 /// A catalogued fake drive whose files have been read and classified. Returns (tmp, store, mount, scope).
@@ -592,6 +593,62 @@ fn pc_scope_maps_to_known_folders() {
     let photo = placement_for(&ps, "IMG_9.jpg");
     let pictures = common::canon(&home.join("Pictures"));
     assert_eq!(photo.to.as_deref().unwrap(), format!("{pictures}\\2023\\2023-07\\IMG_9.jpg"));
+}
+
+#[test]
+fn pc_suggestions_use_documents_not_the_first_root() {
+    let t = tempfile::TempDir::new().unwrap();
+    let home = t.path().join("me");
+    for f in ["Downloads", "Documents"] {
+        std::fs::create_dir_all(home.join(f)).unwrap();
+    }
+    fixtures_filing::docx(&home.join("Downloads"), "notice.docx", "SARS Notice of Assessment Income Tax ITA34 Date of assessment 2025-09-30");
+    let mut s = store();
+    for f in ["Downloads", "Documents"] {
+        s.add_root(&home.join(f)).unwrap();
+        scan_root(&mut s, &home.join(f), &[1]).unwrap();
+    }
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    let id = file_id_of(&s, "notice.docx");
+    let cat = load_meta(s.conn(), &id).unwrap().unwrap().category.unwrap();
+    let docs = common::canon(&home.join("Documents"));
+    let got = destinations(&s, &Scope::Pc, &[id.clone()]).unwrap().remove(&id).unwrap();
+    let cat_dir = format!("{docs}\\{}", cat.replace('/', "\\"));
+    let parent = std::path::Path::new(&cat_dir).parent().unwrap().to_string_lossy().to_string();
+    assert_eq!(got, vec![cat_dir, parent, format!("{docs}\\Other documents")]);
+    assert!(got.iter().all(|d| !d.contains("Downloads")), "{got:?}");
+}
+
+#[test]
+fn suggestions_prefer_where_this_category_was_filed_before() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", invoice_text());
+        fixtures_filing::docx(&m.join("junk"), "mystery.docx", invoice_text());
+    });
+    // The owner once put an invoice in a folder of their own.
+    let first = file_id_of(&s, "scan1.docx");
+    let mine = mount.join("My bills");
+    std::fs::create_dir_all(&mine).unwrap();
+    let placement = Placement {
+        target: Target::File { file_id: first.clone() },
+        from: mount.join("scan1.docx").to_string_lossy().to_string(),
+        to: Some(mine.join("scan1.docx").to_string_lossy().to_string()),
+        new_name: None,
+        confidence: 1.0,
+        reason: "You chose this place".into(),
+        rule_key: None,
+        to_sort: false,
+        bytes: 1,
+    };
+    let b = propose_placements(&mut s, &scope, &format!("filing:{}", scope.key()), vec![placement]).unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+
+    let other = file_id_of(&s, "mystery.docx");
+    let got = destinations(&s, &scope, &[other.clone()]).unwrap().remove(&other).unwrap();
+    assert_eq!(got[0], mine.to_string_lossy().to_string(), "{got:?}");
+    assert!(got.iter().any(|d| d.ends_with("Documents\\Other documents")), "{got:?}");
 }
 
 #[test]

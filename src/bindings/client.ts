@@ -232,7 +232,8 @@ export const aegis = {
     /** Turn a batch down: not offered again, and a "no" for its rules. */
     skip: (batch: string) => call<void>("filing_skip", { batch }),
     toSort: (scope: Scope) => call<Placement[]>("filing_to_sort", { scope }),
-    destinations: (scope: Scope) => call<string[]>("filing_destinations", { scope }),
+    destinations: (scope: Scope, fileIds: string[]) =>
+      call<Record<string, string[]>>("filing_destinations", { scope, fileIds }),
     place: (scope: Scope, fileId: string, destFolder: string) =>
       call<void>("filing_place", { scope, fileId, destFolder }),
     rules: () => call<FilingRule[]>("filing_rules"),

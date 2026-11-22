@@ -270,16 +270,19 @@ function BatchView({ s, batch, preview, onDone, onBack }: { s: ScopeStatus; batc
 
 function SortView({ s, preview, onBack }: { s: ScopeStatus; preview: boolean; onBack: () => void }) {
   const [items, setItems] = useState<Placement[] | null>(null);
-  const [dests, setDests] = useState<string[]>([]);
+  const [dests, setDests] = useState<Record<string, string[]>>({});
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => {
     if (preview) {
       setItems(fixtureToSort);
-      setDests(fixtureDestinations);
+      setDests(Object.fromEntries(fixtureToSort.flatMap((p) => (p.target.type === "file" ? [[p.target.file_id, fixtureDestinations]] : []))));
       return;
     }
-    void aegis.filing.toSort(s.scope).then(setItems);
-    void aegis.filing.destinations(s.scope).then(setDests);
+    void aegis.filing.toSort(s.scope).then((list) => {
+      setItems(list);
+      const ids = list.flatMap((p) => (p.target.type === "file" ? [p.target.file_id] : []));
+      if (ids.length > 0) void aegis.filing.destinations(s.scope, ids).then(setDests);
+    });
   }, [s, preview]);
 
   const place = async (p: Placement, dest: string) => {
@@ -312,7 +315,7 @@ function SortView({ s, preview, onBack }: { s: ScopeStatus; preview: boolean; on
               <span className="block text-slate-500">{shortFolder(folderOf(p.from))} · {p.reason}</span>
             </span>
             <span className="flex flex-wrap gap-1.5">
-              {dests.slice(0, 3).map((d) => (
+              {(p.target.type === "file" ? (dests[p.target.file_id] ?? []) : []).map((d) => (
                 <button key={d} type="button" className={btn} onClick={() => void place(p, d)}>
                   {shortFolder(d, 2)}
                 </button>
