@@ -662,6 +662,23 @@ fn backup_drive_is_refused() {
 }
 
 #[test]
+fn backup_drive_files_are_never_read_or_classified() {
+    let t = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let d = common::fake_drive(&t, "Backup", "0009");
+    fixtures_filing::docx(&d.mount_point, "copy.docx", invoice_text());
+    common::put(&d.mount_point, "setup.exe", b"MZ");
+    let id = common::plug_and_catalog(&mut s, &provider, &d);
+    s.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&id]).unwrap();
+    let rep = read_pending(&mut s, 1_000, Duration::from_secs(10)).unwrap();
+    assert_eq!((rep.read, rep.unreadable), (0, 0), "the Backup drive's copies are not read again");
+    assert_eq!(classify_unread(&mut s, 10_000).unwrap(), 0);
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_meta", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+}
+
+#[test]
 fn summary_counts_and_examples() {
     let (_t, s, _mount, scope) = drive_with(|m| {
         fixtures_filing::docx(m, "scan1.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");

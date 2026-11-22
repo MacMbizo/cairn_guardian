@@ -83,7 +83,7 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
     let rows: Vec<(String, String, String, Option<String>, i64)> = {
         let mut stmt = store.conn().prepare(
             "SELECT f.id, f.path, f.name, f.ext, f.mtime FROM files f
-             JOIN volumes v ON v.id = f.volume_id AND v.status = 'online'
+             JOIN volumes v ON v.id = f.volume_id AND v.status = 'online' AND COALESCE(v.role, '') != 'backup'
              LEFT JOIN file_meta m ON m.file_id = f.id
              WHERE f.deleted_at IS NULL AND f.state NOT IN ('quarantine', 'missing')
                AND f.cloud_state = 'local' AND f.size <= ?1 AND f.atomic_unit_id IS NULL
@@ -201,7 +201,9 @@ pub fn classify_unread(store: &mut SqliteStore, limit: usize) -> Result<usize> {
             "SELECT f.id, f.name, f.ext, f.mtime, f.atomic_unit_id IS NOT NULL FROM files f
              LEFT JOIN file_meta m ON m.file_id = f.id
              WHERE m.file_id IS NULL AND f.deleted_at IS NULL AND f.container_file_id IS NULL
-               AND f.state NOT IN ('quarantine', 'missing')",
+               AND f.state NOT IN ('quarantine', 'missing')
+               -- The Backup drive holds copies of files that are read where they live.
+               AND NOT EXISTS (SELECT 1 FROM volumes v WHERE v.id = f.volume_id AND v.role = 'backup')",
         )?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
         rows.filter_map(|r| r.ok())
