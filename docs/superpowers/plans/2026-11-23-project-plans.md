@@ -122,9 +122,10 @@ This plan touches these binding rules (`docs/superpowers/specs/2026-11-23-local-
 **Files:** Create `context/plan.rs`.
 
 **Interfaces (Produces):**
-- `pub enum StepKind { MoveHome, Quarantine, ToVersions, ToMaterial, MakeFolder }`.
-  - `MakeFolder` creates the companion folder, or `Versions`, when it doesn't exist yet.
-- `pub struct PlanStep { step: u32, kind: StepKind, location_id: String, from: String, to: String, reason: String /* plain words */, warnings: Vec<String> }` (TS).
+- `pub enum StepKind { MoveAside, MoveHome, Quarantine, ToVersions, ToMaterial }` (as built).
+  - There is no "make folder" step: the executor has no such action. Instead, folder moves create their missing parent folder (Task 3).
+  - **MoveAside:** a copy sitting at the name the home needs (`C:\Prj\forexTrader`) is first renamed to `<name> (old copy)`. The home then moves in, and only then is the copy quarantined, or kept in `Versions` inside the new home. Quarantining it first would leave the content-check fallback (Versions inside a home not yet there) with nowhere to go.
+- `pub struct PlanStep { step: u32, kind: StepKind, location_id: String, from: String, to: String, fallback: Option<String> /* Versions path for a quarantine */, reason: String, warnings: Vec<String> }` (TS).
 - `pub struct ProjectPlan { collection_id, volume_id, home_after: String, steps: Vec<PlanStep>, waits_for: Option<String> /* "New Volume is unplugged" */, summary: String }` (TS).
 - `pub fn projects_home(store, volume_id) -> Result<Option<String>>`.
   - On the PC, it is the container holding the most projects (today `C:\Prj`). A setting overrides it.

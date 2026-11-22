@@ -6,6 +6,7 @@
 //! - `store`: persistence of collections, locations and the owner's answers
 
 pub mod answers;
+pub mod plan;
 pub mod profile;
 pub mod projects;
 pub mod recognise;
