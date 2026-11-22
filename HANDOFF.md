@@ -1,73 +1,52 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-22. Read this first in a new chat.
+Updated 2026-11-22 (after merging auto-filing). Read this first in a new chat.
 
-## NEXT CHAT: do this first (owner's instruction, 2026-11-22)
+## Where things stand (2026-11-22)
 
-**Fix the remaining review findings on `feature/auto-filing`, then merge it to master.** The owner approved the merge, to happen after the fixes. Do not push.
-
-Every critical and important finding is already fixed. These are the deferred minor ones, each to be fixed with a failing test first:
-
-1. **Collision suffix.** On-disk collisions start at ` (1)`; spec §6 says ` (2)`. This is `non_overwriting_dest` in `db/actions.rs`. Check that the existing tests still expect the right suffix.
-2. **Screenshot times are UTC** (2 hours off in South Africa) in `naming.rs` (`screenshot_time`) and in classify's `ymd`.
-   - Use local time. The desktop host has chrono; the core can take an offset.
-   - Don't rename screenshots from the modified date alone, unless the owner prefers it.
-3. **Windows reserved names.** `naming::sanitize` must reject CON, PRN, AUX, NUL, COM1–9, LPT1–9 and names made only of dots. Music tags become folder names.
-4. **Tidy merges by stripping digits.** `blueprint::folder_key` strips digits, so "Work 2019" and "Work 2020" merge. Keep digits; only strip known prefixes (msi, old, copy of, backup).
-5. **Wrong catch-all on the PC.** `filing_destinations` uses `roots.first()`, which may be Downloads. Use the Documents known-folder root.
-   - Make the suggestions per item: the same category's folder, then that category's parent.
-6. **Cached counts drift.** `filing.counts:<scope>` isn't adjusted on undo, skip or new arrivals. An unplugged drive with no cache shows "All filed"; show "Plug in to see" instead.
-7. **Undo is hard to find.** Add a "Recent batches" list to the Filing screen, with Undo for each, including automatic batches. Link the weekly note's "Filed N files by itself" line to it.
-8. **Home tile.** It should say "Next filing batch ready (N files)", not "on N drives".
-9. **Change structure mid-migration.** Warn when batches have already run. Reject any open draft from the old choice.
-10. **Failure copy.** Show the real reason per failed item (moved since, drive unplugged, blocked by a code project) and count skipped items.
-11. **Dry-run tool.** `examples/filing_dry_run.rs` must refuse the live database: compare against `%LOCALAPPDATA%\com.aegis.guardian\aegis.db`, or require a `--copy` flag.
-12. **Backup drive read twice.** `read_pending` and `classify_unread` must skip files on the Backup-role volume.
-13. **Search filters in the UI.** Add the controls: category, organisation, year, kind, drive.
-14. **Dry run with the drive plugged in.** If the owner plugs in the external drive, re-run the dry run, which reads D: content. Report the sample renames and the to-sort share, and fix misclassifications test-first.
-
-**Then:**
-1. Run `cargo test --workspace`, clippy and `pnpm build`.
-2. `git checkout master && git merge feature/auto-filing`, then re-run the tests on the merged result.
-3. Delete the branch and update this file.
-
-**Process:** use the executing-plans approach with a ledger in `.superpowers/sdd/`. After the fixes, a short fresh review is optional (minors only).
-
-## IN PROGRESS: Project 3, Auto-filing
-
-- **Branch:** `feature/auto-filing`. Project 2 is merged to master.
-- **Design:** `docs/superpowers/specs/2026-11-21-auto-filing-design.md`
-- **Plan:** `docs/superpowers/plans/2026-11-21-auto-filing.md`
-- **Ledger with rulings:** `.superpowers/sdd/2026-11-21-auto-filing/progress.md` (git-ignored; keep it).
-- **Built:** all 12 tasks.
-  - The whole branch had a fresh review, and every critical and important finding was fixed.
-  - `cargo test --workspace` and clippy are green; `pnpm build` is clean.
-  - Not merged and not pushed; that waits for the owner.
-- **Ledger copy:** `<scratchpad>\ledger-auto-filing.md`. The rulings and deferred minors are also in the final chat message.
-- **Dry-run tool:** `cargo run --release -p aegis-core --example filing_dry_run -- <COPY of aegis.db>`.
-  - Make the copy first with the SQLite backup API (see `scratchpad/copy_db.py`).
-  - Never point it at the live database: it writes metadata into whatever database it is given.
-- **Owner next:**
-  1. Merge.
-  2. Plug in the external drive and re-run the dry run. The drive holds most personal documents; the first run only read the PC.
-  3. Try Filing on the PC first, starting with the Fresh structure.
-
-## Where things stand
-
-- **Branch:** `feature/always-on-engine` (Project 2), branched from `master` at `102ac12`. All work is committed and the tree is clean.
+- **Branch:** `master` only. Projects 1, 2 and 3 are all merged. Nothing is pushed.
   - The only untracked file is `canonical/Aegis Guardian Full PRD.md`. It belongs to the owner: **never commit it.**
-  - Not merged and not pushed. Merging waits for the owner.
-- **Project 1, Drives & duplicates:** merged to `master` on 2026-11-21.
-  - Also on master: the fix that makes Catalog run once per drive (`234e231`).
-  - That fix adds live progress, and a guard so a second click doesn't start a second catalog.
-- **Project 2, Always-on engine:** built.
-  - It has had a whole-branch review by a fresh reviewer, and every critical and important finding was fixed.
-  - Design: `docs/superpowers/specs/2026-11-21-always-on-engine-design.md`
-  - Plan: `docs/superpowers/plans/2026-11-21-always-on-engine.md`
-  - The ledger (`.superpowers/sdd/…`, git-ignored) was deleted at the end. The rulings and deferred minors are in this file.
-- **Verification:**
-  - `cargo test --workspace` is green (engine 67, backup 34, desktop 10, plus the rest). One test is ignored on purpose (the USN test on C:).
-  - `cargo clippy --workspace --all-targets` and `pnpm build` are clean.
+- **Project 3, Auto-filing:** merged to `master` on 2026-11-22 (fast-forward to `fa3f120`), after 13 of the 14 deferred minor fixes:
+  collision suffix ` (2)`, local-time dates, Windows reserved names, Tidy keeps digits, per-item folder suggestions
+  under Documents, honest cached counts ("Plug in to see"), **Recent batches** with Undo (linked from the weekly note),
+  home tile file count, safe change of structure mid-way, plain failure reasons, dry-run refuses the live database,
+  the Backup drive is never read, and search filters (kind, category, organisation, year, drive).
+  - Design: `docs/superpowers/specs/2026-11-21-auto-filing-design.md`; plan: `docs/superpowers/plans/2026-11-21-auto-filing.md`.
+- **Verification on the merged master:** `cargo test --workspace` green (374 passed, 1 ignored on purpose: the USN test on C:),
+  `cargo clippy --workspace --all-targets` clean, `pnpm build` clean. The Filing screens were checked in the browser preview.
+- **Dry-run tool:** `cargo run --release -p aegis-core --example filing_dry_run -- <COPY of aegis.db>`.
+  Make the copy with the SQLite backup API first. It now refuses the live database and any app data folder.
+  Its times are UTC (the core only knows local time when the desktop sets it).
+
+### Rulings made in the minor-fix pass (owner may overrule)
+
+- Collisions start at ` (2)` for **every** move and copy-back, not only filing (one convention, like Explorer).
+- Screenshots are renamed only when the date comes from the name, EXIF or content, never from the modified date.
+- Reserved names get a trailing `_` (`CON` → `CON_`); empty music tags fall back to "Unknown artist/album".
+- Undo, Skip and new arrivals clear the cached counts; they are re-planned on the next visit.
+- Undone moves stay "declined" (existing design), so undo does not offer those files again.
+- Changing structure mid-way marks the waiting batch `superseded` (not a "no" for the files or their rules).
+- The weekly note links "Filed N files by itself" by matching that wording.
+
+## Do next, in this order
+
+1. **Dry run with the external drive (deferred item 14).** Plug in D:, copy `aegis.db`, run the dry-run tool on the copy.
+   Report sample renames and the to-sort share; fix misclassifications test-first.
+2. **Try Filing on the PC**, starting with the Fresh structure; then Recent batches → Undo once to see it work.
+3. **Owner checks that need the installed build.** Quit the running `targetelease` Aegis first. Then:
+   1. `pnpm tauri build`, then install the NSIS installer.
+   2. Notifications show under "Aegis Guardian"; clicking one opens the right screen, also from Action Center.
+   3. Ctrl+Shift+Space opens Search. After a reboot, Aegis starts in the tray with no window.
+   4. Background memory with the window closed is at most 350 MB.
+4. **Phase 1 numbers.** Re-plug D: and report catalog time, fingerprint time, file count, duplicate groups, re-plug refresh mode and time.
+5. Then Project 4 (System care).
+
+### Small follow-ups noticed while fixing (not done)
+
+- Search filters only apply to a typed query (the backend returns nothing for an empty query), and changing a filter
+  needs another press of Search.
+- The filing watch only notices arrivals on scopes that have had a batch approved; new files on a re-plugged drive
+  don't clear its cached counts.
 
 ## What Project 2 does
 
@@ -106,18 +85,6 @@ Every critical and important finding is already fixed. These are the deferred mi
   - Encrypting them to `.locked` and deleting the originals: alarm, lock and notification.
 - Janitor dry run on the owner's real Downloads (proposals went to a scratch database): 7.5 GB found, including 25 installers for programs already installed.
 
-## Do next, in this order
-
-1. **Owner reviews** the screenshots (This week, Settings, Home with the tripwire banner) and decides on merging `feature/always-on-engine` to `master`.
-2. **Owner checks that need the installed build.** Quit the running `target\release` Aegis first: `cargo build --release` can't overwrite a running exe. Then:
-   1. `pnpm tauri build`, then install the NSIS installer.
-   2. Notifications show under "Aegis Guardian". Clicking one opens the right screen even with the window closed. Also try one clicked later from Action Center.
-   3. Ctrl+Shift+Space opens Search.
-   4. After a reboot, Aegis starts in the tray with no window.
-   5. In Task Manager, background memory with the window closed is at most 350 MB.
-3. **Phase 1 numbers.** The D: catalog took about 39 min for 194,682 files, but that was inflated by five duplicate runs, a bug that is now fixed. Re-plug D: on the new build and report catalog time, fingerprint time, file count, duplicate groups, and the re-plug refresh mode and time.
-4. Then Project 3 (auto-filing).
-
 ## Deferred minor issues
 
 **From the Project 2 final review:**
@@ -150,8 +117,8 @@ Every critical and important finding is already fixed. These are the deferred mi
 ## Programme (owner-approved order)
 
 1. Drives & duplicates (done, merged)
-2. Always-on engine (built, awaiting the owner's merge)
-3. Auto-filing:
+2. Always-on engine (done, merged)
+3. Auto-filing (done, merged 2026-11-22):
    - blueprint choice
    - learn-then-take-over
    - naming as `<date> <who/what> <type>`
