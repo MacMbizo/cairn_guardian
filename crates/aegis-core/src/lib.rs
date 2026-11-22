@@ -1,6 +1,7 @@
 //! Aegis Guardian core engine (`B4 v2.3.1`, `C1 v1.2`, `C4 v1.1`, `E4 v1.2`).
 
 pub mod backup;
+pub mod context;
 pub mod contracts;
 pub mod db;
 pub mod doctor;
