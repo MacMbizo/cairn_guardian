@@ -556,6 +556,25 @@ fn tidy_merges_msidocuments_into_documents_and_files_loose_items() {
 }
 
 #[test]
+fn tidy_keeps_folders_that_differ_only_by_digits_apart() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        fixtures_filing::jpeg_with_exif(&m.join("Work 2019").join("a"), "x.jpg", "2019:03:14 10:22:05", "Pixel 7");
+        fixtures_filing::jpeg_with_exif(&m.join("Work 2020").join("a"), "y.jpg", "2020:03:14 10:22:05", "Pixel 7");
+        fixtures_filing::jpeg_with_exif(&m.join("Work 2020").join("a"), "y2.jpg", "2020:03:15 10:22:05", "Pixel 7");
+        fixtures_filing::jpeg_with_exif(&m.join("Old Photos").join("a"), "p.jpg", "2021:03:14 10:22:05", "Pixel 7");
+        fixtures_filing::jpeg_with_exif(&m.join("Photos").join("a"), "q.jpg", "2021:03:15 10:22:05", "Pixel 7");
+        fixtures_filing::jpeg_with_exif(&m.join("Photos").join("a"), "q2.jpg", "2021:03:16 10:22:05", "Pixel 7");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Tidy).unwrap();
+    for name in ["x.jpg", "y.jpg"] {
+        let p = placement_for(&ps, name);
+        assert!(p.to.is_none() || p.to == Some(p.from.clone()), "{name} must stay: {:?}", p.to);
+    }
+    let merged = placement_for(&ps, "p.jpg");
+    assert!(merged.to.as_deref().is_some_and(|t| t.contains("\\Photos\\a\\") && !t.contains("Old")), "{:?}", merged.to);
+}
+
+#[test]
 fn pc_scope_maps_to_known_folders() {
     let t = tempfile::TempDir::new().unwrap();
     let home = t.path().join("me");

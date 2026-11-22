@@ -520,8 +520,9 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
     Ok(groups)
 }
 
-/// Lowercase name without "msi", "old", "copy of", "backup", "my" or digits, to spot folders
-/// that are really the same thing (`documents` and `msidocuments`).
+/// Lowercase name without "msi", "old", "copy of", "backup" or "my" in front, and without
+/// spaces and punctuation, to spot folders that are really the same thing (`documents` and
+/// `msidocuments`). Digits stay: "Work 2019" and "Work 2020" are different folders.
 fn folder_key(name: &str) -> String {
     let mut n = name.to_lowercase();
     for p in ["copy of ", "backup of ", "backup ", "old ", "msi", "my "] {
@@ -529,7 +530,7 @@ fn folder_key(name: &str) -> String {
             n = rest.to_string();
         }
     }
-    n.chars().filter(|c| c.is_alphabetic()).collect()
+    n.chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 fn title_case(name: &str) -> String {
