@@ -20,6 +20,30 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (5, "0005_filing", include_str!("../../migrations/0005_filing.sql")),
 ];
 
+/// Where the installed app keeps its database: `%LOCALAPPDATA%\com.aegis.guardian\aegis.db`.
+pub fn live_database_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join("com.aegis.guardian").join("aegis.db"))
+}
+
+/// For tools that write into whatever database they are given (the filing dry run): refuses the
+/// owner's live database, and any database inside an app data folder (one with a WebView2
+/// profile beside it), so they only ever run against a copy.
+pub fn refuse_live_database(db: &Path, live: Option<&Path>) -> Result<()> {
+    let canon = |p: &Path| std::fs::canonicalize(p).ok().map(|c| c.to_string_lossy().to_lowercase());
+    let target = canon(db).ok_or_else(|| crate::error::AegisError::NotFound(db.display().to_string()))?;
+    if live.and_then(canon).is_some_and(|l| l == target) {
+        return Err(crate::error::AegisError::InvalidInput(
+            "That is the live Aegis database. Copy it first and point the tool at the copy.".into(),
+        ));
+    }
+    if db.parent().is_some_and(|d| d.join("EBWebView").is_dir()) {
+        return Err(crate::error::AegisError::InvalidInput(
+            "That database belongs to an Aegis data folder. Copy it somewhere else first.".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Embedded SQLite store holding the single writer connection (`B4` §2).
 pub struct SqliteStore {
     conn: Connection,

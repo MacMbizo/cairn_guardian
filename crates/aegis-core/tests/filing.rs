@@ -1401,6 +1401,30 @@ fn run_report_gives_a_plain_reason_per_failed_item_and_counts_skipped() {
     assert_eq!(plain_reason("Access is denied. (os error 5)"), "Windows refused (Access is denied. (os error 5))");
 }
 
+#[test]
+fn dry_run_guard_refuses_the_live_database_and_app_data_folders() {
+    use aegis_core::db::refuse_live_database;
+    let t = tempfile::TempDir::new().unwrap();
+    // Stand-in for %LOCALAPPDATA%\com.aegis.guardianegis.db.
+    let live_dir = t.path().join("com.aegis.guardian");
+    std::fs::create_dir_all(&live_dir).unwrap();
+    let live = live_dir.join("aegis.db");
+    std::fs::write(&live, b"").unwrap();
+    assert!(refuse_live_database(&live, Some(&live)).is_err());
+    // Same file through a different spelling.
+    let odd = t.path().join("com.aegis.guardian").join(".").join("AEGIS.DB");
+    assert!(refuse_live_database(&odd, Some(&live)).is_err());
+    // Any app's data folder (it has a WebView2 profile beside the database).
+    let other = t.path().join("scratch-app");
+    std::fs::create_dir_all(other.join("EBWebView")).unwrap();
+    std::fs::write(other.join("aegis.db"), b"").unwrap();
+    assert!(refuse_live_database(&other.join("aegis.db"), Some(&live)).is_err());
+    // A plain copy is fine.
+    let copy = t.path().join("copy.db");
+    std::fs::write(&copy, b"").unwrap();
+    assert!(refuse_live_database(&copy, Some(&live)).is_ok());
+}
+
 // ---------- Final review fixes ----------
 
 use aegis_core::filing::batches::skip_batch;

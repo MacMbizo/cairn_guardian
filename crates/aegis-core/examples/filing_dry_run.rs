@@ -1,6 +1,7 @@
 //! Dry run of auto-filing against a COPY of a real database: reads and classifies files, then
 //! plans both structures for the PC and every catalogued drive and prints what would happen.
-//! Nothing on disk is moved; only the copy's metadata tables are written.
+//! Nothing on disk is moved; only the copy's metadata tables are written. It refuses the live
+//! database (and any database inside an app data folder).
 //!
 //! Usage: cargo run -p aegis-core --example filing_dry_run -- <path to copied aegis.db>
 
@@ -13,6 +14,8 @@ use std::time::Instant;
 
 fn main() -> aegis_core::error::Result<()> {
     let db = std::env::args().nth(1).expect("path to a copied aegis.db");
+    // It writes metadata into the database it is given: never the owner's live one.
+    aegis_core::db::refuse_live_database(std::path::Path::new(&db), aegis_core::db::live_database_path().as_deref())?;
     let mut store = SqliteStore::open(std::path::Path::new(&db))?;
 
     let t = Instant::now();
