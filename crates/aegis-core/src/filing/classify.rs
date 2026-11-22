@@ -274,6 +274,7 @@ pub fn find_date(text: &str) -> Option<String> {
     near_label.or(dates.first()).map(|(_, d)| d.clone())
 }
 
+/// The calendar date of a wall-clock timestamp (ms); callers convert UTC with `local_ms` first.
 fn ymd(ms: i64) -> String {
     crate::engine::note::date_of(ms.div_euclid(86_400_000))
 }
@@ -302,7 +303,7 @@ pub fn classify(input: &ClassifyInput) -> Classification {
     } else if let Some(t) = input.exif_taken_at {
         (Some(ymd(t)), DateSource::Exif)
     } else if input.mtime > 0 {
-        (Some(ymd(input.mtime)), DateSource::Modified)
+        (Some(ymd(super::local_ms(input.mtime))), DateSource::Modified)
     } else {
         (None, DateSource::None)
     };

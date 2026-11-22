@@ -51,7 +51,8 @@ fn subject_of(stem: &str) -> String {
     sentence_case(&words.join(" "))
 }
 
-/// Time of day `HH.MM.SS` from a screenshot's name, or from `mtime` (UTC) when it has none.
+/// Time of day `HH.MM.SS` from a screenshot's name, or from `mtime` (UTC, shown in local time)
+/// when it has none.
 fn screenshot_time(stem: &str, mtime: i64) -> String {
     let digits: Vec<(usize, String)> = {
         let mut out = Vec::new();
@@ -91,7 +92,7 @@ fn screenshot_time(stem: &str, mtime: i64) -> String {
             }
         }
     }
-    let secs = (mtime / 1000).rem_euclid(86_400);
+    let secs = (super::local_ms(mtime) / 1000).rem_euclid(86_400);
     format!("{:02}.{:02}.{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
 }
 
@@ -100,7 +101,8 @@ pub fn proposed_name(c: &Classification, original_stem: &str, ext: &str, mtime: 
     let ext = ext.to_lowercase();
     let name = match c.kind {
         Kind::Screenshot => {
-            let date = c.doc_date.as_ref().filter(|_| c.date_source != DateSource::None)?;
+            // A modified date says when the file was last touched, not when it was taken.
+            let date = c.doc_date.as_ref().filter(|_| matches!(c.date_source, DateSource::Name | DateSource::Exif | DateSource::Content))?;
             // The time follows the date in the name; digits before it are the date itself.
             let tail = original_stem.find(date.as_str()).map_or(original_stem, |i| &original_stem[i + date.len()..]);
             let tail = if c.date_source == DateSource::Name { tail } else { original_stem };

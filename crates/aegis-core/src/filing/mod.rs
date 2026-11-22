@@ -7,6 +7,19 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+static LOCAL_OFFSET: std::sync::OnceLock<fn(i64) -> i32> = std::sync::OnceLock::new();
+
+/// Sets how far local time is ahead of UTC (in seconds) at a given UTC instant (ms). The desktop
+/// host sets it once at start-up from the system time zone; until then local time is UTC.
+pub fn set_local_offset(offset_secs_at: fn(i64) -> i32) {
+    let _ = LOCAL_OFFSET.set(offset_secs_at);
+}
+
+/// A UTC timestamp (ms) moved to local wall-clock time (ms), for dates and times in names.
+pub fn local_ms(utc_ms: i64) -> i64 {
+    utc_ms + LOCAL_OFFSET.get().map_or(0, |f| i64::from(f(utc_ms)) * 1000)
+}
+
 /// What sort of thing a file is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]

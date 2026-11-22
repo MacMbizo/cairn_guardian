@@ -14,8 +14,15 @@ use tauri_plugin_global_shortcut::ShortcutState;
 /// Started by Windows at login: stay in the tray, no window.
 const BACKGROUND_ARG: &str = "--background";
 
+/// The system time zone's offset from UTC, in seconds, at a UTC instant (ms). Handles daylight saving.
+fn local_offset_secs(utc_ms: i64) -> i32 {
+    use chrono::{Local, Offset, TimeZone};
+    Local.timestamp_millis_opt(utc_ms).single().map_or(0, |d| d.offset().fix().local_minus_utc())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    aegis_core::filing::set_local_offset(local_offset_secs);
     // Plugin order matters: see `shell::plugin_order`.
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::open_main(app, None)))
