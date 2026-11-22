@@ -1,17 +1,49 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-22 (after designing context-aware filing). Read this first in a new chat.
+Updated 2026-11-22 (after Plan 1 of context-aware filing). Read this first in a new chat.
 
 ## NEXT CHAT: do this first
 
-**Execute Plan 1 of context-aware filing:** `docs/superpowers/plans/2026-11-22-context-layer-projects.md`.
+**Plan 1 of context-aware filing is done** on branch `feature/context-layer` (10 commits from `c94904d` to `b4d18f6`, not merged, not pushed).
+Ledger: `.superpowers/sdd/2026-11-22-context-layer-projects/ledger.md`.
 
-- **Spec:** `docs/superpowers/specs/2026-11-22-context-aware-filing-design.md`. The owner approved it ("the plan is fine").
-- **Branch:** create `feature/context-layer` from `master` before Task 1.
-- **Process:** use the executing-plans approach (inline), with a ledger in `.superpowers/sdd/2026-11-22-context-layer-projects/`.
-- **Why it matters:** the owner has **stopped approving filing batches that touch project folders** until Task 4 (protection) lands. Tell them as soon as it does.
-- **Before Task 9:** show the owner a mockup of the project card. They pick visual options themselves.
-- **Owner's framing (2026-11-22):** *"Do not be blinkered into making the system about projects … it is a complete system for my PC."*
+1. **Ask the owner** whether to merge `feature/context-layer` into `master` (fast-forward), and whether to try the Projects screen on the PC first.
+2. **Then write Plan 2: project plans** (spec §8): home choice on the card, per-copy proposals (quarantine identical/older copies,
+   versions area for diverged ones, material area), one batch per project with undo, the projects home `C:\Prj`.
+3. Ideas backlog below: ask the owner which to design after that.
+
+**What Plan 1 built** (`crates/aegis-core/src/context/`):
+- `profile` (per-folder stats from the catalog), `projects` (recogniser), `relate` (identity, relationships, fingerprints),
+  `recognise` (full pass over PC roots and every catalogued drive except Backup), `answers`, `store`, `watch` (`ContextWatch`,
+  runs before `FilingWatch`, at most every 10 min when the catalog or answers changed). Migration 0006.
+- **Filing never splits a project:** `find_groups` keeps every project root (confidence 0.60 or more) whole; waiting batches are
+  re-checked (`recheck_open_batch`, moves inside projects become `superseded`). The owner was told filing is safe to resume.
+- **Projects screen** under Filing (owner chose layout C with B's highlights): confirm list, multi-place cards, compact list.
+  IPC `context_projects`, `context_recognising`, `context_recognise_now` (single-flight), `context_answer`.
+- Dry run (`filing_dry_run`) prints projects per container and every multi-place project with relationships.
+
+**Measured on a copy of the owner's database (2026-11-22):** 253 projects, 86 in more than one place, 17.5 s (release);
+14 of 14 turned-down project moves protected. Verification: `cargo test --workspace` 418 passed, 1 ignored (USN on C:);
+clippy clean; `pnpm build` clean; Projects screen checked in the browser preview.
+
+**Tuning rulings made on real data (owner may overrule):**
+- Files and declared names found in projects of 3+ different names are boilerplate (starter kits): ignored for identity.
+- Differently named folders are one project only with 80% of the smaller copy in common; same names need one distinctive file.
+- "Possibly the same project" (name only) pairs only two folders that have nothing else.
+- A drive's top level, Documents, Downloads and Pictures never lend "sits among other projects"; other containers lend it only
+  when 40% of their sizeable sub-folders are projects by themselves. In such a container, a folder of 3+ files is asked about (0.60).
+- An answer names one folder (same drive by id, same path or nearly the same files), never its copies.
+
+**Known, not done:**
+- Code exercise folders inside course folders (Udemy) count as small projects, so those courses are not moved to Videos\Courses.
+- Loose files directly inside a container (e.g. `Dev Set` itself) are still filed by Fresh (spec §9, 2nd bullet).
+- `D:\xampp`, Python venvs (`env38`), `Downloads\DDU …` are kept whole as "projects": right for protection; they belong to the
+  later Software packages module. `D:\MSIDownloads` holds a `.git`, so it is a repo.
+- On a card, "files" counts all non-build files while "shared" counts files of 1 KB or more; the copy is phrased from the
+  relationship, not the numbers.
+- The app shell is not responsive at phone width (pre-existing; the Projects screen itself is fluid).
+
+**Owner's framing (2026-11-22):** *"Do not be blinkered into making the system about projects … it is a complete system for my PC."*
   - Projects is **one module** of a whole-PC context layer (spec §1A).
   - The other modules follow later, each with a short design of its own: Software packages, Owner's folders, Resources, Series, Photo subjects, Sets, Old copies.
 - **Owner decisions in the spec:**
@@ -61,7 +93,7 @@ Officer Agent.
 
 ## Do next, in this order
 
-0. **Plan 1 of context-aware filing** (see the top of this file).
+0. **Plan 2 of context-aware filing** (project plans; see the top of this file). Plan 1 is done.
 1. **Dry run with the external drive (deferred item 14).** Plug in D:, copy `aegis.db`, run the dry-run tool on the copy.
    Report sample renames and the to-sort share; fix misclassifications test-first.
 2. **Try Filing on the PC**, starting with the Fresh structure; then Recent batches → Undo once to see it work.
