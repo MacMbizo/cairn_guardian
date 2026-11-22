@@ -104,6 +104,23 @@ fn rebase_children(tx: &Connection, from: &str, to: &str, case_sensitive: bool, 
             )?;
         }
     }
+    // Build units (a repo, a package) inside the folder keep protecting it at its new place.
+    let from_key = from.trim_end_matches(['\\', '/']).to_lowercase();
+    let units: Vec<(String, String)> = {
+        let mut stmt = tx.prepare("SELECT id, root_path FROM atomic_units")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (id, root) in units {
+        let lower = root.to_lowercase();
+        let rest = if lower == from_key {
+            String::new()
+        } else if lower.starts_with(&prefix.to_lowercase()) {
+            format!("{}{}", std::path::MAIN_SEPARATOR, root.chars().skip(n as usize).collect::<String>())
+        } else {
+            continue;
+        };
+        tx.execute("UPDATE atomic_units SET root_path = ?1, updated_at = ?2 WHERE id = ?3", params![format!("{to}{rest}"), now, id])?;
+    }
     Ok(())
 }
 

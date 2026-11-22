@@ -326,8 +326,9 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
     };
     let ph = projects_home(store, volume_id)?;
 
-    // Where the home ends up.
-    let name = safe_name(&c.name);
+    // Where the home ends up: under its own folder name. A name the owner gives the project on
+    // the card is a label; renaming the folder could break paths inside it.
+    let name = safe_name(leaf(&home.root_path));
     let mut steps: Vec<PlanStep> = Vec::new();
     let mut aside: Option<(&Location, String)> = None;
     let mut home_after = home.root_path.clone();
@@ -528,6 +529,8 @@ pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> R
             "expect": {"files": files, "newest": newest},
             "project": c.name,
             "kind": st.kind,
+            "collection_id": c.id,
+            "location_id": st.location_id,
         });
         let kind = if st.kind == StepKind::Quarantine {
             ev["verify_against"] = serde_json::json!(plan.home_after);
@@ -600,6 +603,7 @@ pub fn run(store: &mut SqliteStore, batch_id: &str) -> Result<PlanOutcome> {
         });
     }
     set_run_state(store, batch_id, "done")?;
+    follow_moves(store, batch_id)?;
     let moved_files: i64 = store.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [batch_id], |r| r.get(0))?;
     let freed_bytes: i64 = store.conn().query_row(
         "SELECT COALESCE(SUM(q.size_bytes), 0) FROM quarantine_entries q JOIN actions a ON a.id = q.action_id WHERE a.batch_id = ?1",
@@ -627,8 +631,56 @@ fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The (collection id, location id, step kind, destination) of each executed step of a batch.
+fn executed_steps(store: &SqliteStore, batch_id: &str) -> Result<Vec<(String, String, String, String)>> {
+    let mut stmt = store
+        .conn()
+        .prepare("SELECT evidence_json, COALESCE(to_path, '') FROM actions WHERE batch_id = ?1 AND status = 'executed' ORDER BY step")?;
+    let rows: Vec<(String, String)> = stmt.query_map([batch_id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(ev, to)| {
+            let v: serde_json::Value = serde_json::from_str(&ev).ok()?;
+            let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+            Some((s("collection_id")?, s("location_id")?, s("kind")?, to))
+        })
+        .collect())
+}
+
+/// The saved project follows the plan at once, before the next recognition pass: the home's
+/// location moves with it, and copies that went to quarantine, versions or material stop being
+/// separate locations (they are inside the home now, or gone). The next pass confirms it: the
+/// moves changed the catalog, so the context watch re-recognises.
+fn follow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
+    let steps = executed_steps(store, batch_id)?;
+    let tx = store.conn().unchecked_transaction()?;
+    // A copy moved aside and then handled has two steps; deleting it twice is harmless.
+    for (_, loc, _, _) in steps.iter().filter(|s| s.2 != "move_home") {
+        tx.execute("DELETE FROM collection_locations WHERE id = ?1", [loc])?;
+    }
+    for (_, loc, _, to) in steps.iter().filter(|s| s.2 == "move_home") {
+        tx.execute("UPDATE collection_locations SET root_path = ?1 WHERE id = ?2", params![to, loc])?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 fn set_run_state(store: &SqliteStore, batch_id: &str, state: &str) -> Result<()> {
     store.conn().execute("UPDATE project_plan_runs SET state = ?1, at = ?2 WHERE batch_id = ?3", params![state, crate::now_ms(), batch_id])?;
+    // The saved project shows it at once (recognition recomputes it from the runs later).
+    let ids: Vec<String> = {
+        let mut stmt = store.conn().prepare("SELECT evidence_json FROM actions WHERE batch_id = ?1")?;
+        let evs: Vec<String> = stmt.query_map([batch_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let mut ids: Vec<String> = evs
+            .iter()
+            .filter_map(|e| serde_json::from_str::<serde_json::Value>(e).ok()?.get("collection_id")?.as_str().map(str::to_string))
+            .collect();
+        ids.dedup();
+        ids
+    };
+    for id in ids {
+        store.conn().execute("UPDATE collections SET plan_state = ?1 WHERE id = ?2", params![format!("{state}:{batch_id}"), id])?;
+    }
     Ok(())
 }
 

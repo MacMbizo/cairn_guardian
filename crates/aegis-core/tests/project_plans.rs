@@ -466,6 +466,82 @@ fn a_plan_that_waits_is_not_proposed() {
     assert!(propose(&mut s, &fx, &p).is_err());
 }
 
+// ---- Task 5: the context layer stays true after moves ----
+
+fn locations_under(c: &Collection, dir: &Path) -> usize {
+    let d = format!("{}{}", common::canon(dir).to_lowercase(), std::path::MAIN_SEPARATOR);
+    c.locations.iter().filter(|l| l.root_path.to_lowercase().starts_with(&d)).count()
+}
+
+#[test]
+fn decisions_survive_execute_and_undo() {
+    use aegis_core::context::plan::{propose, run, undo};
+    let (_t, mut s, _home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    answer(&mut s, &fx.id, None, Answer::Rename { name: "FX Sentinel".into() }).unwrap();
+    let fx = named(&s, "FX Sentinel");
+    let p = only_plan(&s, &fx);
+    let batch = propose(&mut s, &fx, &p).unwrap();
+    assert!(run(&mut s, &batch).unwrap().done);
+    // At once, before any new pass: one location, the home, at its new place.
+    let now = named(&s, "FX Sentinel");
+    assert_eq!(now.locations.len(), 1, "{now:?}");
+    assert!(same(&now.locations[0].root_path, &prj.join("forexTrader")), "{now:?}");
+    assert_eq!(now.plan_state.as_deref(), Some(format!("done:{batch}").as_str()));
+    // And after one: same project, same name, nothing left to do.
+    recognise(&mut s).unwrap();
+    let after = named(&s, "FX Sentinel");
+    assert_eq!(after.locations.len(), 1, "{after:?}");
+    assert!(same(&after.locations[0].root_path, &prj.join("forexTrader")));
+    assert!(only_plan(&s, &after).steps.is_empty(), "{:?}", only_plan(&s, &after));
+    // Undone: both copies are back, still under the owner's name for it.
+    undo(&mut s, &batch).unwrap();
+    recognise(&mut s).unwrap();
+    assert_eq!(named(&s, "FX Sentinel").locations.len(), 2);
+}
+
+#[test]
+fn versions_inside_home_are_not_new_projects() {
+    use aegis_core::context::plan::{propose, run};
+    let (_t, mut s, _home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let ds = named(&s, "DrivingSchool");
+    let p = only_plan(&s, &ds);
+    let batch = propose(&mut s, &ds, &p).unwrap();
+    assert!(run(&mut s, &batch).unwrap().done);
+    assert!(prj.join("DrivingSchool/Versions").is_dir());
+    recognise(&mut s).unwrap();
+    let ds = named(&s, "DrivingSchool");
+    assert_eq!(ds.locations.len(), 1, "{ds:?}");
+    let home = prj.join("DrivingSchool");
+    assert!(projects_now(&s).iter().all(|c| locations_under(c, &home) == 0), "a version is part of its project, not one of its own");
+    assert!(only_plan(&s, &ds).steps.is_empty());
+}
+
+#[test]
+fn build_units_follow_their_folder() {
+    use aegis_core::context::plan::{propose, run};
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let dev = home.join("Documents/Projectsv2/Dev Set/forexTrader");
+    let count_under = |s: &SqliteStore, dir: &Path| -> i64 {
+        let d = format!("{}{}", common::canon(dir), std::path::MAIN_SEPARATOR);
+        s.conn()
+            .query_row("SELECT COUNT(*) FROM atomic_units WHERE lower(substr(root_path, 1, ?2)) = lower(?1)", rusqlite::params![d, d.chars().count() as i64], |r| r.get(0))
+            .unwrap()
+    };
+    let before = count_under(&s, &dev);
+    assert!(before > 0, "the fixture's engine has a pyproject.toml");
+    let fx = named(&s, "forexTrader");
+    let target = common::canon(&prj.join("forexTrader"));
+    let p = only_plan(&s, &fx);
+    let batch = propose(&mut s, &fx, &p).unwrap();
+    assert!(run(&mut s, &batch).unwrap().done);
+    assert_eq!(count_under(&s, &dev), 0);
+    assert_eq!(count_under(&s, Path::new(&target)), before);
+}
+
 // ---- Task 3: executor hardening ----
 
 use aegis_core::contracts::{ActionType, ProposedActionInput, RefilePlan, TargetKind};

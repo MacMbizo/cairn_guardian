@@ -245,12 +245,20 @@ Make a checkpoint commit first. These changes touch `execute_batch`, which every
 **Behaviour:**
 - After `run` and after an undo, rebase the collection's saved locations to their new paths at once, so the card is right before the next recognition pass. Then mark the catalog changed so `ContextWatch` re-recognises.
 - Moved and versioned copies become `Version` or `DifferentMaterial` parts inside home. They are not separate locations any more, and not new projects.
-- Fill `atomic_units.project_id` for units inside a project (a spec §14 item left over from Plan 1).
+- ~~Fill `atomic_units.project_id`~~ **dropped (ruling):**
+  - foreign keys are on, and that column references the legacy `projects` table;
+  - collection ids change on every pass.
+  - Instead, `atomic_units.root_path` follows moved folders (in `rebase_children`), so build-marker protection stays right.
+
+**As built:**
+- `run` updates the saved locations at once: the home's row gets its new path, and other copies' rows go. It also sets `collections.plan_state`.
+- The moves bump `files.updated_at`, so `ContextWatch` re-recognises.
+- **Ruling:** the home keeps its **own folder name** in the projects home, not the card's name. A rename on the card is a label, and renaming a repo folder could break paths inside it.
 
 **Tests:**
 - `decisions_survive_execute_and_undo`
 - `versions_inside_home_are_not_new_projects`
-- `atomic_units_get_project_id`
+- `build_units_follow_their_folder`
 
 **Steps:** the same five steps; commit `feat(context): locations follow executed plans`.
 
