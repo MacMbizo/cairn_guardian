@@ -93,7 +93,7 @@ fn non_overwriting_dest(path: &Path) -> (PathBuf, bool) {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "file".to_string());
     let ext = path.extension().map(|e| e.to_string_lossy().to_string());
-    let mut n = 1usize;
+    let mut n = 2usize; // spec §6: the first copy is " (2)", like Windows Explorer
     loop {
         let candidate_name = match &ext {
             Some(e) => format!("{stem} ({n}).{e}"),

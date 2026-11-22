@@ -324,7 +324,7 @@ fn copy_back_never_overwrites_an_occupied_original() {
         "copy-back must not overwrite the file now at the original path"
     );
     assert_eq!(
-        fs::read_to_string(fx.root.join("doc (1).txt")).unwrap(),
+        fs::read_to_string(fx.root.join("doc (2).txt")).unwrap(),
         "edited"
     );
     assert!(d_to.exists(), "keep-both leaves the moved copy in place");
