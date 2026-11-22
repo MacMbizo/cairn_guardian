@@ -612,7 +612,7 @@ fn pc_suggestions_use_documents_not_the_first_root() {
     let id = file_id_of(&s, "notice.docx");
     let cat = load_meta(s.conn(), &id).unwrap().unwrap().category.unwrap();
     let docs = common::canon(&home.join("Documents"));
-    let got = destinations(&s, &Scope::Pc, &[id.clone()]).unwrap().remove(&id).unwrap();
+    let got = destinations(&s, &Scope::Pc, std::slice::from_ref(&id)).unwrap().remove(&id).unwrap();
     let cat_dir = format!("{docs}\\{}", cat.replace('/', "\\"));
     let parent = std::path::Path::new(&cat_dir).parent().unwrap().to_string_lossy().to_string();
     assert_eq!(got, vec![cat_dir, parent, format!("{docs}\\Other documents")]);
@@ -646,7 +646,7 @@ fn suggestions_prefer_where_this_category_was_filed_before() {
     after_execute(&mut s, &b).unwrap();
 
     let other = file_id_of(&s, "mystery.docx");
-    let got = destinations(&s, &scope, &[other.clone()]).unwrap().remove(&other).unwrap();
+    let got = destinations(&s, &scope, std::slice::from_ref(&other)).unwrap().remove(&other).unwrap();
     assert_eq!(got[0], mine.to_string_lossy().to_string(), "{got:?}");
     assert!(got.iter().any(|d| d.ends_with("Documents\\Other documents")), "{got:?}");
 }
