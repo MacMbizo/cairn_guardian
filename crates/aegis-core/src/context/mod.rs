@@ -7,8 +7,12 @@
 
 pub mod profile;
 pub mod projects;
+pub mod recognise;
 pub mod relate;
 pub mod store;
+pub mod watch;
+
+pub use recognise::{RecogniseReport, recognise};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -206,12 +210,13 @@ pub struct Decision {
 }
 
 /// Project roots filing must keep whole, with each project's name: every saved project location
-/// at 0.60 or more that the owner hasn't said is not a project, under `roots`. When nothing has
-/// been recognised and saved yet, projects are recognised on the spot (nothing is saved).
+/// at 0.60 or more that the owner hasn't said is not a project, under `roots`. Before the first
+/// recognition pass has run, projects are recognised on the spot (nothing is saved).
 pub fn protected_roots(store: &crate::db::SqliteStore, roots: &[String]) -> crate::error::Result<Vec<(String, String)>> {
     use crate::db::files::path_is_within;
     let saved = store::list_collections(store.conn(), CollectionKind::Project)?;
-    let found: Vec<(String, String)> = if saved.is_empty() {
+    let never_ran = store.get_setting(recognise::RECOGNISED_AT, "context")?.is_none();
+    let found: Vec<(String, String)> = if never_ran {
         let ps = profile::profiles(store, roots)?;
         projects::find_projects(&ps, roots).into_iter().map(|c| (c.root.clone(), c.name().to_string())).collect()
     } else {

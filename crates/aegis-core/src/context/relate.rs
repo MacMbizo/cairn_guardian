@@ -12,7 +12,7 @@ use super::{Decision, DecisionKind, Location, Relationship};
 use crate::db::SqliteStore;
 use crate::error::Result;
 use rusqlite::params;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 const SEP: char = std::path::MAIN_SEPARATOR;
 
@@ -138,6 +138,64 @@ pub fn content_summary(store: &SqliteStore, volume_id: &str, root: &str) -> Resu
         let rel = path.chars().skip(prefix.chars().count()).collect::<String>().to_lowercase();
         out.newest_mtime = out.newest_mtime.max(mtime);
         out.files.insert(rel, FileKey { size, mtime, blake3 });
+    }
+    Ok(out)
+}
+
+/// Summaries of many locations at once: one pass over the files under each of `roots` (each
+/// limited to a volume when given), every file going to the location that holds it. Returns one
+/// summary per entry of `locations` (`(volume_id, root)`), in order.
+pub fn content_summaries(
+    store: &SqliteStore,
+    roots: &[(String, Option<String>)],
+    locations: &[(String, String)],
+) -> Result<Vec<ContentSummary>> {
+    let mut out = vec![ContentSummary::default(); locations.len()];
+    let by_root: HashMap<(String, String), usize> =
+        locations.iter().enumerate().map(|(i, (v, r))| ((v.clone(), r.trim_end_matches(SEP).to_lowercase()), i)).collect();
+    for (root, volume) in roots {
+        let root = root.trim_end_matches(SEP);
+        let prefix = format!("{}{SEP}", root.to_lowercase());
+        let plen = prefix.chars().count() as i64;
+        let mut stmt = store.conn().prepare(&format!(
+            "SELECT volume_id, path, name, size, mtime, blake3 FROM files
+             WHERE {} AND (?3 IS NULL OR volume_id = ?3) AND size >= ?4",
+            live_under_root_sql()
+        ))?;
+        let rows = stmt.query_map(params![prefix, plen, volume, TRIVIAL_BYTES], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, Option<Vec<u8>>>(5)?,
+            ))
+        })?;
+        for row in rows {
+            let (vol, path, name, size, mtime, blake3) = row?;
+            if GENERIC_NAMES.contains(&name.to_lowercase().as_str()) {
+                continue;
+            }
+            let lower = path.to_lowercase();
+            // The location holding it: the nearest folder above it that is one.
+            let mut dir = lower.as_str();
+            let hit = loop {
+                let Some(i) = dir.rfind(SEP) else { break None };
+                dir = &dir[..i];
+                if dir.len() < prefix.len() - 1 {
+                    break None;
+                }
+                if let Some(&loc) = by_root.get(&(vol.clone(), dir.to_string())) {
+                    break Some((loc, dir.len()));
+                }
+            };
+            let Some((loc, len)) = hit else { continue };
+            let rel = lower[len + 1..].to_string();
+            let s = &mut out[loc];
+            s.newest_mtime = s.newest_mtime.max(mtime);
+            s.files.insert(rel, FileKey { size, mtime, blake3 });
+        }
     }
     Ok(out)
 }
@@ -278,7 +336,30 @@ pub fn same_identity(
 ) -> Option<Identity> {
     let fa = fingerprint(a.name(), &a.declared_names, sa);
     let fb = fingerprint(b.name(), &b.declared_names, sb);
-    match answered_same(&fa, &fb, decisions) {
+    identity_of(a, b, sa, sb, &fa, &fb, decisions)
+}
+
+/// A name without separators and noise words but with its version digits (`proj12`), for
+/// matching folders on name alone.
+fn name_key(name: &str) -> String {
+    name_words(name).into_iter().filter(|w| !NOISE_WORDS.contains(&w.as_str())).collect::<Vec<_>>().concat()
+}
+
+fn parent_of(root: &str) -> String {
+    root.rsplit_once(SEP).map(|(p, _)| p.to_lowercase()).unwrap_or_default()
+}
+
+/// [`same_identity`] with the fingerprints already worked out.
+pub fn identity_of(
+    a: &ProjectCandidate,
+    b: &ProjectCandidate,
+    sa: &ContentSummary,
+    sb: &ContentSummary,
+    fa: &str,
+    fb: &str,
+    decisions: &[Decision],
+) -> Option<Identity> {
+    match answered_same(fa, fb, decisions) {
         Some(true) => return Some(Identity { evidence: "you said these are the same project".into(), confirmed: true }),
         Some(false) => return None,
         None => {}
@@ -293,24 +374,28 @@ pub fn same_identity(
         return Some(Identity { evidence: format!("{shared} files in common"), confirmed: true });
     }
     let (na, nb) = (normalized_name(a.name()), normalized_name(b.name()));
-    if na.chars().count() >= 3 && na == nb {
-        return Some(if shared > 0 {
-            Identity { evidence: format!("same name and {shared} files in common"), confirmed: true }
-        } else {
-            Identity { evidence: "same name, nothing in common yet".into(), confirmed: false }
-        });
+    if na.chars().count() >= 3 && na == nb && shared > 0 {
+        return Some(Identity { evidence: format!("same name and {shared} files in common"), confirmed: true });
+    }
+    // On name alone: the names must agree with their version digits, and two folders kept side
+    // by side in one place are taken to be different unless their contents say otherwise.
+    let (ka, kb) = (name_key(a.name()), name_key(b.name()));
+    if ka.chars().count() >= 3 && ka == kb && parent_of(&a.root) != parent_of(&b.root) {
+        return Some(Identity { evidence: "same name, nothing in common yet".into(), confirmed: false });
     }
     None
 }
 
-/// The location a project's plan centres on (spec §8.1): a git repository first (the most
-/// recently changed one if several), else the most recent activity, then the most files.
+/// The location a project's plan centres on (spec §8.1): a plugged-in location, then a git
+/// repository (the most recently changed one if several), then the most recent activity, then
+/// the most files.
 pub fn choose_home(locations: &[Location]) -> usize {
     let mut idx: Vec<usize> = (0..locations.len()).collect();
     idx.sort_by(|&i, &j| {
         let (a, b) = (&locations[i], &locations[j]);
-        b.is_repo
-            .cmp(&a.is_repo)
+        b.online
+            .cmp(&a.online)
+            .then(b.is_repo.cmp(&a.is_repo))
             .then(b.newest_mtime.cmp(&a.newest_mtime))
             .then(b.files.cmp(&a.files))
             .then(i.cmp(&j))

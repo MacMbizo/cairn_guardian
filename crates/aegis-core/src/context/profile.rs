@@ -215,6 +215,13 @@ struct Acc {
 
 /// Profiles of every folder under `roots` (PC roots or drive mount points), the roots included.
 pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfile>> {
+    let roots: Vec<(String, Option<String>)> = roots.iter().map(|r| (r.clone(), None)).collect();
+    profiles_for(store, &roots)
+}
+
+/// Like [`profiles`], each root limited to one volume when given (a drive letter can belong to
+/// an unplugged drive and a plugged-in one at once).
+pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> Result<Vec<FolderProfile>> {
     let conn = store.conn();
     let units: HashMap<String, String> = {
         let mut stmt = conn.prepare("SELECT lower(root_path), unit_type FROM atomic_units")?;
@@ -222,7 +229,7 @@ pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfi
     };
     let filter = live_under_root_sql();
     let mut out = Vec::new();
-    for root in roots {
+    for (root, volume) in roots {
         let root = root.trim_end_matches(SEP).to_string();
         let prefix = format!("{}{SEP}", root.to_lowercase());
         let plen = prefix.chars().count() as i64;
@@ -233,9 +240,9 @@ pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfi
         let mut stmt = conn.prepare(&format!(
             "SELECT volume_id, substr(path, 1, length(path) - length(name) - 1) AS dir, lower(COALESCE(ext, '')),
                     COUNT(*), SUM(size), MAX(mtime)
-             FROM files WHERE {filter} GROUP BY volume_id, dir, lower(COALESCE(ext, ''))"
+             FROM files WHERE {filter} AND (?3 IS NULL OR volume_id = ?3) GROUP BY volume_id, dir, lower(COALESCE(ext, ''))"
         ))?;
-        let rows = stmt.query_map(params![prefix, plen], |r| {
+        let rows = stmt.query_map(params![prefix, plen, volume], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -277,10 +284,10 @@ pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfi
             .join(" OR ");
         let mut stmt = conn.prepare(&format!(
             "SELECT id, substr(path, 1, length(path) - length(name) - 1), name, COALESCE(ext, '')
-             FROM files WHERE {filter} AND ({name_test})"
+             FROM files WHERE {filter} AND (?3 IS NULL OR volume_id = ?3) AND ({name_test})"
         ))?;
         let named: Vec<(String, String, String, String)> = stmt
-            .query_map(params![prefix, plen], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .query_map(params![prefix, plen, volume], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?;
         let mut text_stmt = conn.prepare("SELECT text FROM chunks WHERE file_id = ?1 ORDER BY seq LIMIT 1")?;
         for (id, dir, name, ext) in named {

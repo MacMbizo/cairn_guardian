@@ -365,6 +365,8 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
             }),
         ];
         watches.push(Box::new(aegis_core::filing::reader::ReaderWatch));
+        // Recognising projects comes before filing, so filing never splits one.
+        watches.push(Box::new(aegis_core::context::watch::ContextWatch));
         watches.push(Box::new(aegis_core::filing::watch::FilingWatch::default()));
         if let Some(dl) = aegis_core::scanner::downloads_dir() {
             watches.push(Box::new(JanitorWatch { downloads: dl, installed: Box::new(installed_programs) }));

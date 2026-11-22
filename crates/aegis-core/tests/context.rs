@@ -529,3 +529,149 @@ fn home_is_repo_then_newest_then_biggest() {
     assert_eq!(choose_home(&[loc(10, 5, false), loc(5, 1, true)]), 1);
     assert_eq!(choose_home(&[loc(10, 5, false), loc(50, 5, false)]), 1);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Recognition pass and watch
+
+use aegis_core::context::recognise;
+
+fn collection_named<'a>(cs: &'a [Collection], name: &str) -> &'a Collection {
+    cs.iter().find(|c| c.name == name).unwrap_or_else(|| {
+        panic!("no {name} in {:?}", cs.iter().map(|c| (&c.name, c.locations.len())).collect::<Vec<_>>())
+    })
+}
+
+fn location_under<'a>(c: &'a Collection, p: &Path) -> &'a Location {
+    let want = common::canon(p);
+    c.locations.iter().find(|l| l.root_path.eq_ignore_ascii_case(&want)).unwrap_or_else(|| panic!("{} not in {c:?}", want))
+}
+
+#[test]
+fn recognise_groups_dev_set_and_prj_copies() {
+    let (_t, mut s, home, prj) = pc();
+    let rep = recognise(&mut s).unwrap();
+    let cs = list_collections(s.conn(), CollectionKind::Project).unwrap();
+    assert_eq!(rep.projects, cs.len());
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    let fx = collection_named(&cs, "forexTrader");
+    assert_eq!(fx.locations.len(), 2, "{fx:?}");
+    assert_eq!(location_under(fx, &ds.join("forexTrader")).relationship, Relationship::Home);
+    let old = location_under(fx, &prj.join("forexTrader"));
+    assert_eq!(old.relationship, Relationship::OlderSubset);
+    assert_eq!(old.shared_files, 9);
+    let driving = collection_named(&cs, "DrivingSchool");
+    assert_eq!(driving.locations.len(), 2);
+    assert_eq!(location_under(driving, &prj.join("DrivingSchool")).relationship, Relationship::Home, "the newer copy is home");
+    assert_eq!(location_under(driving, &ds.join("DrivingSchool")).relationship, Relationship::Diverged);
+    assert!(rep.multi_location >= 3, "{rep:?}");
+    // Multi-location projects come first.
+    assert!(cs[0].locations.len() > 1);
+    // Saved projects now drive protection.
+    let roots = roots_of(&s);
+    let protected = aegis_core::context::protected_roots(&s, &roots).unwrap();
+    assert!(protected.iter().any(|(p, n)| n == "forexTrader" && p.eq_ignore_ascii_case(&common::canon(&prj.join("forexTrader")))));
+}
+
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_dir() { out.extend(walk(&p)) } else { out.push(p) }
+    }
+    out
+}
+
+#[test]
+fn offline_drive_locations_are_listed() {
+    let (t, mut s, _home, _prj) = pc();
+    let provider = aegis_core::drives::FakeVolumeProvider::new();
+    let d = common::fake_drive(&t, "Ext", "0042");
+    for f in ["images/favicon_io/favicon-16x16.png", "engine/fx/signals.py", "engine/fx/backtest.py", "docs/architecture.md"] {
+        fixtures_context::put(&d.mount_point.join("Old Projects").join("forexTrader"), f);
+    }
+    fixtures_context::put(&d.mount_point.join("Old Projects").join("other"), "notes/PRD.md");
+    fixtures_context::put(&d.mount_point.join("Old Projects").join("other"), "src/main.py");
+    for f in walk(&d.mount_point) {
+        fixtures_context::age(&f, 120);
+    }
+    let id = common::plug_and_catalog(&mut s, &provider, &d);
+    provider.unplug(&d.mount_point);
+    aegis_core::drives::sync_mounted(&mut s, &provider).unwrap();
+    assert_eq!(common::status_of(&s, &id), "offline");
+    recognise(&mut s).unwrap();
+    let cs = list_collections(s.conn(), CollectionKind::Project).unwrap();
+    let fx = collection_named(&cs, "forexTrader");
+    let ext = fx.locations.iter().find(|l| l.volume_id == id).unwrap_or_else(|| panic!("drive copy missing: {fx:?}"));
+    assert!(!ext.online);
+    assert_eq!(ext.relationship, Relationship::OlderSubset);
+}
+
+#[test]
+fn backup_drive_is_ignored() {
+    let (t, mut s, _home, _prj) = pc();
+    let provider = aegis_core::drives::FakeVolumeProvider::new();
+    let d = common::fake_drive(&t, "Backup", "0043");
+    for f in ["images/favicon_io/favicon-16x16.png", "engine/fx/signals.py", "docs/PRD.md", "README.md"] {
+        fixtures_context::put(&d.mount_point.join("Aegis Backup").join("forexTrader"), f);
+    }
+    let id = common::plug_and_catalog(&mut s, &provider, &d);
+    s.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&id]).unwrap();
+    recognise(&mut s).unwrap();
+    let cs = list_collections(s.conn(), CollectionKind::Project).unwrap();
+    assert!(cs.iter().flat_map(|c| &c.locations).all(|l| l.volume_id != id));
+}
+
+#[test]
+fn recognise_is_fast_on_a_big_catalog() {
+    let t = tempfile::TempDir::new().unwrap();
+    let root = t.path().join("big");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut s = SqliteStore::open_in_memory().unwrap();
+    let cfg = s.add_root(&root).unwrap();
+    let base = common::canon(&root);
+    let tx = s.conn_mut().transaction().unwrap();
+    {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO files (id, volume_id, path, path_hash, name, ext, size, mtime, ctime, cloud_state, state, first_seen, last_seen, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 4096, ?7, 0, 'local', 'active', 0, 0, 0, 0)",
+            )
+            .unwrap();
+        let sep = std::path::MAIN_SEPARATOR;
+        for i in 0..200_000usize {
+            let proj = i / 500;
+            let (dir, name, ext) = match i % 5 {
+                0 => (format!("docs{sep}part{}", i % 7), format!("PRD {i}.md"), "md"),
+                1 => ("images".to_string(), format!("logo {i}.png"), "png"),
+                _ => (format!("src{sep}mod{}", i % 11), format!("file{i}.ts"), "ts"),
+            };
+            let path = format!("{base}{sep}group{}{sep}proj{proj}{sep}{dir}{sep}{name}", proj % 8);
+            let hash = blake3::hash(path.as_bytes());
+            stmt.execute(rusqlite::params![format!("f{i}"), cfg.volume_id, path, hash.as_bytes().to_vec(), name, ext, i as i64])
+                .unwrap();
+        }
+    }
+    tx.commit().unwrap();
+    let started = std::time::Instant::now();
+    let rep = recognise(&mut s).unwrap();
+    let took = started.elapsed();
+    assert_eq!(rep.projects, 400, "{rep:?}");
+    assert!(took.as_secs() < 15, "recognition took {took:?}");
+}
+
+#[test]
+fn context_watch_runs_only_when_the_catalog_changed() {
+    use aegis_core::engine::Watch;
+    let (_t, mut s, home, _prj) = pc();
+    let mut w = aegis_core::context::watch::ContextWatch;
+    w.run(&mut s, 0).unwrap();
+    let first = s.get_setting(aegis_core::context::recognise::RECOGNISED_AT, "context").unwrap();
+    assert!(first.is_some());
+    s.conn().execute("DELETE FROM collections", []).unwrap();
+    w.run(&mut s, 0).unwrap();
+    assert!(list_collections(s.conn(), CollectionKind::Project).unwrap().is_empty(), "nothing changed, so no new pass");
+    fixtures_context::put(&home.join("Documents/Projectsv2/Dev Set/chatbot"), "more notes.md");
+    aegis_core::scanner::scan_root(&mut s, &home.join("Documents"), &[1]).unwrap();
+    w.run(&mut s, 0).unwrap();
+    assert!(!list_collections(s.conn(), CollectionKind::Project).unwrap().is_empty());
+}
