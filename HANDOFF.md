@@ -54,6 +54,23 @@ clippy clean; `pnpm build` clean; Projects screen checked in the browser preview
   - Copies of the same project relate in different ways: forexTrader (the `C:\Prj` copy is an older subset), DrivingSchool (changed on both sides), paperPilot (different material), wellness (no overlap).
   - 14 of the owner's 15 rejected moves (all except a Downloads `.zip`) moved project files by kind. They become regression tests.
 
+## Owner's vision document (read 2026-11-22)
+
+`canonical/local-intelligence-system-architecture.md` (the owner's; untracked, **never commit it**) describes the 14 backlog
+ideas below as one local-first "intelligence OS". Claude's review, given to the owner:
+- Treat it as the north star, mapped onto Aegis, not a restart: Aegis already has the USN journal (read **without** admin),
+  SQLite store, idle-gated scheduler, content reader, batches with undo, duplicates, the janitor, and now the context layer.
+- Decide early (before more data piles up): encryption at rest and key handling. A key that needs Windows Hello would stop the
+  tray engine (tripwire, backup) after a reboot; prefer a DPAPI/TPM-sealed key for the engine, biometrics only to open sensitive views.
+- Avoid or reshape: direct MFT parsing (needs admin/elevation); multi-pass shredding (ineffective on SSDs; use BitLocker);
+  a dead-man's switch that destroys data (release only, never auto-shred); registry cleaning; Recall-style screen capture;
+  PII masking of the search index (would break finding one's own documents); "mathematical" zero-network claims.
+- LLM routing ("Folderless") should compile plain-language intents into visible rules that feed the existing
+  propose/approve/undo pipeline, not decide per file. Local LLMs run on demand only (the 350 MB background budget stands).
+- Suggested order: Plan 2 (project plans), then embeddings + hybrid search (aegis-embed + FTS), then local RAG over it,
+  then dead files / health score (largely exists), then knowledge extraction, then cross-project intelligence;
+  CDO agent and estate management last. Each gets a short design of its own, as before.
+
 ## Ideas backlog (owner asked about these, 2026-11-22)
 
 AI Folderless Mode, Digital Estate Management, Automatic Knowledge Extraction, Personal Data Governance,
