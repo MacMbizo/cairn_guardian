@@ -1,6 +1,37 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-22 (after merging auto-filing). Read this first in a new chat.
+Updated 2026-11-22 (after designing context-aware filing). Read this first in a new chat.
+
+## NEXT CHAT: do this first
+
+**Execute Plan 1 of context-aware filing:** `docs/superpowers/plans/2026-11-22-context-layer-projects.md`.
+
+- **Spec:** `docs/superpowers/specs/2026-11-22-context-aware-filing-design.md`. The owner approved it ("the plan is fine").
+- **Branch:** create `feature/context-layer` from `master` before Task 1.
+- **Process:** use the executing-plans approach (inline), with a ledger in `.superpowers/sdd/2026-11-22-context-layer-projects/`.
+- **Why it matters:** the owner has **stopped approving filing batches that touch project folders** until Task 4 (protection) lands. Tell them as soon as it does.
+- **Before Task 9:** show the owner a mockup of the project card. They pick visual options themselves.
+- **Owner's framing (2026-11-22):** *"Do not be blinkered into making the system about projects … it is a complete system for my PC."*
+  - Projects is **one module** of a whole-PC context layer (spec §1A).
+  - The other modules follow later, each with a short design of its own: Software packages, Owner's folders, Resources, Series, Photo subjects, Sets, Old copies.
+- **Owner decisions in the spec:**
+  - A git repo may move **whole** into `C:\Prj` when the owner approves its plan. The card warns about `.venv` and recent changes.
+  - **All** projects, software or not (e.g. SmoothLite artwork), live in the one projects home, `C:\Prj` on the PC.
+- **Measured facts the spec relies on (spec §2):**
+  - C:\Prj is a root.
+  - Copies of the same project relate in different ways: forexTrader (the `C:\Prj` copy is an older subset), DrivingSchool (changed on both sides), paperPilot (different material), wellness (no overlap).
+  - 14 of the owner's 15 rejected moves (all except a Downloads `.zip`) moved project files by kind. They become regression tests.
+
+## Ideas backlog (owner asked about these, 2026-11-22)
+
+AI Folderless Mode, Digital Estate Management, Automatic Knowledge Extraction, Personal Data Governance,
+Cross-Project Intelligence, Semantic Version Tracking, Dead File Detection, Forgotten Asset Recovery, Local RAG Engine,
+Autonomous Research Librarian, Self-Healing Workspace, Context-Aware Search, Workspace Health Score, AI Chief Digital
+Officer Agent.
+
+- Each one was explained, with how it maps onto Aegis, in the last message of the design chat.
+- Most build on the context layer, so it comes first.
+- Not yet scheduled. Ask the owner which to design next once Plan 1 lands.
 
 ## Where things stand (2026-11-22)
 
@@ -30,6 +61,7 @@ Updated 2026-11-22 (after merging auto-filing). Read this first in a new chat.
 
 ## Do next, in this order
 
+0. **Plan 1 of context-aware filing** (see the top of this file).
 1. **Dry run with the external drive (deferred item 14).** Plug in D:, copy `aegis.db`, run the dry-run tool on the copy.
    Report sample renames and the to-sort share; fix misclassifications test-first.
 2. **Try Filing on the PC**, starting with the Fresh structure; then Recent batches → Undo once to see it work.
