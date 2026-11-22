@@ -416,6 +416,18 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             .cloned()
             .collect()
     };
+    // Projects (spec 2026-11-22 §9) stay whole and where they are: no file inside one is moved,
+    // renamed or filed by a rule. Code projects inside them keep their own (inner) protection.
+    let projects = crate::context::protected_roots(store, &[root.to_string()])?;
+    for (path, name) in &projects {
+        groups.push(Group {
+            path: path.clone(),
+            code: true,
+            to: None,
+            reason: format!("Part of project {name}: it stays together"),
+            confidence: 1.0,
+        });
+    }
     for u in units {
         groups.push(Group {
             path: u,
@@ -504,6 +516,8 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
         };
         groups.push(Group { path: d.to_string_lossy().to_string(), code: false, to, reason: format!("Photo album: {name}"), confidence: 0.9 });
     }
+    // Courses and albums inside a project are part of the project, not groups of their own.
+    groups.retain(|g| g.code || !projects.iter().any(|(p, _)| path_is_within(&g.path, p, false)));
     // A folder holding a code project stays where it is (moving it would move the code), and a
     // group never targets a place inside itself (it is already filed).
     let code: Vec<String> = groups.iter().filter(|g| g.code).map(|g| g.path.clone()).collect();

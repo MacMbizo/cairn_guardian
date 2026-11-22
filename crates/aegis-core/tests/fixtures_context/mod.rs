@@ -39,8 +39,9 @@ fn project(root: &Path, name: &str, files: &[&str]) -> PathBuf {
     dir
 }
 
-const FOREX_SHARED: [&str; 8] = [
+const FOREX_SHARED: [&str; 9] = [
     "images/favicon_io/favicon-16x16.png",
+    "set_files_v2(backup)/fx-favicon-32x32.png",
     "images/favicon_io/favicon-32x32.png",
     "images/favicon_io/apple-touch-icon.png",
     "images/FX Sentinel - logo(F)_v2.png",
@@ -71,7 +72,6 @@ pub fn dev_set(documents: &Path) -> PathBuf {
     let mut forex: Vec<&str> = FOREX_SHARED.to_vec();
     forex.extend([
         "images/favicon_io/android-chrome-192x192.png",
-        "set_files_v2(backup)/fx-favicon-32x32.png",
         "set_files_v2(backup)/fx-logo.png",
         "docs/architecture.md",
         "docs/strategy notes.md",
@@ -102,6 +102,8 @@ pub fn dev_set(documents: &Path) -> PathBuf {
         ],
     );
     project(&ds, "Nutrition", &["Nutrition PRD.md", "meal plan.md", "recipes.md", "research.md"]);
+    // No project words at all: only where it sits says it is a project.
+    project(&ds, "AgentsM", &["agents overview.docx", "agent roles.md", "orchestration.md"]);
     let mut driving: Vec<&str> = DRIVING_SHARED.to_vec();
     driving.extend(["docs/old pricing.md", "src/legacy.js"]);
     let dd = project(&ds, "DrivingSchool", &driving);
@@ -135,7 +137,7 @@ pub fn prj(prj: &Path) {
         "mccShepherd",
         &[
             "all docs/archive/PRD_additions.md",
-            "all docs/others/G5_screens.md",
+            "all docs/others/G5_dual_ai_human_orchestration_playbook.md",
             "all docs/others/G5_roles.md",
             "lib/main.dart",
             "lib/members.dart",

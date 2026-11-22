@@ -168,7 +168,7 @@ fn profile_rolls_up_subtrees() {
     let ds = profile_at(&ps, &ds_path);
     let children: i64 = ds.child_dirs.iter().map(|c| profile_at(&ps, Path::new(c)).files).sum();
     assert_eq!(ds.files, children + ds.loose_files);
-    assert_eq!(ds.child_dirs.len(), 7);
+    assert_eq!(ds.child_dirs.len(), 8);
     assert_eq!(ds.loose_files, 0);
     let ai = profile_at(&ps, &ds_path.join("AIPrompt"));
     assert_eq!(ai.files, 4);
@@ -215,7 +215,7 @@ fn markerless_dev_set_folders_are_projects() {
     let (_t, s, home, _prj) = pc();
     let ps = projects_of(&s);
     let ds = home.join("Documents/Projectsv2/Dev Set");
-    for name in ["chatbot", "discipline_app", "Nutrition", "paperPilot", "forexTrader", "DrivingSchool"] {
+    for name in ["chatbot", "discipline_app", "Nutrition", "paperPilot", "forexTrader", "DrivingSchool", "AgentsM"] {
         let p = project_at(&ps, &ds.join(name)).unwrap_or_else(|| panic!("{name} missing:\n{}", roots_list(&ps)));
         assert!(p.confidence >= 0.60, "{name}: {}", p.confidence);
         assert!(!p.evidence.is_empty(), "{name} has no evidence");
@@ -248,7 +248,7 @@ fn ordinary_folders_are_not_projects() {
         assert!(project_at(&ps, &home.join(f)).is_none(), "{f} is not a project:\n{}", roots_list(&ps));
     }
     let n = ps.len();
-    assert_eq!(n, 13, "{}", roots_list(&ps));
+    assert_eq!(n, 14, "{}", roots_list(&ps));
 }
 
 #[test]
@@ -261,4 +261,110 @@ fn kind_is_inferred() {
     assert_eq!(project_at(&ps, &prj.join("forexTrader")).unwrap().project_kind, ProjectKind::Software);
     assert_eq!(project_at(&ps, &home.join("Documents/Projectsv2/F1")).unwrap().project_kind, ProjectKind::Design);
     assert_eq!(project_at(&ps, &ds.join("Nutrition")).unwrap().project_kind, ProjectKind::Writing);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Protection in filing
+
+#[path = "fixtures_filing/mod.rs"]
+mod fixtures_filing;
+
+use aegis_core::filing::blueprint::{Placement, plan};
+use aegis_core::filing::{BlueprintChoice, Scope};
+
+/// The owner's 14 turned-down moves of project material (2026-11-22), relative to the test's
+/// temporary folder (`me` is the owner's profile, `Prj` is `C:\Prj`).
+const REJECTED: [&str; 14] = [
+    "me/Documents/Projectsv2/Dev Set/forexTrader/images/FX Sentinel - logo(F)_v2.png",
+    "me/Documents/Projectsv2/Dev Set/forexTrader/images/favicon_io/favicon-16x16.png",
+    "me/Documents/Projectsv2/F1/fx-favicon-32x32.png",
+    "me/Documents/Projectsv2/Dev Set/forexTrader/set_files_v2(backup)/fx-favicon-32x32.png",
+    "me/Documents/Projectsv2/Dev Set/forexTrader/images/favicon_io/favicon-32x32.png",
+    "me/Documents/Projectsv2/Dev Set/paperPilot/images/logo_v3.jpg",
+    "Prj/DevSet/mccShepherd/all docs/others/G5_dual_ai_human_orchestration_playbook.md",
+    "Prj/DevSet/mccShepherd/all docs/archive/PRD_additions.md",
+    "me/Documents/Projectsv2/Dev Set/discipline_app/set_files/PRD_additions.md",
+    "me/Documents/Projectsv2/Dev Set/paperPilot/set_files/TASKS.md",
+    "Prj/forexTrader/images/FX Sentinel - logo(F)_v2.png",
+    "Prj/forexTrader/images/favicon_io/favicon-16x16.png",
+    "Prj/forexTrader/set_files_v2(backup)/fx-favicon-32x32.png",
+    "Prj/forexTrader/images/favicon_io/favicon-32x32.png",
+];
+
+fn moving(ps: &[Placement], path: &str) -> Option<String> {
+    ps.iter()
+        .filter(|p| p.to.is_some())
+        .find(|p| aegis_core::db::files::path_is_within(path, &p.from, false))
+        .map(|p| format!("{} -> {} ({})", p.from, p.to.as_deref().unwrap_or(""), p.reason))
+}
+
+#[test]
+fn rejected_project_moves_are_not_proposed() {
+    let (t, s, _home, _prj) = pc();
+    for choice in [BlueprintChoice::Fresh, BlueprintChoice::Tidy] {
+        let ps = plan(&s, &Scope::Pc, choice).unwrap();
+        let bad: Vec<String> =
+            REJECTED.iter().filter_map(|r| moving(&ps, &common::canon(&t.path().join(r)))).collect();
+        assert!(bad.is_empty(), "{choice:?} still splits projects:\n{}", bad.join("\n"));
+        let kept = ps
+            .iter()
+            .find(|p| p.from.eq_ignore_ascii_case(&common::canon(&t.path().join("Prj/forexTrader"))))
+            .expect("forexTrader is planned as one group");
+        assert_eq!(kept.reason, "Part of project forexTrader: it stays together");
+    }
+}
+
+#[test]
+fn loose_files_still_filed() {
+    let (_t, mut s, home, _prj) = pc();
+    let dl = home.join("Downloads");
+    fixtures_filing::docx(&dl, "scan0001.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");
+    aegis_core::scanner::scan_root(&mut s, &dl, &[1]).unwrap();
+    aegis_core::filing::reader::read_pending(&mut s, 100, std::time::Duration::from_secs(10)).unwrap();
+    let ps = plan(&s, &Scope::Pc, BlueprintChoice::Fresh).unwrap();
+    let inv = common::canon(&dl.join("scan0001.docx"));
+    let p = ps.iter().find(|p| p.from.eq_ignore_ascii_case(&inv)).expect("invoice is planned");
+    assert!(p.to.as_deref().is_some_and(|t| t.contains("Invoices")), "loose invoice still filed: {p:?}");
+}
+
+#[test]
+fn waiting_batch_items_inside_projects_are_superseded() {
+    let (t, mut s, home, _prj) = pc();
+    aegis_core::filing::set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 0).unwrap();
+    let id_of = |s: &SqliteStore, p: &Path| -> String {
+        s.conn()
+            .query_row("SELECT id FROM files WHERE lower(path) = lower(?1)", [common::canon(p)], |r| r.get(0))
+            .unwrap()
+    };
+    let favicon = t.path().join(REJECTED[1]);
+    let installer = home.join("Downloads/misc/zoom installer.exe");
+    let place = |s: &SqliteStore, p: &Path, to: &Path| Placement {
+        target: aegis_core::filing::blueprint::Target::File { file_id: id_of(s, p) },
+        from: common::canon(p),
+        to: Some(to.to_string_lossy().to_string()),
+        new_name: None,
+        confidence: 0.95,
+        reason: "old plan".into(),
+        rule_key: None,
+        to_sort: false,
+        bytes: 1,
+    };
+    let old = vec![
+        place(&s, &favicon, &home.join("Pictures/2025/2025-06/favicon-16x16.png")),
+        place(&s, &installer, &home.join("Downloads/Software/zoom installer.exe")),
+    ];
+    let batch = aegis_core::filing::batches::propose_placements(&mut s, &Scope::Pc, &aegis_core::filing::batches::origin_for(&Scope::Pc), old).unwrap();
+    let n = aegis_core::filing::batches::recheck_open_batch(&mut s, &Scope::Pc).unwrap();
+    assert_eq!(n, 1);
+    let status = |s: &SqliteStore, p: &Path| -> String {
+        s.conn()
+            .query_row(
+                "SELECT status FROM actions WHERE batch_id = ?1 AND lower(from_path) = lower(?2)",
+                rusqlite::params![batch, common::canon(p)],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(status(&s, &favicon), "superseded");
+    assert_eq!(status(&s, &installer), "proposed");
 }

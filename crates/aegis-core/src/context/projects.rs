@@ -226,11 +226,30 @@ impl<'a> Ctx<'a> {
         if own.files > 0 && dump * 10 >= own.files * 3 && own.source == 0 {
             material -= 0.3;
         }
-        if let Some(c) = among
-            && material > 0.0
-        {
-            material = (material + 0.1).max(0.65);
-            ev.push(format!("sits among other projects in {c}"));
+        if let Some(c) = among {
+            // Judged on its own files, or on its whole subtree when it has none of its own.
+            let (files, media, dump, source) = if own.files > 0 {
+                (own.files, media, dump, own.source)
+            } else {
+                let sub = |ks: &[Kind]| ks.iter().map(|k| p.kind_count(*k)).sum::<i64>();
+                (
+                    p.files,
+                    sub(&[Kind::Photo, Kind::Screenshot, Kind::Video, Kind::Music, Kind::Audio]),
+                    sub(&[Kind::Installer, Kind::Archive]),
+                    p.source_files,
+                )
+            };
+            let media_led = files > 0 && media * 10 >= files * 8 && !asset_led;
+            let dump_led = files > 0 && dump * 10 >= files * 3 && source == 0;
+            if material > 0.0 {
+                material = (material + 0.1).max(0.65);
+                ev.push(format!("sits among other projects in {c}"));
+            } else if (own.files >= 3 || p.files >= 3 && self.sub_projects(p).is_empty()) && !media_led && !dump_led {
+                // Nothing in it says so, but everything around it is a project: ask. A folder
+                // that only wraps another project (`D2\class-harmony-hub`) hands over to it.
+                material = PROJECT_THRESHOLD;
+                ev.push(format!("sits among other projects in {c}"));
+            }
         }
 
         let conf = if strong > 0 {
@@ -359,6 +378,6 @@ pub fn find_projects(profiles: &[FolderProfile], known_roots: &[String]) -> Vec<
     for p in profiles.iter().filter(|p| p.depth == 0) {
         ctx.visit(p, None, &mut out);
     }
-    out.sort_by(|a, b| a.root.to_lowercase().cmp(&b.root.to_lowercase()));
+    out.sort_by_key(|a| a.root.to_lowercase());
     out
 }

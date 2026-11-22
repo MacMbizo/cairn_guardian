@@ -42,6 +42,8 @@ pub fn filing_choose(state: State<'_, AppState>, scope: Scope, choice: Blueprint
 #[tauri::command(async)]
 pub fn filing_next_batch(state: State<'_, AppState>, scope: Scope) -> Result<Option<String>, IpcError> {
     let mut store = own_store(&state)?;
+    // Moves proposed before a project was recognised are retired, never offered again.
+    map_err(aegis_core::filing::batches::recheck_open_batch(&mut store, &scope))?;
     if let Some(open) = map_err(aegis_core::filing::batches::open_filing_batch(store.conn(), &scope))? {
         return Ok(Some(open));
     }

@@ -229,6 +229,7 @@ pub fn recount(store: &SqliteStore, scope: &Scope, choice: super::BlueprintChoic
 /// waiting, or nothing is left to move.
 pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<String>> {
     let Some(choice) = blueprint_of(store.conn(), scope)? else { return Ok(None) };
+    recheck_open_batch(store, scope)?;
     if open_filing_batch(store.conn(), scope)?.is_some() {
         return Ok(None);
     }
@@ -550,4 +551,47 @@ pub fn after_reject(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
 pub fn skip_batch(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     crate::db::actions::reject_batch(store, batch_id, Some("Skipped from Filing"))?;
     after_reject(store, batch_id)
+}
+
+/// Re-checks the scope's waiting batch: moves of files that are now part of a project are
+/// retired (marked superseded, which isn't a "no"). Returns how many were retired.
+pub fn recheck_open_batch(store: &mut SqliteStore, scope: &Scope) -> Result<usize> {
+    let Some(open) = open_filing_batch(store.conn(), scope)? else { return Ok(0) };
+    let roots: Vec<String> = scope_roots(store, scope)?.into_iter().map(|(p, _)| p).collect();
+    let projects = crate::context::protected_roots(store, &roots)?;
+    if projects.is_empty() {
+        return Ok(0);
+    }
+    let waiting: Vec<(String, String)> = {
+        let mut stmt =
+            store.conn().prepare("SELECT id, from_path FROM actions WHERE batch_id = ?1 AND status IN ('proposed', 'approved')")?;
+        stmt.query_map([&open], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    let retire: Vec<(String, String)> = waiting
+        .into_iter()
+        .filter_map(|(id, from)| {
+            projects
+                .iter()
+                .find(|(p, _)| path_is_within(&from, p, false) || path_is_within(p, &from, false))
+                .map(|(_, name)| (id, format!("Part of project {name}: it stays together")))
+        })
+        .collect();
+    if retire.is_empty() {
+        return Ok(0);
+    }
+    store.with_full_sync_tx(|tx| {
+        for (id, why) in &retire {
+            tx.execute("UPDATE actions SET status = 'superseded', error_message = ?2 WHERE id = ?1", params![id, why])?;
+        }
+        // A batch with nothing left to approve is retired too, so the next one can be offered.
+        tx.execute(
+            "UPDATE action_batches SET status = 'failed' WHERE id = ?1
+               AND NOT EXISTS (SELECT 1 FROM actions WHERE batch_id = ?1 AND status IN ('proposed', 'approved'))
+               AND NOT EXISTS (SELECT 1 FROM actions WHERE batch_id = ?1 AND executed_at IS NOT NULL)",
+            [&open],
+        )?;
+        Ok(())
+    })?;
+    super::clear_counts(store.conn(), scope)?;
+    Ok(retire.len())
 }

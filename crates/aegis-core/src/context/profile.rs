@@ -402,6 +402,6 @@ pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfi
             });
         }
     }
-    out.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    out.sort_by_key(|a| a.path.to_lowercase());
     Ok(out)
 }

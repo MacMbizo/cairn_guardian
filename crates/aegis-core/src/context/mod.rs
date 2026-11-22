@@ -203,3 +203,25 @@ pub struct Decision {
     #[ts(type = "number")]
     pub at: i64,
 }
+
+/// Project roots filing must keep whole, with each project's name: every saved project location
+/// at 0.60 or more that the owner hasn't said is not a project, under `roots`. When nothing has
+/// been recognised and saved yet, projects are recognised on the spot (nothing is saved).
+pub fn protected_roots(store: &crate::db::SqliteStore, roots: &[String]) -> crate::error::Result<Vec<(String, String)>> {
+    use crate::db::files::path_is_within;
+    let saved = store::list_collections(store.conn(), CollectionKind::Project)?;
+    let found: Vec<(String, String)> = if saved.is_empty() {
+        let ps = profile::profiles(store, roots)?;
+        projects::find_projects(&ps, roots).into_iter().map(|c| (c.root.clone(), c.name().to_string())).collect()
+    } else {
+        saved
+            .into_iter()
+            .filter(|c| c.confidence >= projects::PROJECT_THRESHOLD && c.state != "not_a_project")
+            .flat_map(|c| {
+                let name = c.name.clone();
+                c.locations.into_iter().map(move |l| (l.root_path, name.clone()))
+            })
+            .collect()
+    };
+    Ok(found.into_iter().filter(|(p, _)| roots.iter().any(|r| path_is_within(p, r, false))).collect())
+}
