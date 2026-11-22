@@ -518,12 +518,12 @@ fn tidy_merges_msidocuments_into_documents_and_files_loose_items() {
         for i in 0..3 {
             common::put(&m.join("documents").join("letters"), &format!("l{i}.txt"), b"x");
         }
-        common::put(&m.join("msidocuments").join("letters"), "old.txt", b"x");
+        fixtures_filing::docx(&m.join("msidocuments").join("letters"), "old.docx", "SARS Notice of Assessment Income Tax ITA34 Date of assessment 2025-09-30");
         fixtures_filing::docx(m, "scan9.docx", "TAX INVOICE Vodacom Invoice date: 14/03/2026 VAT Amount due");
     });
     let ps = plan(&s, &scope, BlueprintChoice::Tidy).unwrap();
-    let old = placement_for(&ps, "old.txt");
-    assert_eq!(rel(&mount, old.to.as_deref().unwrap()).to_lowercase(), "documents\\letters\\old.txt");
+    let old = placement_for(&ps, "old.docx");
+    assert_eq!(rel(&mount, old.to.as_deref().unwrap()).to_lowercase(), "documents\\letters\\2025-09-30 sars assessment.docx");
     let loose = placement_for(&ps, "scan9.docx");
     assert_eq!(rel(&mount, loose.to.as_deref().unwrap()).to_lowercase(), "documents\\2026-03-14 vodacom invoice.docx");
     let rename = ps.iter().find(|p| matches!(p.target, Target::Group { .. }) && p.from.ends_with("documents")).unwrap();
@@ -897,7 +897,7 @@ fn new_invoice_in_downloads_files_itself_when_rule_is_automatic() {
     for i in 1..=3 {
         record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
     }
-    FilingWatch.run(&mut s, later()).unwrap();
+    FilingWatch::default().run(&mut s, later()).unwrap();
     let dest = home.join("Documents").join("Finance").join("Invoices & receipts").join("2026").join("2026-03-14 Vodacom invoice.docx");
     assert!(dest.is_file(), "filed by itself");
     assert!(!home.join("Downloads").join("scan77.docx").exists());
@@ -913,7 +913,7 @@ fn waits_for_settle_time() {
     for i in 1..=3 {
         record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
     }
-    FilingWatch.run(&mut s, aegis_core::now_ms()).unwrap();
+    FilingWatch::default().run(&mut s, aegis_core::now_ms()).unwrap();
     assert!(home.join("Downloads").join("scan77.docx").is_file());
 }
 
@@ -921,7 +921,7 @@ fn waits_for_settle_time() {
 fn without_blueprint_nothing_happens() {
     let (_t, mut s, home) = pc_with_invoice(true);
     approved_before(&s);
-    let f = FilingWatch.run(&mut s, later()).unwrap();
+    let f = FilingWatch::default().run(&mut s, later()).unwrap();
     assert!(f.is_empty());
     assert!(home.join("Downloads").join("scan77.docx").is_file());
     assert!(open_filing_batch(s.conn(), &Scope::Pc).unwrap().is_none());
@@ -932,7 +932,7 @@ fn confident_but_not_automatic_is_proposed_not_moved() {
     let (_t, mut s, home) = pc_with_invoice(true);
     set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
     approved_before(&s);
-    let f = FilingWatch.run(&mut s, later()).unwrap();
+    let f = FilingWatch::default().run(&mut s, later()).unwrap();
     assert!(home.join("Downloads").join("scan77.docx").is_file(), "only proposed");
     let b = open_filing_batch(s.conn(), &Scope::Pc).unwrap().expect("a batch waits for the owner");
     assert_eq!(actions_of(&s, &b).len(), 1);
@@ -949,7 +949,7 @@ fn note_counts_auto_filed() {
     for i in 1..=3 {
         record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
     }
-    FilingWatch.run(&mut s, later()).unwrap();
+    FilingWatch::default().run(&mut s, later()).unwrap();
     let note = aegis_core::engine::note::build(s.conn(), "2026-11-22", 0, "2026-11-22", later()).unwrap();
     assert!(note.did.contains(&"Filed 1 file by itself".to_string()), "{:?}", note.did);
 }
@@ -1148,4 +1148,190 @@ fn scope_counts_are_cached_and_kept_current_by_batches() {
         .query_row("SELECT value_json FROM settings WHERE key LIKE 'filing.counts:%'", [], |r| r.get(0))
         .ok();
     assert!(none.is_none());
+}
+
+// ---------- Final review fixes ----------
+
+use aegis_core::filing::batches::skip_batch;
+
+fn run_batch(s: &mut SqliteStore, scope: &Scope) -> Option<String> {
+    let b = next_batch(s, scope).unwrap()?;
+    approve_batch(s, &b, None).unwrap();
+    execute_batch(s, &b).unwrap();
+    after_execute(s, &b).unwrap();
+    Some(b)
+}
+
+fn top_level(mount: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(mount)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn title_case_rename_really_renames_the_folder() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        common::put(&m.join("documents").join("letters"), "l1.txt", b"x");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Tidy, 1).unwrap();
+    while run_batch(&mut s, &scope).is_some() {}
+    assert_eq!(top_level(&mount), vec!["Documents"]);
+    assert!(mount.join("Documents").join("letters").join("l1.txt").is_file());
+}
+
+#[test]
+fn undo_with_a_conflict_keeps_history_for_what_stayed_moved() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ a");
+        common::put(m, "b-setup.exe", b"MZ b");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = run_batch(&mut s, &scope).unwrap();
+    // The owner downloads a new a-setup.exe where the old one was.
+    common::put(&mount, "a-setup.exe", b"MZ new");
+    let res = rollback_batch(&mut s, &b).unwrap();
+    after_rollback(&mut s, &b).unwrap();
+    assert!(!res.conflicts.is_empty(), "the new download blocks undoing a-setup.exe: {res:?}");
+    // Every file that is still away from its old place keeps its "was" record.
+    let still_moved: i64 = s
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND name LIKE '%setup.exe' AND path LIKE '%Installers%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let left: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [&b], |r| r.get(0)).unwrap();
+    assert!(still_moved >= 1);
+    assert_eq!(left, still_moved, "history kept exactly for files still moved");
+}
+
+#[test]
+fn skipping_a_batch_sends_its_rules_back_to_asking() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+    });
+    for i in 1..=3 {
+        record_outcome(s.conn(), &scope.key(), "installer|-|-", "Software\\Installers", false, Outcome::Approved, i).unwrap();
+    }
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    skip_batch(&mut s, &b).unwrap();
+    let r = list_rules(s.conn()).unwrap().into_iter().find(|r| r.rule_key == "installer|-|-").unwrap();
+    assert_eq!(r.state, "asking");
+    assert!(next_batch(&mut s, &scope).unwrap().is_none(), "skipped files are not offered again");
+}
+
+#[test]
+fn one_batch_counts_as_one_approval_per_rule() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        for i in 0..4 {
+            common::put(m, &format!("s{i}-setup.exe"), b"MZ");
+        }
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    run_batch(&mut s, &scope).unwrap();
+    let r = list_rules(s.conn()).unwrap().into_iter().find(|r| r.rule_key == "installer|-|-").unwrap();
+    assert_eq!((r.approvals, r.state.as_str()), (1, "asking"), "three decisions, not three files");
+}
+
+#[test]
+fn tidy_merge_leaves_unsure_files_and_never_loops() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        for i in 0..3 {
+            common::put(&m.join("documents").join("letters"), &format!("l{i}.txt"), b"x");
+        }
+        common::put(&m.join("msidocuments").join("letters"), "old.txt", b"x");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Tidy, 1).unwrap();
+    let ps = plan(&s, &scope, BlueprintChoice::Tidy).unwrap();
+    let old = placement_for(&ps, "old.txt");
+    assert!(old.to.is_none() || old.confidence >= 0.60, "unsure files are never moved");
+    let mut rounds = 0;
+    while run_batch(&mut s, &scope).is_some() {
+        rounds += 1;
+        assert!(rounds < 5, "the same batch keeps coming back");
+    }
+}
+
+#[test]
+fn filed_courses_are_not_moved_into_themselves() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        for course in ["Learn Rust", "Learn Go"] {
+            let c = m.join("self development").join(course);
+            for i in 1..=6 {
+                common::put(&c, &format!("{i:02} Lesson.mp4"), b"vid");
+                common::put(&c, &format!("{i:02} Lesson.srt"), b"1");
+            }
+        }
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let mut rounds = 0;
+    while run_batch(&mut s, &scope).is_some() {
+        rounds += 1;
+        assert!(rounds < 5, "batches keep coming back");
+    }
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    assert!(
+        !ps.iter().any(|p| p.to.as_deref().is_some_and(|t| t.to_lowercase().starts_with(&format!("{}\\", p.from.to_lowercase())))),
+        "no group targets a place inside itself"
+    );
+}
+
+#[test]
+fn a_course_holding_a_code_project_stays_put() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        let c = m.join("self development").join("Rust Course");
+        for i in 1..=6 {
+            common::put(&c, &format!("{i:02} Lesson.mp4"), b"vid");
+        }
+        std::fs::create_dir_all(c.join("exercises").join(".git")).unwrap();
+        common::put(&c.join("exercises"), "main.rs", b"fn main(){}");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let g = ps.iter().find(|p| matches!(p.target, Target::Group { .. }) && p.from.ends_with("Rust Course")).unwrap();
+    assert_eq!(g.to, None, "moving it would move the code project inside");
+}
+
+#[test]
+fn search_finds_aegis_style_dates() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", invoice_text());
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    run_batch(&mut s, &scope).unwrap();
+    for q in ["2026-03-14", "2026-03-14 Vodacom"] {
+        assert_eq!(search_fts(s.conn(), q, &SearchFilters::default(), 10).unwrap().hits.len(), 1, "{q}");
+    }
+    let by_kind = SearchFilters { kind: Some("document".into()), ..Default::default() };
+    assert_eq!(search_fts(s.conn(), "Vodacom", &by_kind, 10).unwrap().hits.len(), 1);
+    let by_other = SearchFilters { kind: Some("photo".into()), ..Default::default() };
+    assert!(search_fts(s.conn(), "Vodacom", &by_other, 10).unwrap().hits.is_empty());
+    let Scope::Volume { volume_id } = &scope else { unreachable!() };
+    let by_drive = SearchFilters { volume_id: Some(volume_id.clone()), ..Default::default() };
+    assert_eq!(search_fts(s.conn(), "Vodacom", &by_drive, 10).unwrap().hits.len(), 1);
+}
+
+#[test]
+fn a_moved_folder_whose_drive_vanished_keeps_its_index() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        let c = m.join("self development").join("Learn Rust");
+        for i in 1..=6 {
+            common::put(&c, &format!("{i:02} Lesson.mp4"), b"vid");
+            common::put(&c, &format!("{i:02} Lesson.srt"), b"1");
+        }
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    // The drive disappears before Aegis records the move.
+    std::fs::rename(&mount, mount.with_extension("gone")).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    let live: i64 = s.conn().query_row("SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND name LIKE '%Lesson%'", [], |r| r.get(0)).unwrap();
+    assert_eq!(live, 12, "nothing is forgotten because the drive went away");
 }

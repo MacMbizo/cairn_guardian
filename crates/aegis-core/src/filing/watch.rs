@@ -85,8 +85,13 @@ fn plural(n: i64) -> &'static str {
     if n == 1 { "file" } else { "files" }
 }
 
-/// Files new arrivals by learned rules, and proposes the rest.
-pub struct FilingWatch;
+/// Files new arrivals by learned rules, and proposes the rest. Remembers the arrivals it has
+/// already considered, so a Downloads folder full of loose files doesn't trigger a full re-plan
+/// every run.
+#[derive(Default)]
+pub struct FilingWatch {
+    seen: std::collections::HashSet<String>,
+}
 
 impl Watch for FilingWatch {
     fn name(&self) -> &'static str {
@@ -110,7 +115,9 @@ impl Watch for FilingWatch {
             }
             let mut auto: Vec<Placement> = Vec::new();
             let mut pending: Vec<Placement> = Vec::new();
-            let new_ids: std::collections::HashSet<String> = arrivals(store, &dirs, now)?.into_iter().collect();
+            let new_ids: std::collections::HashSet<String> =
+                arrivals(store, &dirs, now)?.into_iter().filter(|id| !self.seen.contains(id)).collect();
+            self.seen.extend(new_ids.iter().cloned());
             // Plan the scope once and pick out the arrivals (planning per file would redo the
             // whole drive for each one).
             let planned: Vec<Placement> = if new_ids.is_empty() {

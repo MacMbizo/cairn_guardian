@@ -93,7 +93,7 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("dashboard");
   const drivesData = useDrives();
   const engineData = useEngine();
-  const filingData = useFiling();
+  const filingData = useFiling(tab === "filing" || tab === "dashboard");
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
       ? "Aegis Guardian core ready."
@@ -307,6 +307,8 @@ export default function App() {
             category: null,
             who: null,
             year: null,
+            kind: null,
+            volume_id: null,
           },
           30
         );

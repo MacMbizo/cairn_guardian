@@ -184,8 +184,12 @@ function BatchView({ s, batch, preview, onDone, onBack }: { s: ScopeStatus; batc
     }
   };
   const skip = async () => {
-    if (!preview) await aegis.actions.reject(batch, "Skipped from Filing");
-    onDone("Skipped. Those files stay where they are and won't be suggested again.");
+    try {
+      if (!preview) await aegis.filing.skip(batch);
+      onDone("Skipped. Those files stay where they are and won't be suggested again.");
+    } catch (e) {
+      setErr(errorMessage(e));
+    }
   };
 
   return (
@@ -417,8 +421,14 @@ export function FilingScreen({ data }: { data: FilingData }) {
   };
   const undo = async (batch: string) => {
     try {
-      if (!preview) await aegis.filing.undo(batch);
-      setMsg({ text: "Undone. Everything is back where it was." });
+      const res = preview ? null : await aegis.filing.undo(batch);
+      const stuck = res?.conflicts.length ?? 0;
+      setMsg({
+        text:
+          stuck === 0
+            ? "Undone. Everything is back where it was."
+            : `Undone except ${stuck} file${stuck === 1 ? "" : "s"} that changed since (something new is in the old place). Open Simulator & Actions to choose what happens to ${stuck === 1 ? "it" : "them"}.`,
+      });
       void reload();
     } catch (e) {
       setMsg({ text: errorMessage(e) });

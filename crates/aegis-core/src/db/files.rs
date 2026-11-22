@@ -596,7 +596,8 @@ pub fn search_fts(
     let sanitized = sanitize_fts_query(query);
     let terms: Vec<String> = query
         .split_whitespace()
-        .map(|t| t.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
+        // Hyphens and dots stay so "2026-03-14" matches Aegis's own names; LIKE's % and _ never get in.
+        .map(|t| t.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '.').collect::<String>().to_lowercase())
         .filter(|t| !t.is_empty())
         .collect();
     if sanitized.is_empty() || terms.is_empty() {
@@ -621,7 +622,9 @@ pub fn search_fts(
            AND (?7 IS NULL OR m.category LIKE ?7)
            AND (?8 IS NULL OR lower(m.who) = lower(?8))
            AND (?9 IS NULL OR substr(m.doc_date, 1, 4) = ?9
-                OR strftime('%Y', m.exif_taken_at / 1000, 'unixepoch') = ?9)";
+                OR strftime('%Y', m.exif_taken_at / 1000, 'unixepoch') = ?9)
+           AND (?10 IS NULL OR m.kind = ?10)
+           AND (?11 IS NULL OR f.volume_id = ?11)";
     let base = rusqlite::params![
         i32::from(include_quarantined),
         filters.project_id,
@@ -632,6 +635,8 @@ pub fn search_fts(
         category,
         filters.who,
         year,
+        filters.kind,
+        filters.volume_id,
     ];
     let mut hits: Vec<SearchHit> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -657,8 +662,8 @@ pub fn search_fts(
                     snippet(chunks_fts, 0, '[', ']', '...', 16), -bm25(chunks_fts)
              FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid JOIN files f ON f.id = c.file_id
              LEFT JOIN file_meta m ON m.file_id = f.id
-             WHERE chunks_fts MATCH ?10 AND {FILTERS}
-             ORDER BY 8 DESC LIMIT ?11"
+             WHERE chunks_fts MATCH ?12 AND {FILTERS}
+             ORDER BY 8 DESC LIMIT ?13"
         );
         let mut stmt = conn.prepare(&sql)?;
         let mut p: Vec<&dyn rusqlite::ToSql> = base.to_vec();
@@ -673,7 +678,7 @@ pub fn search_fts(
         }
     }
     // 2. Current name, then 3. a name it had before Aegis filed it. Every word must match.
-    let like_all = |col: &str| terms.iter().enumerate().map(|(i, _)| format!("lower({col}) LIKE ?{}", 12 + i)).collect::<Vec<_>>().join(" AND ");
+    let like_all = |col: &str| terms.iter().enumerate().map(|(i, _)| format!("lower({col}) LIKE ?{}", 14 + i)).collect::<Vec<_>>().join(" AND ");
     let likes: Vec<String> = terms.iter().map(|t| format!("%{t}%")).collect();
     for (reason, sql) in [
         (
@@ -681,7 +686,7 @@ pub fn search_fts(
             format!(
                 "SELECT f.id, f.path, f.name, f.state, f.sensitivity, f.cloud_state, '' , 0.0
                  FROM files f LEFT JOIN file_meta m ON m.file_id = f.id
-                 WHERE {} AND {FILTERS} AND ?10 = ?10 LIMIT ?11",
+                 WHERE {} AND {FILTERS} AND ?12 = ?12 LIMIT ?13",
                 like_all("f.name")
             ),
         ),
@@ -690,7 +695,7 @@ pub fn search_fts(
             format!(
                 "SELECT DISTINCT f.id, f.path, f.name, f.state, f.sensitivity, f.cloud_state, '', 0.0
                  FROM file_history h JOIN files f ON f.id = h.file_id LEFT JOIN file_meta m ON m.file_id = f.id
-                 WHERE {} AND {FILTERS} AND ?10 = ?10 LIMIT ?11",
+                 WHERE {} AND {FILTERS} AND ?12 = ?12 LIMIT ?13",
                 like_all("h.old_path")
             ),
         ),

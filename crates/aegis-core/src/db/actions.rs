@@ -67,6 +67,23 @@ fn display_string(path: &Path) -> String {
     raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
 }
 
+/// `a` and `b` name the same entry and differ only in letter case: a case-only rename, which
+/// Windows sees as "already exists".
+fn case_only(a: &Path, b: &Path) -> bool {
+    a != b && a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())
+}
+
+/// `fs::rename`, going through a temporary name for a case-only rename.
+fn rename_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    if case_only(from, to) {
+        let name = from.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let tmp = from.with_file_name(format!("{name}.aegis-case"));
+        std::fs::rename(from, &tmp)?;
+        return std::fs::rename(&tmp, to);
+    }
+    std::fs::rename(from, to)
+}
+
 fn non_overwriting_dest(path: &Path) -> (PathBuf, bool) {
     if !path.exists() {
         return (path.to_path_buf(), false);
@@ -653,11 +670,15 @@ fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOu
             if !from.exists() {
                 return Err(AegisError::NotFound(row.from_path.clone()));
             }
-            let (eff_to, _) = non_overwriting_dest(Path::new(raw_to));
+            let (eff_to, _) = if case_only(from, Path::new(raw_to)) {
+                (PathBuf::from(raw_to), false)
+            } else {
+                non_overwriting_dest(Path::new(raw_to))
+            };
             if let Some(parent) = eff_to.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::rename(from, &eff_to)?;
+            rename_entry(from, &eff_to)?;
             Ok(FsOutcome::Moved {
                 src: from.to_path_buf(),
                 dest: eff_to,
@@ -1161,7 +1182,8 @@ fn check_single_action_preflight(row: &DbActionRow) -> Option<RollbackConflictIt
         });
     }
 
-    if row.action_type != ActionType::Copy && from_path.exists() {
+    let case_rename = row.to_path.as_deref().is_some_and(|t| case_only(from_path, Path::new(t)));
+    if row.action_type != ActionType::Copy && from_path.exists() && !case_rename {
         return Some(RollbackConflictItem {
             action_id: row.id.clone(),
             from_path: row.from_path.clone(),
@@ -1287,7 +1309,7 @@ fn revert_one(store: &mut SqliteStore, row: &DbActionRow, mode: RevertMode) -> R
                 RevertMode::RestoreAs(p) => p,
                 RevertMode::CopyBackKeepingBoth => non_overwriting_dest(&original).0,
             };
-            if dest.exists() {
+            if dest.exists() && !case_only(&src, &dest) {
                 return Err(AegisError::InvalidInput(format!(
                     "{} is occupied; choose 'restore as rename' or skip",
                     dest.display()
@@ -1304,7 +1326,7 @@ fn revert_one(store: &mut SqliteStore, row: &DbActionRow, mode: RevertMode) -> R
             if copy_back {
                 std::fs::copy(&src, &dest)?;
             } else {
-                std::fs::rename(&src, &dest)?;
+                rename_entry(&src, &dest)?;
             }
             let res = store.with_full_sync_tx(|tx| db_revert_in_tx(tx, row, &dest, copy_back, cs, now));
             if let Err(e) = res {

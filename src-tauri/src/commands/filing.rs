@@ -3,7 +3,7 @@
 
 use super::{AppState, lock_store, map_err};
 use crate::engine_host::wake;
-use aegis_core::contracts::ExecuteResult;
+use aegis_core::contracts::{ExecuteResult, RollbackResult};
 use aegis_core::db::SqliteStore;
 use aegis_core::db::actions::{approve_batch, execute_batch, rollback_batch};
 use aegis_core::error::IpcError;
@@ -68,12 +68,26 @@ pub fn filing_approve(
     Ok(res)
 }
 
+/// Undo a filing batch. Files that changed since can't always go back; the result lists them.
 #[tauri::command(async)]
-pub fn filing_undo(app: AppHandle, state: State<'_, AppState>, batch: String) -> Result<(), IpcError> {
+pub fn filing_undo(app: AppHandle, state: State<'_, AppState>, batch: String) -> Result<RollbackResult, IpcError> {
+    let res = {
+        let mut store = lock_store(&state)?;
+        let res = rollback_batch(&mut store, &batch);
+        // Whatever did go back is recorded, even if the undo stopped part-way.
+        map_err(after_rollback(&mut store, &batch))?;
+        map_err(res)?
+    };
+    wake(&app);
+    Ok(res)
+}
+
+/// "Skip this folder": turned down, not offered again, and a "no" for the rules involved.
+#[tauri::command(async)]
+pub fn filing_skip(app: AppHandle, state: State<'_, AppState>, batch: String) -> Result<(), IpcError> {
     {
         let mut store = lock_store(&state)?;
-        map_err(rollback_batch(&mut store, &batch))?;
-        map_err(after_rollback(&mut store, &batch))?;
+        map_err(aegis_core::filing::batches::skip_batch(&mut store, &batch))?;
     }
     wake(&app);
     Ok(())

@@ -160,6 +160,7 @@ pub fn run() {
             commands::filing::filing_next_batch,
             commands::filing::filing_approve,
             commands::filing::filing_undo,
+            commands::filing::filing_skip,
             commands::filing::filing_to_sort,
             commands::filing::filing_destinations,
             commands::filing::filing_place,

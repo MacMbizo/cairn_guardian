@@ -25,18 +25,32 @@ pub struct ReadReport {
     pub skipped: usize,
 }
 
-/// Runs `extract` on a worker thread so a panic or an endless loop costs one file, not the run.
-fn extract_isolated(path: PathBuf, timeout: Duration) -> std::result::Result<Extracted, String> {
+/// Message for a file whose reading did not finish (a hang, or a crash that killed Aegis).
+pub const TOO_LONG: &str = "reading took too long";
+
+/// Runs `f` on a worker thread with a roomy stack, so a panic or an endless loop costs one
+/// file, not the run. A worker that hangs can't be stopped; the caller ends its run.
+pub fn run_isolated<T: Send + 'static>(
+    f: impl FnOnce() -> crate::error::Result<T> + Send + 'static,
+    timeout: Duration,
+) -> std::result::Result<T, String> {
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let res = std::panic::catch_unwind(|| extract(&path));
+    let spawned = std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(move || {
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
         let _ = tx.send(match res {
             Ok(Ok(x)) => Ok(x),
             Ok(Err(e)) => Err(e.to_string()),
             Err(_) => Err("the file couldn't be read (its format looks damaged)".to_string()),
         });
     });
-    rx.recv_timeout(timeout).unwrap_or_else(|_| Err("reading took too long".to_string()))
+    if spawned.is_err() {
+        return Err("couldn't start reading".into());
+    }
+    rx.recv_timeout(timeout).unwrap_or_else(|_| Err(TOO_LONG.to_string()))
+}
+
+fn extract_isolated(path: PathBuf, timeout: Duration) -> std::result::Result<Extracted, String> {
+    run_isolated(move || extract(&path), timeout)
 }
 
 fn store_text(store: &SqliteStore, file_id: &str, text: &str) -> Result<()> {
@@ -103,8 +117,15 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
         let mut meta = load_meta(store.conn(), &id)?.unwrap_or_else(|| FileMeta::new(&id, kind_of(&ext, &name, false)));
         meta.kind = kind_of(&ext, &name, false);
         let now = now_ms();
+        // Marked before opening: if a parser crashes Aegis outright, this file isn't tried first
+        // again on every start.
+        meta.read_at = Some(now);
+        meta.read_error = Some(TOO_LONG.into());
+        save_meta(store.conn(), &meta)?;
         let mut text: Option<String> = None;
-        match extract_isolated(PathBuf::from(&path), timeout) {
+        let result = extract_isolated(PathBuf::from(&path), timeout);
+        let hung = matches!(&result, Err(e) if e == TOO_LONG);
+        match result {
             Ok(x) => {
                 if let Some(t) = &x.text {
                     store_text(store, &id, t)?;
@@ -130,6 +151,10 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
         apply_classification(&mut meta, &name, &ext, text.as_deref(), mtime, false, &learned);
         meta.read_at = Some(now);
         save_meta(store.conn(), &meta)?;
+        if hung {
+            // A stuck reader keeps a core busy until Aegis restarts: don't start more now.
+            break;
+        }
     }
     Ok(rep)
 }
@@ -219,5 +244,31 @@ impl Watch for ReaderWatch {
         classify_unread(store, 20_000)?;
         read_pending(store, 2_000, READ_TIMEOUT)?;
         Ok(vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TOO_LONG, run_isolated};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_hanging_reader_is_abandoned_on_time() {
+        let t = Instant::now();
+        let r: Result<(), String> = run_isolated(
+            || {
+                std::thread::sleep(Duration::from_secs(5));
+                Ok(())
+            },
+            Duration::from_millis(100),
+        );
+        assert_eq!(r, Err(TOO_LONG.to_string()));
+        assert!(t.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_panicking_reader_costs_one_file() {
+        let r: Result<(), String> = run_isolated(|| panic!("bad pdf"), Duration::from_secs(5));
+        assert!(r.unwrap_err().contains("damaged"));
     }
 }

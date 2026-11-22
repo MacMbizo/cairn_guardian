@@ -387,6 +387,10 @@ pub struct SearchFilters {
     pub who: Option<String>,
     /// Year of the document's own date, or of a photo.
     pub year: Option<i32>,
+    /// What sort of file ("document", "photo", ...).
+    pub kind: Option<String>,
+    /// Only this drive (works for unplugged drives too: the catalog remembers them).
+    pub volume_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

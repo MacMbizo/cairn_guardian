@@ -454,7 +454,12 @@ pub fn actions_reject(
     reason: Option<String>,
 ) -> Result<(), IpcError> {
     let mut store = lock_store(&state)?;
-    map_err(reject_batch(&mut store, &batch, reason.as_deref()))
+    map_err(reject_batch(&mut store, &batch, reason.as_deref()))?;
+    // Turning down a filing batch also sends its rules back to asking.
+    if is_filing_batch(&store, &batch) {
+        map_err(aegis_core::filing::batches::after_reject(&mut store, &batch))?;
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]

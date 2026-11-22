@@ -43,10 +43,19 @@ pub fn open_filing_batch(conn: &Connection, scope: &Scope) -> Result<Option<Stri
         .optional()?)
 }
 
-/// Paths the owner turned down or undid: never proposed again.
+/// Paths never proposed again: the owner turned them down or undid them, the executor held
+/// them back, or the move failed for a reason that won't go away by itself. Moves that failed
+/// because a drive was unplugged or a file had moved on are offered again later.
 fn declined(conn: &Connection) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
-        "SELECT lower(from_path) FROM actions WHERE agent = ?1 AND status IN ('rejected', 'rolled_back')",
+        "SELECT lower(from_path) FROM actions WHERE agent = ?1 AND (
+            status IN ('rejected', 'rolled_back', 'skipped')
+            OR (status = 'failed' AND NOT (
+                lower(COALESCE(error_message, '')) LIKE '%outside_configured_roots%'
+                OR lower(COALESCE(error_message, '')) LIKE '%not found%'
+                OR lower(COALESCE(error_message, '')) LIKE '%cannot find%'
+                OR lower(COALESCE(error_message, '')) LIKE '%offline%'
+                OR lower(COALESCE(error_message, '')) LIKE '%no longer%')))",
     )?;
     Ok(stmt.query_map([AGENT], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
 }
@@ -236,12 +245,33 @@ fn history(conn: &Connection, file_id: Option<&str>, old: &str, new: &str, batch
     Ok(())
 }
 
-fn learn(conn: &Connection, scope_key: &str, a: &ActionRow, batch_id: &str, outcome: Outcome, now: i64) -> Result<()> {
-    let Some(rule_key) = a.evidence.get("rule_key").and_then(|v| v.as_str()) else { return Ok(()) };
-    let dest = a.evidence.get("dest_template").and_then(|v| v.as_str()).unwrap_or_default();
-    let rename = a.evidence.get("new_name").is_some_and(|v| !v.is_null());
-    record_outcome(conn, scope_key, rule_key, dest, rename, outcome, now)?;
-    log_decision(conn, rule_key, a.file_id.as_deref(), batch_id, outcome, now)
+/// What one batch taught: each rule counts once per batch (one decision by the owner), with
+/// approvals applied before rejections so a mixed answer ends at "asking".
+#[derive(Default)]
+struct Lessons {
+    approved: BTreeMap<String, (String, bool)>,
+    rejected: BTreeMap<String, (String, bool)>,
+}
+
+impl Lessons {
+    fn note(&mut self, conn: &Connection, a: &ActionRow, batch_id: &str, outcome: Outcome, now: i64) -> Result<()> {
+        let Some(rule_key) = a.evidence.get("rule_key").and_then(|v| v.as_str()) else { return Ok(()) };
+        let dest = a.evidence.get("dest_template").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let rename = a.evidence.get("new_name").is_some_and(|v| !v.is_null());
+        let bucket = if outcome == Outcome::Approved { &mut self.approved } else { &mut self.rejected };
+        bucket.entry(rule_key.to_string()).or_insert((dest, rename));
+        log_decision(conn, rule_key, a.file_id.as_deref(), batch_id, outcome, now)
+    }
+
+    fn apply(self, conn: &Connection, scope_key: &str, rejected_as: Outcome, now: i64) -> Result<()> {
+        for (key, (dest, rename)) in self.approved {
+            record_outcome(conn, scope_key, &key, &dest, rename, Outcome::Approved, now)?;
+        }
+        for (key, (dest, rename)) in self.rejected {
+            record_outcome(conn, scope_key, &key, &dest, rename, rejected_as, now)?;
+        }
+        Ok(())
+    }
 }
 
 /// Files under `dir` as `(id, path, volume_id)`.
@@ -296,24 +326,27 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     let now = now_ms();
     let mut moved_from = Vec::new();
     let mut moved_files = 0i64;
+    let mut lessons = Lessons::default();
     for a in &rows {
         match a.status.as_str() {
             "executed" => {
                 if a.target_kind == "dir" {
                     let to = a.to.clone().unwrap_or_default();
                     let children = files_under(store.conn(), &a.from)?;
-                    if let Some((_, _, vol)) = children.first().cloned() {
-                        reindex_moved_dir(store, &vol, &a.from, &to)?;
-                    }
                     moved_files += children.len() as i64;
-                    for (id, old, _) in children {
-                        let new: Option<String> = store
-                            .conn()
-                            .query_row("SELECT path FROM files WHERE id = ?1 AND deleted_at IS NULL", [&id], |r| r.get(0))
-                            .optional()?;
-                        if let Some(new) = new {
-                            history(store.conn(), Some(&id), &old, &new, batch_id, now)?;
-                        }
+                    // Where each file went, worked out from the folder move itself, so it is
+                    // recorded even if the drive goes away before re-indexing.
+                    for (id, old, _) in &children {
+                        let rest = Path::new(old).strip_prefix(&a.from).map(Path::to_path_buf).unwrap_or_default();
+                        let new = Path::new(&to).join(rest).to_string_lossy().to_string();
+                        history(store.conn(), Some(id), old, &new, batch_id, now)?;
+                    }
+                    // Re-index only while the folder is really there; otherwise the live index
+                    // catches up when the drive is back (never forget files that still exist).
+                    if Path::new(&to).is_dir()
+                        && let Some((_, _, vol)) = children.first().cloned()
+                    {
+                        reindex_moved_dir(store, &vol, &a.from, &to)?;
                     }
                 } else if let Some(fid) = &a.file_id {
                     let new: String = store.conn().query_row("SELECT path FROM files WHERE id = ?1", [fid], |r| r.get(0))?;
@@ -321,16 +354,17 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                     moved_files += 1;
                 }
                 moved_from.push(a.from.clone());
-                learn(store.conn(), &scope_key, a, batch_id, Outcome::Approved, now)?;
+                lessons.note(store.conn(), a, batch_id, Outcome::Approved, now)?;
             }
             "proposed" => {
                 // Unticked: the owner wants it left where it is.
                 store.conn().execute("UPDATE actions SET status = 'rejected' WHERE id = ?1", [&a.id])?;
-                learn(store.conn(), &scope_key, a, batch_id, Outcome::Rejected, now)?;
+                lessons.note(store.conn(), a, batch_id, Outcome::Rejected, now)?;
             }
             _ => {}
         }
     }
+    lessons.apply(store.conn(), &scope_key, Outcome::Rejected, now)?;
     remove_emptied(&roots, &moved_from);
     if let Some((remaining, to_sort)) = super::cached_counts(store.conn(), &scope)? {
         super::set_counts(store.conn(), &scope, remaining - moved_files, to_sort)?;
@@ -344,6 +378,7 @@ pub fn after_rollback(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     let (origin, rows) = batch_rows(store.conn(), batch_id)?;
     let Some(scope) = scope_of_origin(&origin) else { return Ok(()) };
     let now = now_ms();
+    let mut lessons = Lessons::default();
     for a in rows.iter().filter(|a| a.status == "rolled_back") {
         if a.target_kind == "dir"
             && let Some(to) = &a.to
@@ -353,8 +388,35 @@ pub fn after_rollback(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                 reindex_moved_dir(store, &vol, to, &a.from)?;
             }
         }
-        learn(store.conn(), &scope.key(), a, batch_id, Outcome::Undone, now)?;
+        lessons.note(store.conn(), a, batch_id, Outcome::Undone, now)?;
     }
-    store.conn().execute("DELETE FROM file_history WHERE batch_id = ?1", [batch_id])?;
+    lessons.apply(store.conn(), &scope.key(), Outcome::Undone, now)?;
+    // Forget "was" records only for files that really are back where they were; anything an
+    // undo couldn't move back (a conflict) keeps its record.
+    store.conn().execute(
+        "DELETE FROM file_history WHERE batch_id = ?1 AND EXISTS (
+            SELECT 1 FROM files f WHERE f.id = file_history.file_id AND lower(f.path) = lower(file_history.old_path))",
+        [batch_id],
+    )?;
     Ok(())
+}
+
+/// After a filing batch was turned down (Skip, or rejected in Simulator & Actions): its rules
+/// go back to asking, as one decision per rule (policy C4 section 7).
+pub fn after_reject(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
+    let (origin, rows) = batch_rows(store.conn(), batch_id)?;
+    let Some(scope) = scope_of_origin(&origin) else { return Ok(()) };
+    let now = now_ms();
+    let mut lessons = Lessons::default();
+    for a in rows.iter().filter(|a| a.status == "rejected") {
+        lessons.note(store.conn(), a, batch_id, Outcome::Rejected, now)?;
+    }
+    lessons.apply(store.conn(), &scope.key(), Outcome::Rejected, now)
+}
+
+/// "Skip this folder": turns the batch down, never offers those files again, and counts as a
+/// "no" for the rules involved.
+pub fn skip_batch(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
+    crate::db::actions::reject_batch(store, batch_id, Some("Skipped from Filing"))?;
+    after_reject(store, batch_id)
 }

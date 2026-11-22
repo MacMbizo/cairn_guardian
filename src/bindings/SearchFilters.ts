@@ -12,4 +12,12 @@ who: string | null,
 /**
  * Year of the document's own date, or of a photo.
  */
-year: number | null, };
+year: number | null, 
+/**
+ * What sort of file ("document", "photo", ...).
+ */
+kind: string | null, 
+/**
+ * Only this drive (works for unplugged drives too: the catalog remembers them).
+ */
+volume_id: string | null, };

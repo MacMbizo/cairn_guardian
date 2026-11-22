@@ -227,7 +227,10 @@ export const aegis = {
     nextBatch: (scope: Scope) => call<string | null>("filing_next_batch", { scope }),
     /** Approves the ticked items (all when none given), runs them and records the result. */
     approve: (batch: string, selection?: string[]) => call<ExecuteResult>("filing_approve", { batch, selection }),
-    undo: (batch: string) => call<void>("filing_undo", { batch }),
+    /** Undo a batch; files that changed since are listed as conflicts. */
+    undo: (batch: string) => call<RollbackResult>("filing_undo", { batch }),
+    /** Turn a batch down: not offered again, and a "no" for its rules. */
+    skip: (batch: string) => call<void>("filing_skip", { batch }),
     toSort: (scope: Scope) => call<Placement[]>("filing_to_sort", { scope }),
     destinations: (scope: Scope) => call<string[]>("filing_destinations", { scope }),
     place: (scope: Scope, fileId: string, destFolder: string) =>

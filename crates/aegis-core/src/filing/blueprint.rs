@@ -459,8 +459,10 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             if depth(&parent) < 2 {
                 break;
             }
+            // Never climb into a folder of courses (the fresh structure's own Videos/Courses).
+            let is_courses = parent.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("courses"));
             let siblings = dirs.keys().filter(|o| o.parent() == Some(parent.as_path()) && qualifies(o)).count();
-            if qualifies(&parent) || siblings >= 2 {
+            if !is_courses && (qualifies(&parent) || siblings >= 2) {
                 c = parent;
             } else {
                 break;
@@ -470,7 +472,13 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             course_roots.insert(c);
         }
     }
-    for c in course_roots {
+    // Outermost only: a course inside another course moves with it.
+    let outer: Vec<PathBuf> = course_roots
+        .iter()
+        .filter(|c| !course_roots.iter().any(|o| o != *c && c.starts_with(o)))
+        .cloned()
+        .collect();
+    for c in outer {
         let name = c.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let to = match choice {
             BlueprintChoice::Fresh => bases.of("Videos").map(|b| b.join("Courses").join(&name)),
@@ -492,6 +500,19 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             BlueprintChoice::Tidy => None,
         };
         groups.push(Group { path: d.to_string_lossy().to_string(), code: false, to, reason: format!("Photo album: {name}"), confidence: 0.9 });
+    }
+    // A folder holding a code project stays where it is (moving it would move the code), and a
+    // group never targets a place inside itself (it is already filed).
+    let code: Vec<String> = groups.iter().filter(|g| g.code).map(|g| g.path.clone()).collect();
+    for g in groups.iter_mut().filter(|g| !g.code) {
+        let holds_code = code.iter().any(|c| path_is_within(c, &g.path, false));
+        let into_itself = g.to.as_ref().is_some_and(|t| path_is_within(&t.to_string_lossy(), &g.path, false));
+        if holds_code {
+            g.to = None;
+            g.reason = format!("{}: holds a code project, so it stays where it is", g.reason);
+        } else if into_itself {
+            g.to = None;
+        }
     }
     Ok(groups)
 }
@@ -641,7 +662,8 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                 },
                 BlueprintChoice::Tidy => {
                     let top = rel.components().next().map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or_default();
-                    if let Some(keep) = merge_into.get(&top) {
+                    let movable = !low && !matches!(r.meta.kind, Kind::System | Kind::Other | Kind::Code);
+                    if let (Some(keep), true) = (merge_into.get(&top), movable) {
                         let rest: PathBuf = rel.components().skip(1).collect();
                         let dir = root_p.join(keep).join(rest.parent().unwrap_or(Path::new("")));
                         file_placement(r, Some(dir), new_name, false)

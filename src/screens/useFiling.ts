@@ -11,7 +11,8 @@ export interface FilingData {
 }
 
 /** Filing progress per scope (PC and drives), refreshed when the engine reports changes. */
-export function useFiling(): FilingData {
+/** `active`: refresh on engine events only while Filing or Home is on screen (it re-counts drives). */
+export function useFiling(active = true): FilingData {
   const preview = !isTauriRuntime();
   const [scopes, setScopes] = useState<ScopeStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,7 @@ export function useFiling(): FilingData {
   }, [preview]);
 
   useEffect(() => {
+    if (!active) return;
     void reload();
     const unlisten = onAegisEvent((ev) => {
       if (ev.event === "EngineUpdated" || ev.event === "DriveCatalogued") void reload();
@@ -41,7 +43,7 @@ export function useFiling(): FilingData {
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, [reload]);
+  }, [reload, active]);
 
   return { scopes, loading, error, preview, reload };
 }
