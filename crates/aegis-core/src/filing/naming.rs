@@ -8,6 +8,8 @@ use super::classify::{Classification, DateSource};
 pub const MAX_NAME: usize = 120;
 /// Date and type must both be at least this sure before a document is renamed.
 pub const RENAME_CONFIDENCE: f64 = 0.80;
+/// Finished documents get descriptive names; notes and data files (md, txt, csv) keep theirs.
+const RENAMABLE_DOCS: [&str; 10] = ["pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "ppt", "pptx"];
 
 /// A name Windows accepts: forbidden characters removed, spaces collapsed, no trailing dots
 /// or spaces, at most [`MAX_NAME`] characters with the extension kept.
@@ -99,10 +101,13 @@ pub fn proposed_name(c: &Classification, original_stem: &str, ext: &str, mtime: 
     let name = match c.kind {
         Kind::Screenshot => {
             let date = c.doc_date.as_ref().filter(|_| c.date_source != DateSource::None)?;
-            format!("{date} {} Screenshot.{ext}", screenshot_time(original_stem, mtime))
+            // The time follows the date in the name; digits before it are the date itself.
+            let tail = original_stem.find(date.as_str()).map_or(original_stem, |i| &original_stem[i + date.len()..]);
+            let tail = if c.date_source == DateSource::Name { tail } else { original_stem };
+            format!("{date} {} Screenshot.{ext}", screenshot_time(tail, mtime))
         }
         Kind::Document => {
-            if c.type_confidence < RENAME_CONFIDENCE
+            if !RENAMABLE_DOCS.contains(&ext.as_str()) || c.type_confidence < RENAME_CONFIDENCE
                 || !matches!(c.date_source, DateSource::Content | DateSource::Name | DateSource::Exif)
             {
                 return None;

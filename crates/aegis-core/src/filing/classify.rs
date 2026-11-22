@@ -156,6 +156,10 @@ const DICTIONARY: &[Entry] = &[
 /// Name-only evidence is weaker: a file called "payslip" might not be one.
 const NAME_WEIGHT: f64 = 0.6;
 const NAME_ONLY_CAP: f64 = 0.75;
+/// Keyword weight needed for full confidence: a couple of passing mentions aren't enough.
+const STRONG_EVIDENCE: f64 = 6.0;
+/// The sender is looked for in the letterhead: this many leading characters, plus the name.
+const HEADER_CHARS: usize = 1_000;
 const ORG_BONUS: f64 = 0.15;
 
 fn day_ok(y: i64, m: i64, d: i64) -> bool {
@@ -303,7 +307,8 @@ pub fn classify(input: &ClassifyInput) -> Classification {
         (None, DateSource::None)
     };
 
-    let who = find_org(&format!("{text} {}", input.name), input.learned_orgs);
+    let header: String = text.chars().take(HEADER_CHARS).collect();
+    let who = find_org(&format!("{header} {}", input.name), input.learned_orgs);
 
     if kind != Kind::Document {
         let confidence = match kind {
@@ -368,7 +373,7 @@ pub fn classify(input: &ClassifyInput) -> Classification {
         .skip(1)
         .find(|s| DICTIONARY[s.2].0 != category)
         .map_or(0.0, |s| s.0);
-    let mut confidence = best / (best + second + 1.0);
+    let mut confidence = best / (best + second + 1.0) * (best / STRONG_EVIDENCE).min(1.0);
     if !best_in_text {
         confidence = confidence.min(NAME_ONLY_CAP);
     }

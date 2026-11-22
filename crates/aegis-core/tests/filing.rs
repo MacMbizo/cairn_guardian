@@ -1051,3 +1051,73 @@ fn move_only_examples_show_the_destination_folder() {
     let sum = summarize(&ps, BlueprintChoice::Fresh, &s).unwrap();
     assert_eq!(sum.examples, vec![("setup.exe".to_string(), "Software\\Installers\\setup.exe".to_string())]);
 }
+
+// ---------- Task 12: dry-run findings ----------
+
+#[test]
+fn technical_notes_with_a_few_keywords_are_not_confident() {
+    // A config document that mentions tenants and rentals is not a lease.
+    let c = doc(
+        "E1_environments_and_configuration_matrix.md",
+        Some("Environments matrix. Each tenant gets its own database. Rental of GPU servers is billed monthly. Deployment notes follow."),
+    );
+    assert!(c.confidence < 0.60, "{} {:?}", c.confidence, c.category);
+}
+
+#[test]
+fn sender_must_appear_near_the_top_or_in_the_name() {
+    let body = format!(
+        "Curriculum Vitae MacDonald\nWork experience as a project manager and administrator.\n{}\nSkills: Microsoft Word, Excel, Google Workspace.",
+        "Responsible for budgets, procurement and reporting. ".repeat(40)
+    );
+    let c = doc("cover letter.docx", Some(&body));
+    assert_eq!(c.who, None, "a product named deep in a CV is not who it is from");
+    let c = doc("scan.pdf", Some("TAX INVOICE Vodacom (Pty) Ltd Invoice date: 14/03/2026 VAT Amount due"));
+    assert_eq!(c.who.as_deref(), Some("Vodacom"));
+}
+
+#[test]
+fn notes_and_data_files_are_never_renamed() {
+    let mut c = invoice_class();
+    for ext in ["md", "txt", "csv"] {
+        c.kind = Kind::Document;
+        assert_eq!(proposed_name(&c, "27_mcc_glossary_of_terms", ext, 0), None, "{ext}");
+    }
+}
+
+#[test]
+fn screenshot_time_comes_after_the_date() {
+    let c = classify(&ClassifyInput {
+        name: "Screenshot 2021-08-25 at 00-01-12 Inventory Management System DFD.png",
+        ext: "png",
+        text: None,
+        exif_taken_at: None,
+        mtime: 0,
+        in_atomic_unit: false,
+        learned_orgs: &[],
+    });
+    assert_eq!(
+        proposed_name(&c, "Screenshot 2021-08-25 at 00-01-12 Inventory Management System DFD", "png", 0).as_deref(),
+        Some("2021-08-25 00.01.12 Screenshot.png")
+    );
+}
+
+#[test]
+fn files_on_unplugged_drives_wait_to_be_read() {
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "later.docx", "Vodacom tax invoice");
+    });
+    // Forget what was read, then unplug the drive.
+    s.conn().execute("DELETE FROM file_meta", []).unwrap();
+    let Scope::Volume { volume_id } = &scope else { unreachable!() };
+    s.conn().execute("UPDATE volumes SET status = 'offline' WHERE id = ?1", [volume_id]).unwrap();
+    let rep = read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    assert_eq!((rep.read, rep.unreadable), (0, 0), "nothing attempted while unplugged");
+    // A file that vanished from a plugged-in drive isn't marked unreadable either.
+    s.conn().execute("UPDATE volumes SET status = 'online' WHERE id = ?1", [volume_id]).unwrap();
+    std::fs::remove_file(mount.join("later.docx")).unwrap();
+    let rep = read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    assert_eq!(rep.unreadable, 0);
+    let id: String = s.conn().query_row("SELECT id FROM files WHERE name = 'later.docx'", [], |r| r.get(0)).unwrap();
+    assert!(load_meta(s.conn(), &id).unwrap().is_none_or(|m| m.read_at.is_none()));
+}

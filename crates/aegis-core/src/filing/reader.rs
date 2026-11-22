@@ -69,6 +69,7 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
     let rows: Vec<(String, String, String, Option<String>, i64)> = {
         let mut stmt = store.conn().prepare(
             "SELECT f.id, f.path, f.name, f.ext, f.mtime FROM files f
+             JOIN volumes v ON v.id = f.volume_id AND v.status = 'online'
              LEFT JOIN file_meta m ON m.file_id = f.id
              WHERE f.deleted_at IS NULL AND f.state NOT IN ('quarantine', 'missing')
                AND f.cloud_state = 'local' AND f.size <= ?1 AND f.atomic_unit_id IS NULL
@@ -93,6 +94,12 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
     let mut rep = ReadReport::default();
     for (id, path, name, ext, mtime) in rows {
         let ext = ext.unwrap_or_default();
+        // Gone since it was indexed (or its drive just went away): the live index will catch
+        // up; it isn't unreadable.
+        if !std::path::Path::new(&path).is_file() {
+            rep.skipped += 1;
+            continue;
+        }
         let mut meta = load_meta(store.conn(), &id)?.unwrap_or_else(|| FileMeta::new(&id, kind_of(&ext, &name, false)));
         meta.kind = kind_of(&ext, &name, false);
         let now = now_ms();
