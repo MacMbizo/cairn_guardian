@@ -88,3 +88,94 @@ fn saving_again_replaces_computed_rows_but_keeps_decisions() {
     assert_eq!(got, vec![other]);
     assert_eq!(decisions(s.conn()).unwrap(), vec![d]);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Folder profiles
+
+mod fixtures_context;
+
+use aegis_core::context::profile::{FolderProfile, profiles};
+use std::path::{Path, PathBuf};
+
+/// A scanned PC: `me\Documents` (with `Projectsv2\Dev Set`), `me\Downloads`, `me\Pictures` and
+/// `Prj`, all roots. Returns (tmp, store, home, prj).
+pub fn pc() -> (tempfile::TempDir, SqliteStore, PathBuf, PathBuf) {
+    let t = tempfile::TempDir::new().unwrap();
+    let home = t.path().join("me");
+    let prj = t.path().join("Prj");
+    for f in ["Documents", "Downloads", "Pictures"] {
+        std::fs::create_dir_all(home.join(f)).unwrap();
+    }
+    fixtures_context::dev_set(&home.join("Documents"));
+    fixtures_context::prj(&prj);
+    fixtures_context::ordinary(&home);
+    let mut s = SqliteStore::open_in_memory().unwrap();
+    for r in [home.join("Documents"), home.join("Downloads"), home.join("Pictures"), prj.clone()] {
+        s.add_root(&r).unwrap();
+        aegis_core::scanner::scan_root(&mut s, &r, &[1]).unwrap();
+    }
+    aegis_core::filing::reader::read_pending(&mut s, 5_000, std::time::Duration::from_secs(30)).unwrap();
+    (t, s, home, prj)
+}
+
+pub fn roots_of(s: &SqliteStore) -> Vec<String> {
+    s.list_roots().unwrap().into_iter().map(|r| r.path).collect()
+}
+
+fn profile_at<'a>(ps: &'a [FolderProfile], p: &Path) -> &'a FolderProfile {
+    let want = common::canon(p);
+    ps.iter().find(|f| f.path.eq_ignore_ascii_case(&want)).unwrap_or_else(|| panic!("no profile for {want}"))
+}
+
+#[test]
+fn profile_counts_exclude_build_output() {
+    let (_t, s, _home, prj) = pc();
+    let ps = profiles(&s, &roots_of(&s)).unwrap();
+    let pp = profile_at(&ps, &prj.join("paperPilot"));
+    assert_eq!(pp.files, 5, "node_modules must not count");
+    assert!(pp.child_dirs.iter().all(|c| !c.to_lowercase().ends_with("node_modules")));
+    assert!(pp.atomic_unit);
+    assert!(pp.manifests.iter().any(|(f, _)| f == "package.json"));
+    assert!(pp.has_readme);
+    let pigeon = profile_at(&ps, &prj.parent().unwrap().join("me/Documents/Projectsv2/Dev Set/AIPrompt/template/prompt-pigeon"));
+    assert!(pigeon.has_git);
+    assert_eq!(pigeon.files, 2, ".git contents must not count");
+}
+
+#[test]
+fn profile_finds_doc_and_asset_signals() {
+    let (_t, s, home, _prj) = pc();
+    let ps = profiles(&s, &roots_of(&s)).unwrap();
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    let disc = profile_at(&ps, &ds.join("discipline_app"));
+    assert!(disc.doc_signals.contains(&"prd".to_string()), "{:?}", disc.doc_signals);
+    assert!(disc.doc_signals.contains(&"set_files".to_string()), "{:?}", disc.doc_signals);
+    assert!(disc.source_files >= 4);
+    let fx = profile_at(&ps, &ds.join("forexTrader"));
+    for w in ["favicon", "logo", "icon"] {
+        assert!(fx.asset_signals.contains(&w.to_string()), "{w} missing from {:?}", fx.asset_signals);
+    }
+    assert!(fx.doc_signals.contains(&"architecture".to_string()));
+    let cvs = profile_at(&ps, &home.join("Documents/CVs"));
+    assert!(cvs.doc_signals.is_empty() && cvs.asset_signals.is_empty(), "{:?} {:?}", cvs.doc_signals, cvs.asset_signals);
+}
+
+#[test]
+fn profile_rolls_up_subtrees() {
+    let (_t, s, home, _prj) = pc();
+    let ps = profiles(&s, &roots_of(&s)).unwrap();
+    let ds_path = home.join("Documents/Projectsv2/Dev Set");
+    let ds = profile_at(&ps, &ds_path);
+    let children: i64 = ds.child_dirs.iter().map(|c| profile_at(&ps, Path::new(c)).files).sum();
+    assert_eq!(ds.files, children + ds.loose_files);
+    assert_eq!(ds.child_dirs.len(), 7);
+    assert_eq!(ds.loose_files, 0);
+    let ai = profile_at(&ps, &ds_path.join("AIPrompt"));
+    assert_eq!(ai.files, 4);
+    assert_eq!(ai.loose_files, 0);
+    assert_eq!(ai.depth, 3);
+    let driving = profile_at(&ps, &ds_path.join("DrivingSchool"));
+    let src = profile_at(&ps, &ds_path.join("DrivingSchool/src"));
+    assert!(driving.newest_mtime >= src.newest_mtime);
+    assert_eq!(driving.kind_count(aegis_core::filing::Kind::Photo), 2);
+}

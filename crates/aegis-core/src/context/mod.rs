@@ -5,6 +5,7 @@
 //! - `profile`: per-folder statistics from the catalog
 //! - `store`: persistence of collections, locations and the owner's answers
 
+pub mod profile;
 pub mod store;
 
 use serde::{Deserialize, Serialize};
