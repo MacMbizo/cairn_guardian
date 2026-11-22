@@ -12,8 +12,32 @@ pub const RENAME_CONFIDENCE: f64 = 0.80;
 const RENAMABLE_DOCS: [&str; 10] = ["pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "ppt", "pptx"];
 
 /// A name Windows accepts: forbidden characters removed, spaces collapsed, no trailing dots
-/// or spaces, at most [`MAX_NAME`] characters with the extension kept.
+/// or spaces, no reserved device name (CON, NUL, COM1 …, which get a `_`), at most
+/// [`MAX_NAME`] characters with the extension kept. A name of only dots and spaces becomes "".
 pub fn sanitize(name: &str) -> String {
+    not_reserved(sanitize_chars(name))
+}
+
+/// Windows refuses CON, PRN, AUX, NUL, COM1–9 and LPT1–9 as a name, with or without an extension.
+fn not_reserved(name: String) -> String {
+    let (stem, rest) = name.split_once('.').map_or((name.as_str(), ""), |(s, _)| (s, &name[s.len()..]));
+    let stem = stem.trim_end();
+    let up = stem.to_ascii_uppercase();
+    let device = |p: &str| up.len() == 4 && up.starts_with(p) && matches!(up.as_bytes()[3], b'1'..=b'9');
+    if ["CON", "PRN", "AUX", "NUL"].contains(&up.as_str()) || device("COM") || device("LPT") {
+        format!("{stem}_{rest}")
+    } else {
+        name
+    }
+}
+
+/// [`sanitize`] for a folder made from a tag or name: `fallback` when nothing usable is left.
+pub fn folder_name(raw: &str, fallback: &str) -> String {
+    let s = sanitize(raw);
+    if s.is_empty() { fallback.to_string() } else { s }
+}
+
+fn sanitize_chars(name: &str) -> String {
     let cleaned: String = name.chars().filter(|c| !"<>:\"/\\|?*".contains(*c) && !c.is_control()).collect();
     let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     let trimmed = collapsed.trim_end_matches(['.', ' ']).to_string();

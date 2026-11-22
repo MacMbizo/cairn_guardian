@@ -417,6 +417,31 @@ fn names_are_sanitised_and_capped() {
 }
 
 #[test]
+fn windows_reserved_names_are_refused() {
+    for bad in ["CON", "con", "PRN", "AUX", "NUL", "COM1", "com9", "LPT1", "LPT9", "nul.txt", "Aux .mp3"] {
+        let out = sanitize(bad);
+        let stem = out.split('.').next().unwrap().trim().to_uppercase();
+        let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+            || ((stem.starts_with("COM") || stem.starts_with("LPT")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit());
+        assert!(!reserved && !out.is_empty(), "{bad} -> {out}");
+    }
+    assert_eq!(sanitize("..."), "");
+    assert_eq!(sanitize(" . . "), "");
+    assert_eq!(sanitize("Console"), "Console");
+    assert_eq!(sanitize("COM10"), "COM10");
+}
+
+#[test]
+fn music_folders_from_reserved_or_dot_tags_are_safe() {
+    let (_t, s, mount, scope) = drive_with(|m| {
+        fixtures_filing::mp3_with_tags(&m.join("junk"), "a.mp3", "CON", "...", "Song");
+    });
+    let ps = plan(&s, &scope, BlueprintChoice::Fresh).unwrap();
+    let to = rel(&mount, placement_for(&ps, "a.mp3").to.as_deref().unwrap());
+    assert_eq!(to, "Music\\CON_\\Unknown album\\a.mp3");
+}
+
+#[test]
 fn unchanged_name_is_not_proposed() {
     assert_eq!(proposed_name(&invoice_class(), "2026-03-14 Vodacom invoice", "pdf", 0), None);
 }

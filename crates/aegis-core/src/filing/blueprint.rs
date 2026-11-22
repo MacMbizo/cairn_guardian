@@ -3,7 +3,7 @@
 //! batches are cut from it later.
 
 use super::classify::{Classification, DateSource};
-use super::naming::{proposed_name, sanitize};
+use super::naming::{folder_name, proposed_name, sanitize};
 use super::{BlueprintChoice, FileMeta, Kind, Scope};
 use crate::db::SqliteStore;
 use crate::db::files::path_is_within;
@@ -300,7 +300,10 @@ fn fresh_area(row: &Row) -> Option<(&'static str, Vec<String>)> {
             if (cat == "Work" || cat == "Study")
                 && let Some(w) = &m.who
             {
-                sub.push(sanitize(w));
+                let w = sanitize(w);
+                if !w.is_empty() {
+                    sub.push(w);
+                }
             }
             if FINANCE_BY_YEAR.contains(&cat) {
                 sub.push(year());
@@ -322,8 +325,8 @@ fn fresh_area(row: &Row) -> Option<(&'static str, Vec<String>)> {
         Kind::Music => Some((
             "Music",
             vec![
-                sanitize(m.artist.as_deref().unwrap_or("Unknown artist")),
-                sanitize(m.album.as_deref().unwrap_or("Unknown album")),
+                folder_name(m.artist.as_deref().unwrap_or(""), "Unknown artist"),
+                folder_name(m.album.as_deref().unwrap_or(""), "Unknown album"),
             ],
         )),
         Kind::Audio => Some(("Audio", vec![])),
