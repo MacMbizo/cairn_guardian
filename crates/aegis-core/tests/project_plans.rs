@@ -542,6 +542,112 @@ fn build_units_follow_their_folder() {
     assert_eq!(count_under(&s, Path::new(&target)), before);
 }
 
+// ---- Rulings from the dry run on the owner's database (2026-11-23) ----
+
+#[test]
+fn virtual_environments_are_never_moved() {
+    let (_t, mut s, home, prj) = pc();
+    let (env38, env310) = (prj.join("env38"), home.join("Documents/Projectsv2/Dev Set/env310"));
+    for d in [&env38, &env310] {
+        fixtures_context::put(d, "pyvenv.cfg");
+        fixtures_context::put(d, "Lib/site-packages/x.py");
+    }
+    for r in [prj.clone(), home.join("Documents")] {
+        aegis_core::scanner::scan_root(&mut s, &r, &[1]).unwrap();
+    }
+    recognise(&mut s).unwrap();
+    let c = custom(&s, "env38", &[(&env38, Relationship::Home, false), (&env310, Relationship::Version, false)]);
+    assert!(only_plan(&s, &c).steps.is_empty(), "moving a virtual environment breaks it");
+    let alone = custom(&s, "env310", &[(&env310, Relationship::Home, false)]);
+    assert!(only_plan(&s, &alone).steps.is_empty());
+}
+
+#[test]
+fn a_folder_inside_another_project_gets_no_step() {
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    // A copy sitting inside forexTrader belongs to forexTrader, whatever else it resembles.
+    let inside = prj.join("forexTrader").join("images");
+    let c = custom(&s, "Ledger", &[(&home.join("Documents/Projectsv2/Dev Set/Ledger"), Relationship::Home, false), (&inside, Relationship::Diverged, false)]);
+    let p = only_plan(&s, &c);
+    assert!(step_from(&p, &inside).is_none(), "{p:?}");
+    // And a home inside another project isn't moved out of it.
+    let c = custom(&s, "Ledger", &[(&inside, Relationship::Home, false)]);
+    assert!(only_plan(&s, &c).steps.is_empty());
+}
+
+#[test]
+fn other_drives_get_no_plan_yet() {
+    let (_t, mut s, home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    s.conn()
+        .execute(
+            "INSERT INTO volumes (id, mount_point, fs_type, is_removable, is_readonly, has_stable_inode, case_sensitive, status, last_seen, label)
+             VALUES ('v-y', 'Y:\\', 'ntfs', 1, 0, 1, 0, 'online', 0, 'Old drive')",
+            [],
+        )
+        .unwrap();
+    let mut c = custom(&s, "Ledger", &[(&home.join("Documents/Projectsv2/Dev Set/Ledger"), Relationship::Home, false)]);
+    for (i, p) in [r"Y:\ZOU\Ledger", r"Y:\Backup\Ledger"].iter().enumerate() {
+        let mut l = c.locations[0].clone();
+        l.id = format!("l-y{i}");
+        l.volume_id = "v-y".into();
+        l.root_path = (*p).into();
+        l.relationship = Relationship::Diverged;
+        c.locations.push(l);
+    }
+    let plans = plan_for(&s, &c).unwrap();
+    let on_y = plans.iter().find(|p| p.volume_id == "v-y").unwrap();
+    assert!(on_y.steps.is_empty(), "{on_y:?}");
+    assert!(on_y.summary.contains("later"), "{}", on_y.summary);
+}
+
+#[test]
+fn a_lone_home_moves_in_only_from_a_projects_folder() {
+    let (_t, mut s, home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let c = custom(&s, "DDU v18", &[(&home.join("Downloads/DDU v18"), Relationship::Home, false)]);
+    assert!(only_plan(&s, &c).steps.is_empty(), "a downloaded tool stays where it is");
+}
+
+#[test]
+fn a_recently_changed_copy_is_left_alone() {
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let live = prj.join("agent-skills").join("ledger-skill");
+    std::fs::create_dir_all(prj.join("agent-skills")).unwrap();
+    let mut c = custom(&s, "Ledger", &[(&home.join("Documents/Projectsv2/Dev Set/Ledger"), Relationship::Home, false), (&live, Relationship::Diverged, false)]);
+    c.locations[1].newest_mtime = aegis_core::now_ms() - 3 * 86_400_000;
+    let p = only_plan(&s, &c);
+    assert!(step_from(&p, &live).is_none(), "{p:?}");
+    assert!(p.notes.iter().any(|n| n.contains("changed in the last 30 days")), "{:?}", p.notes);
+}
+
+#[test]
+fn a_home_deep_in_a_projects_folder_moves_in() {
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    std::fs::create_dir_all(home.join("Documents/Projectsv2/D4")).unwrap();
+    let c = custom(&s, "chb_main", &[(&home.join("Documents/Projectsv2/D4/chb_main"), Relationship::Home, false)]);
+    let p = only_plan(&s, &c);
+    assert_eq!(p.steps.len(), 1, "{p:?}");
+    assert!(same(&p.steps[0].to, &prj.join("chb_main")));
+}
+
+#[test]
+fn cards_are_offered_safest_first() {
+    use aegis_core::context::plan::offer_rank;
+    let (_t, mut s, _home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let rank = |name: &str| {
+        let c = named(&s, name);
+        offer_rank(&c, &only_plan(&s, &c))
+    };
+    assert_eq!(rank("forexTrader"), 1, "an older copy");
+    assert_eq!(rank("chatbot"), 2, "only moves in");
+    assert_eq!(rank("DrivingSchool"), 3, "keeps a version");
+}
+
 // ---- Task 6: loose files in project containers ----
 
 fn with_loose_container_files() -> (tempfile::TempDir, SqliteStore, PathBuf, PathBuf) {

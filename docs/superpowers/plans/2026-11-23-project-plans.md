@@ -292,6 +292,17 @@ The tool keeps the live-database refusal, and it never executes.
 - [ ] Step 3: Check the spec §2 projects by eye: forexTrader, DrivingSchool, AIPrompt, paperPilot, wellness. Fix wrong plans test-first.
 - [ ] Step 4: Commit `feat(context): dry run prints project plans`.
 
+**Done 2026-11-23, on a copy of the owner's database.** The first run had 86 plans; it showed the planner must not touch certain folders. Rulings, each test-first, which only ever make plans move less:
+1. **Nothing inside another project, or holding one, is moved** on this project's behalf. Udemy exercise folders inside course folders on D: were about to be quarantined.
+2. **Python virtual environments are never moved** (`env310` → `env38\Versions` would break it).
+3. **Other drives get no plan yet.** Their copies are listed, with "Plans for other drives come later". D: holds old coursework and backups (`ZOU`, `BackUpBeforeFinal` with 19 copies), which is the material of the later Old copies module.
+4. **A home moves into `C:\Prj` only from inside a projects folder:** some folder above it, not a general place, holds 2 or more projects. A tool in Downloads (`DDU`) stays. A home deep in `Projectsv2\D4\chb_main` moves.
+5. **A copy changed in the last 30 days stays** (live work). The plan's new `notes` say why. Example: `agent-skills\ui-ux-pro-max-skill` matched paperRock only through shared skill files, and changed recently.
+
+**Final run:** 51 plans in 11.4 s. 41 homes move in; 1 copy goes to quarantine (forexTrader's old copy); 21 are kept as versions; 1 folder of material is brought in; 1 copy is kept by the rules. The venv check uses the path-hash index (a `lower(path)` scan had taken planning to 54 s).
+
+Order on the card (`offer_rank`, spec §8.5): identical copies, then older copies, then moves into the projects home, then versions and material.
+
 ### Task 8: Card with plan (UI)
 
 **Files:** `src-tauri/src/commands/context.rs`, `src-tauri/src/lib.rs`, `src/bindings/client.ts`, `src/screens/Projects.tsx`, `src/screens/fixtures/projects.ts`.

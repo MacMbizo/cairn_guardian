@@ -14,6 +14,10 @@ home_after: string, steps: Array<PlanStep>,
  */
 waits_for: string | null, 
 /**
+ * Copies the plan leaves where they are, and why, in plain words.
+ */
+notes: Array<string>, 
+/**
  * One line for the card.
  */
 summary: string, };

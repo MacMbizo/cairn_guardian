@@ -83,6 +83,8 @@ pub struct ProjectPlan {
     pub steps: Vec<PlanStep>,
     /// Why the plan can't run yet ("New Volume is unplugged"), if it can't.
     pub waits_for: Option<String>,
+    /// Copies the plan leaves where they are, and why, in plain words.
+    pub notes: Vec<String>,
     /// One line for the card.
     pub summary: String,
 }
@@ -324,7 +326,81 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
         _ if here.iter().any(|l| !l.online) => Some("One of its drives is unplugged.".into()),
         _ => None,
     };
-    let ph = projects_home(store, volume_id)?;
+    let nothing = |summary: &str| ProjectPlan {
+        collection_id: c.id.clone(),
+        volume_id: volume_id.to_string(),
+        home_after: home.root_path.clone(),
+        steps: Vec::new(),
+        waits_for: waits_for.clone(),
+        notes: Vec::new(),
+        summary: summary.to_string(),
+    };
+    // Rulings from the dry run on the owner's database (2026-11-23):
+    // - Other drives get no plan yet: they hold old copies and coursework, which the later
+    //   Old copies module is for. Their copies are listed on the card.
+    let roots = store.list_roots()?;
+    let on_pc = here.iter().any(|l| roots.iter().any(|r| r.enabled && path_is_within(&l.root_path, &r.path, false)));
+    if !on_pc {
+        return Ok(nothing("Copies on this drive are listed. Plans for other drives come later."));
+    }
+    // - Nothing inside another project (or holding one) is moved on this project's behalf, and
+    //   nothing that is a Python virtual environment is moved at all (it would break).
+    let others: Vec<String> = {
+        let mut stmt = store.conn().prepare("SELECT root_path FROM collection_locations WHERE volume_id = ?1 AND collection_id != ?2")?;
+        stmt.query_map(params![volume_id, c.id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    let nested = |l: &Location| others.iter().any(|o| inside(&l.root_path, o) || inside(o, &l.root_path));
+    let is_venv = |l: &Location| -> Result<bool> {
+        let (_, hash) = crate::db::files::normalize_path(Path::new(&join(&l.root_path, "pyvenv.cfg")), false);
+        Ok(store.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM files WHERE path_hash = ?1 AND deleted_at IS NULL)",
+            params![hash.as_slice()],
+            |r| r.get(0),
+        )?)
+    };
+    // - A copy changed in the last 30 days is live work: it stays where it is.
+    let recent = crate::now_ms() - 30 * 86_400_000;
+    let mut blocked: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut notes: Vec<String> = Vec::new();
+    for l in &here {
+        let why = if nested(l) {
+            Some("it sits inside another project")
+        } else if is_venv(l)? {
+            Some("it is a Python environment, which breaks if moved")
+        } else if l.id != home.id && l.newest_mtime >= recent {
+            Some("it changed in the last 30 days, so it may be work in progress")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            blocked.insert(l.id.clone());
+            notes.push(format!("{} stays where it is: {why}.", l.root_path));
+        }
+    }
+    if blocked.contains(&home.id) {
+        let mut p = nothing("Kept where it is.");
+        p.notes = notes;
+        return Ok(p);
+    }
+    // - A home moves into the projects home only from inside a projects folder (a folder that
+    //   isn't a general place such as Documents or Downloads and holds two or more projects):
+    //   a tool found elsewhere stays put.
+    let all_locs: Vec<&String> = others.iter().chain(here.iter().map(|l| &l.root_path)).collect();
+    let is_root = |d: &str| roots.iter().any(|r| same_path(&r.path, d));
+    let mut in_projects_folder = false;
+    let mut d = parent(&home.root_path);
+    while !d.is_empty() && !is_root(d) && d.contains(SEP) {
+        if !GENERAL_FOLDERS.contains(&leaf(d).to_lowercase().as_str()) && all_locs.iter().filter(|p| inside(p, d)).count() >= 2 {
+            in_projects_folder = true;
+            break;
+        }
+        let up = parent(d);
+        if up == d {
+            break;
+        }
+        d = up;
+    }
+    let ph = if in_projects_folder { projects_home(store, volume_id)? } else { None };
 
     // Where the home ends up: under its own folder name. A name the owner gives the project on
     // the card is a label; renaming the folder could break paths inside it.
@@ -388,7 +464,7 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
         out
     };
     if main.is_some() {
-        for l in here.iter().filter(|l| l.id != home.id && !l.keep_here) {
+        for l in here.iter().filter(|l| l.id != home.id && !l.keep_here && !blocked.contains(&l.id)) {
             // A copy inside the home (or holding it) is not moved on its own.
             if inside(&l.root_path, &home.root_path) || inside(&home.root_path, &l.root_path) {
                 continue;
@@ -464,7 +540,23 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
         return Err(AegisError::InvalidInput(format!("A plan step would leave its drive ({} → {}).", bad.from, bad.to)));
     }
     let summary = summarise(&steps, &home_after);
-    Ok(ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, summary })
+    Ok(ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, notes, summary })
+}
+
+/// The order cards are offered in (spec §8.5), simplest and safest first: 0 identical copies
+/// (space back, nothing lost), 1 older copies, 2 projects that only move into the projects
+/// home, 3 anything that keeps versions or brings material in.
+pub fn offer_rank(c: &Collection, p: &ProjectPlan) -> u8 {
+    let rel = |id: &str| c.locations.iter().find(|l| l.id == id).map(|l| l.relationship);
+    if p.steps.iter().any(|s| matches!(s.kind, StepKind::ToVersions | StepKind::ToMaterial)) {
+        3
+    } else if p.steps.iter().any(|s| s.kind == StepKind::Quarantine && rel(&s.location_id) == Some(Relationship::OlderSubset)) {
+        1
+    } else if p.steps.iter().any(|s| s.kind == StepKind::Quarantine) {
+        0
+    } else {
+        2
+    }
 }
 
 /// How a plan run ended.

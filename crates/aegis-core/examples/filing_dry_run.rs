@@ -93,6 +93,56 @@ projects in more than one place:");
     let protected: i64 = projects.iter().flat_map(|c| &c.locations).map(|l| l.files).sum();
     println!("files kept whole inside projects (build output not counted): {protected}");
 
+    // Project plans, in the order the cards would be offered. Planning only; nothing runs.
+    use aegis_core::context::plan::{StepKind, offer_rank, plan_for};
+    let t = Instant::now();
+    let mut plans = Vec::new();
+    for c in &projects {
+        match plan_for(&store, c) {
+            Ok(ps) => plans.extend(ps.into_iter().filter(|p| !p.steps.is_empty()).map(|p| (offer_rank(c, &p), c, p))),
+            Err(e) => println!("  plan for {} failed: {e}", c.name),
+        }
+    }
+    plans.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.to_lowercase().cmp(&b.1.name.to_lowercase())));
+    let kinds = ["identical copies", "older copies", "move into the projects home", "versions and material"];
+    let count = |k: StepKind| plans.iter().flat_map(|(_, _, p)| &p.steps).filter(|s| s.kind == k).count();
+    let freed: i64 = plans
+        .iter()
+        .flat_map(|(_, c, p)| p.steps.iter().filter(|s| s.kind == StepKind::Quarantine).map(move |s| (c, s)))
+        .filter_map(|(c, s)| c.locations.iter().find(|l| l.id == s.location_id).map(|l| l.bytes))
+        .sum();
+    println!(
+        "\nproject plans: {} in {:.1}s · homes moving in {} · copies to quarantine {} ({:.2} GB) · kept as versions {} · material brought in {} · waiting {}",
+        plans.len(),
+        t.elapsed().as_secs_f64(),
+        count(StepKind::MoveHome),
+        count(StepKind::Quarantine),
+        freed as f64 / 1e9,
+        count(StepKind::ToVersions),
+        count(StepKind::ToMaterial),
+        plans.iter().filter(|(_, _, p)| p.waits_for.is_some()).count()
+    );
+    let mut last = u8::MAX;
+    for (rank, c, p) in &plans {
+        if *rank != last {
+            println!("  -- {} --", kinds[*rank as usize]);
+            last = *rank;
+        }
+        let waits = p.waits_for.as_deref().map(|w| format!("  (waits: {w})")).unwrap_or_default();
+        println!("  {}: {}{waits}", c.name, p.summary);
+        for s in &p.steps {
+            println!("    {}. {:?}  {}  ->  {}", s.step, s.kind, s.from, s.to);
+            for w in &s.warnings {
+                println!("         ! {w}");
+            }
+        }
+        for n in &p.notes {
+            println!("    (kept) {n}");
+        }
+    }
+    let kept: usize = plans.iter().map(|(_, _, p)| p.notes.len()).sum();
+    println!("  copies left where they are by the rules: {kept}");
+
     let mut scopes = vec![(Scope::Pc, "This PC".to_string())];
     {
         let mut stmt = store.conn().prepare(
