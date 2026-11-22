@@ -381,6 +381,12 @@ pub struct SearchFilters {
     pub before_ts: Option<i64>,
     pub sensitivity: Option<String>,
     pub include_quarantined: Option<bool>,
+    /// Life area, matched as a prefix (`"Finance"` covers `"Finance/Tax"`).
+    pub category: Option<String>,
+    /// Organisation or person a document is from (case-insensitive).
+    pub who: Option<String>,
+    /// Year of the document's own date, or of a photo.
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -394,7 +400,10 @@ pub struct SearchHit {
     pub cloud_state: String,
     pub snippet: String,
     pub score: f64,
+    /// `"content"`, `"name"` or `"former name"`.
     pub match_reason: String,
+    /// Where the file was before Aegis filed it, if it moved.
+    pub was: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -953,3 +953,70 @@ fn note_counts_auto_filed() {
     let note = aegis_core::engine::note::build(s.conn(), "2026-11-22", 0, "2026-11-22", later()).unwrap();
     assert!(note.did.contains(&"Filed 1 file by itself".to_string()), "{:?}", note.did);
 }
+
+// ---------- Task 10: search by name and former name ----------
+
+use aegis_core::contracts::SearchFilters;
+use aegis_core::db::files::search_fts;
+
+#[test]
+fn finds_by_name_without_content() {
+    let (_t, s, _root) = scanned(|r| {
+        common::put(r, "Holiday budget plan.bin", b"\x00\x01");
+    });
+    let page = search_fts(s.conn(), "holiday budget", &SearchFilters::default(), 10).unwrap();
+    assert_eq!(page.hits.len(), 1);
+    assert_eq!(page.hits[0].match_reason, "name");
+}
+
+#[test]
+fn finds_by_former_name_after_filing() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", invoice_text());
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    let page = search_fts(s.conn(), "scan1", &SearchFilters::default(), 10).unwrap();
+    assert_eq!(page.hits.len(), 1);
+    assert_eq!(page.hits[0].match_reason, "former name");
+    assert!(page.hits[0].name.contains("Vodacom invoice"));
+    assert!(page.hits[0].was.as_deref().unwrap().ends_with("scan1.docx"));
+}
+
+#[test]
+fn content_hit_ranks_first() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::docx(r, "a.docx", "the zebra crossing report");
+        common::put(r, "zebra notes.bin", b"\x00");
+    });
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    let page = search_fts(s.conn(), "zebra", &SearchFilters::default(), 10).unwrap();
+    assert_eq!(page.hits.len(), 2);
+    assert_eq!(page.hits[0].match_reason, "content");
+    assert_eq!(page.hits[1].match_reason, "name");
+}
+
+#[test]
+fn filters_by_category_who_and_year() {
+    let (_t, mut s, _root) = scanned(|r| {
+        fixtures_filing::docx(r, "inv.docx", invoice_text());
+        fixtures_filing::docx(r, "ita.docx", "SARS Notice of Assessment Income Tax ITA34 Date of assessment 2025-09-30");
+    });
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    let f = |category: Option<&str>, who: Option<&str>, year: Option<i32>| SearchFilters {
+        category: category.map(str::to_string),
+        who: who.map(str::to_string),
+        year,
+        ..Default::default()
+    };
+    let names = |filters: SearchFilters| -> Vec<String> {
+        search_fts(s.conn(), "tax", &filters, 10).unwrap().hits.into_iter().map(|h| h.name).collect()
+    };
+    assert_eq!(names(f(None, None, None)).len(), 2);
+    assert_eq!(names(f(Some("Finance/Tax"), None, None)), vec!["ita.docx"]);
+    assert_eq!(names(f(Some("Finance"), Some("vodacom"), None)), vec!["inv.docx"]);
+    assert_eq!(names(f(None, None, Some(2025))), vec!["ita.docx"]);
+}

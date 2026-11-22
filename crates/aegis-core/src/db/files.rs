@@ -594,7 +594,12 @@ pub fn search_fts(
     let started = Instant::now();
     let include_quarantined = filters.include_quarantined.unwrap_or(false);
     let sanitized = sanitize_fts_query(query);
-    if sanitized.is_empty() {
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .map(|t| t.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if sanitized.is_empty() || terms.is_empty() {
         return Ok(SearchPage {
             query: query.to_string(),
             total_hits: 0,
@@ -602,56 +607,121 @@ pub fn search_fts(
             took_ms: started.elapsed().as_millis() as u64,
         });
     }
+    let limit = limit.clamp(1, 200);
+    let year = filters.year.map(|y| format!("{y:04}"));
+    let category = filters.category.as_ref().map(|c| format!("{c}%"));
+    // Shared filters; ?1–?10 are bound identically for every query below.
+    const FILTERS: &str = "f.deleted_at IS NULL
+           AND (?1 = 1 OR f.state != 'quarantine')
+           AND (?2 IS NULL OR f.project_id = ?2)
+           AND (?3 IS NULL OR f.ext = ?3)
+           AND (?4 IS NULL OR f.mtime >= ?4)
+           AND (?5 IS NULL OR f.mtime <= ?5)
+           AND (?6 IS NULL OR f.sensitivity = ?6)
+           AND (?7 IS NULL OR m.category LIKE ?7)
+           AND (?8 IS NULL OR lower(m.who) = lower(?8))
+           AND (?9 IS NULL OR substr(m.doc_date, 1, 4) = ?9
+                OR strftime('%Y', m.exif_taken_at / 1000, 'unixepoch') = ?9)";
+    let base = rusqlite::params![
+        i32::from(include_quarantined),
+        filters.project_id,
+        filters.ext,
+        filters.after_ts,
+        filters.before_ts,
+        filters.sensitivity,
+        category,
+        filters.who,
+        year,
+    ];
+    let mut hits: Vec<SearchHit> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let hit = |r: &rusqlite::Row<'_>, reason: &str| -> rusqlite::Result<SearchHit> {
+        Ok(SearchHit {
+            file_id: r.get(0)?,
+            path: r.get(1)?,
+            name: r.get(2)?,
+            state: r.get(3)?,
+            sensitivity: r.get(4)?,
+            cloud_state: r.get(5)?,
+            snippet: r.get(6)?,
+            score: r.get(7)?,
+            match_reason: reason.to_string(),
+            was: None,
+        })
+    };
 
-    let limit_i64 = (limit.clamp(1, 200)) as i64;
-    let mut stmt = conn.prepare(
-        "SELECT f.id, f.path, f.name, f.state, f.sensitivity, f.cloud_state,
-                snippet(chunks_fts, 0, '[', ']', '...', 16) AS snip,
-                -bm25(chunks_fts) AS rank_score
-         FROM chunks_fts
-         JOIN chunks c ON c.id = chunks_fts.rowid
-         JOIN files f ON f.id = c.file_id
-         WHERE chunks_fts MATCH ?1
-           AND f.deleted_at IS NULL
-           AND (?2 = 1 OR f.state != 'quarantine')
-           AND (?3 IS NULL OR f.project_id = ?3)
-           AND (?4 IS NULL OR f.ext = ?4)
-           AND (?5 IS NULL OR f.mtime >= ?5)
-           AND (?6 IS NULL OR f.mtime <= ?6)
-           AND (?7 IS NULL OR f.sensitivity = ?7)
-         ORDER BY rank_score DESC
-         LIMIT ?8",
-    )?;
-
-    let rows = stmt.query_map(
-        params![
-            sanitized,
-            i32::from(include_quarantined),
-            filters.project_id,
-            filters.ext,
-            filters.after_ts,
-            filters.before_ts,
-            filters.sensitivity,
-            limit_i64
-        ],
-        |r| {
-            Ok(SearchHit {
-                file_id: r.get(0)?,
-                path: r.get(1)?,
-                name: r.get(2)?,
-                state: r.get(3)?,
-                sensitivity: r.get(4)?,
-                cloud_state: r.get(5)?,
-                snippet: r.get(6)?,
-                score: r.get(7)?,
-                match_reason: "FTS5 BM25".to_string(),
-            })
-        },
-    )?;
-
-    let mut hits = Vec::new();
-    for row in rows {
-        hits.push(row?);
+    // 1. Content.
+    {
+        let sql = format!(
+            "SELECT f.id, f.path, f.name, f.state, f.sensitivity, f.cloud_state,
+                    snippet(chunks_fts, 0, '[', ']', '...', 16), -bm25(chunks_fts)
+             FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid JOIN files f ON f.id = c.file_id
+             LEFT JOIN file_meta m ON m.file_id = f.id
+             WHERE chunks_fts MATCH ?10 AND {FILTERS}
+             ORDER BY 8 DESC LIMIT ?11"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut p: Vec<&dyn rusqlite::ToSql> = base.to_vec();
+        p.push(&sanitized);
+        let lim = limit as i64;
+        p.push(&lim);
+        for h in stmt.query_map(p.as_slice(), |r| hit(r, "content"))? {
+            let h = h?;
+            if seen.insert(h.file_id.clone()) {
+                hits.push(h);
+            }
+        }
+    }
+    // 2. Current name, then 3. a name it had before Aegis filed it. Every word must match.
+    let like_all = |col: &str| terms.iter().enumerate().map(|(i, _)| format!("lower({col}) LIKE ?{}", 12 + i)).collect::<Vec<_>>().join(" AND ");
+    let likes: Vec<String> = terms.iter().map(|t| format!("%{t}%")).collect();
+    for (reason, sql) in [
+        (
+            "name",
+            format!(
+                "SELECT f.id, f.path, f.name, f.state, f.sensitivity, f.cloud_state, '' , 0.0
+                 FROM files f LEFT JOIN file_meta m ON m.file_id = f.id
+                 WHERE {} AND {FILTERS} AND ?10 = ?10 LIMIT ?11",
+                like_all("f.name")
+            ),
+        ),
+        (
+            "former name",
+            format!(
+                "SELECT DISTINCT f.id, f.path, f.name, f.state, f.sensitivity, f.cloud_state, '', 0.0
+                 FROM file_history h JOIN files f ON f.id = h.file_id LEFT JOIN file_meta m ON m.file_id = f.id
+                 WHERE {} AND {FILTERS} AND ?10 = ?10 LIMIT ?11",
+                like_all("h.old_path")
+            ),
+        ),
+    ] {
+        if hits.len() >= limit {
+            break;
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let mut p: Vec<&dyn rusqlite::ToSql> = base.to_vec();
+        p.push(&sanitized);
+        let lim = limit as i64;
+        p.push(&lim);
+        for l in &likes {
+            p.push(l);
+        }
+        for h in stmt.query_map(p.as_slice(), |r| hit(r, reason))? {
+            let h = h?;
+            if hits.len() < limit && seen.insert(h.file_id.clone()) {
+                hits.push(h);
+            }
+        }
+    }
+    // Where each file was before Aegis filed it.
+    for h in hits.iter_mut() {
+        h.was = conn
+            .query_row(
+                "SELECT old_path FROM file_history WHERE file_id = ?1 ORDER BY changed_at ASC LIMIT 1",
+                [&h.file_id],
+                |r| r.get(0),
+            )
+            .ok();
     }
 
     Ok(SearchPage {

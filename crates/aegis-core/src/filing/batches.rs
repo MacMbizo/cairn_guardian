@@ -17,6 +17,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub const BATCH_MAX: usize = 500;
+
+/// (source top folder, destination area).
+type GroupKey = (String, String);
 pub const AGENT: &str = "filing";
 
 pub fn origin_for(scope: &Scope) -> String {
@@ -118,7 +121,7 @@ pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<Strin
         e.0 += p.bytes;
         e.1.push(p);
     }
-    let mut ordered: Vec<((String, String), (i64, Vec<Placement>))> = groups.into_iter().collect();
+    let mut ordered: Vec<(GroupKey, (i64, Vec<Placement>))> = groups.into_iter().collect();
     ordered.sort_by_key(|((top, _), (bytes, _))| {
         let rank = if top.is_empty() {
             0
