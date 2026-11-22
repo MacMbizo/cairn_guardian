@@ -1,16 +1,30 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-22 (after Plan 1 of context-aware filing). Read this first in a new chat.
+Updated 2026-11-23 (Plan 2 of context-aware filing, Tasks 1–4 done). Read this first in a new chat.
 
 ## NEXT CHAT: do this first
 
-**Plan 1 of context-aware filing is done** on branch `feature/context-layer` (10 commits from `c94904d` to `b4d18f6`, not merged, not pushed).
-Ledger: `.superpowers/sdd/2026-11-22-context-layer-projects/ledger.md`.
+**Plan 1 is merged into `master`** (fast-forward to `72cbe11`, 2026-11-23, owner approved). Not pushed.
 
-1. **Ask the owner** whether to merge `feature/context-layer` into `master` (fast-forward), and whether to try the Projects screen on the PC first.
-2. **Then write Plan 2: project plans** (spec §8): home choice on the card, per-copy proposals (quarantine identical/older copies,
-   versions area for diverged ones, material area), one batch per project with undo, the projects home `C:\Prj`.
-3. Ideas backlog below: ask the owner which to design after that.
+**Plan 2 (project plans) is in progress** on branch `feature/project-plans`.
+- Plan: `docs/superpowers/plans/2026-11-23-project-plans.md`.
+- Ledger: `.superpowers/sdd/2026-11-23-project-plans/ledger.md`.
+- **Done (Tasks 1–4):**
+  - schema and answers (change home, keep this copy here; plan state);
+  - planning (`context::plan::plan_for`);
+  - executor hardening;
+  - `propose` / `run` / `undo`: one batch per project, all or nothing.
+- **Next:**
+  - Task 5: locations follow executed plans; `atomic_units.project_id`;
+  - Task 6: Fresh leaves the loose files in project containers alone;
+  - Task 7: the dry run prints plans;
+  - Task 8: the card UI. **Show the owner 2–3 mockups first.** Route Undo of `project:` batches to `plan::undo`;
+  - Task 9: rehearsal on scratch copies and handoff.
+- **Verified after Task 4:** `cargo test --workspace` 449 passed, 1 ignored; clippy clean; `pnpm build` clean.
+- **Nothing has moved on the owner's real folders.** Only tests in temporary folders have executed plans.
+- **North star:** `docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` holds the binding rules for every new spec or plan. Decision D1 (encryption at rest) is due before the embeddings work.
+
+Ideas backlog below: ask the owner which to design after Plan 2 (the north-star doc suggests an order).
 
 **What Plan 1 built** (`crates/aegis-core/src/context/`):
 - `profile` (per-folder stats from the catalog), `projects` (recogniser), `relate` (identity, relationships, fingerprints),
