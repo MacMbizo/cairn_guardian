@@ -33,7 +33,7 @@ Updated 2026-11-22 (after merging auto-filing). Read this first in a new chat.
 1. **Dry run with the external drive (deferred item 14).** Plug in D:, copy `aegis.db`, run the dry-run tool on the copy.
    Report sample renames and the to-sort share; fix misclassifications test-first.
 2. **Try Filing on the PC**, starting with the Fresh structure; then Recent batches → Undo once to see it work.
-3. **Owner checks that need the installed build.** Quit the running `targetelease` Aegis first. Then:
+3. **Owner checks that need the installed build.** Quit the running `target\release` Aegis first. Then:
    1. `pnpm tauri build`, then install the NSIS installer.
    2. Notifications show under "Aegis Guardian"; clicking one opens the right screen, also from Action Center.
    3. Ctrl+Shift+Space opens Search. After a reboot, Aegis starts in the tray with no window.
