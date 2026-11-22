@@ -540,12 +540,24 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
     for (root, _) in &roots {
         let root_rows: Vec<&Row> = rows.iter().filter(|r| path_is_within(&r.path, root, false)).collect();
         let groups = find_groups(store, &root_rows, root, choice, &bases)?;
-        let in_group = |p: &str| groups.iter().any(|g| path_is_within(p, &g.path, false));
+        // Which group (if any) holds each file: one walk up its folders, not a scan of every
+        // group (a big drive has thousands of code projects).
+        let group_index: HashMap<String, usize> = groups.iter().enumerate().map(|(i, g)| (g.path.to_lowercase(), i)).collect();
+        let group_of = |p: &str| -> Option<usize> {
+            Path::new(p).ancestors().skip(1).find_map(|a| group_index.get(&a.to_string_lossy().to_lowercase()).copied())
+        };
+        let in_group = |p: &str| group_of(p).is_some();
         if only.is_none() {
-            for g in &groups {
-                let files: Vec<&&Row> = root_rows.iter().filter(|r| path_is_within(&r.path, &g.path, false)).collect();
+            let mut totals = vec![(0usize, 0i64); groups.len()];
+            for r in &root_rows {
+                if let Some(i) = group_of(&r.path) {
+                    totals[i].0 += 1;
+                    totals[i].1 += r.size;
+                }
+            }
+            for (g, (files, bytes)) in groups.iter().zip(totals) {
                 out.push(Placement {
-                    target: Target::Group { path: g.path.clone(), files: files.len() },
+                    target: Target::Group { path: g.path.clone(), files },
                     from: g.path.clone(),
                     to: g.to.as_ref().map(|t| t.to_string_lossy().to_string()).filter(|t| !t.eq_ignore_ascii_case(&g.path)),
                     new_name: None,
@@ -553,7 +565,7 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                     reason: g.reason.clone(),
                     rule_key: None,
                     to_sort: false,
-                    bytes: files.iter().map(|r| r.size).sum(),
+                    bytes,
                 });
             }
         }

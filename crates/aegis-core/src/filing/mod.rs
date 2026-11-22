@@ -217,7 +217,31 @@ impl BlueprintChoice {
     }
 }
 
+fn counts_key(scope: &Scope) -> String {
+    format!("filing.counts:{}", scope.key())
+}
+
+/// Cached `(files still to move, files to sort)` for a scope, so the Filing screen doesn't
+/// re-plan a whole drive on every visit.
+pub fn cached_counts(conn: &Connection, scope: &Scope) -> Result<Option<(i64, i64)>> {
+    let raw: Option<String> = conn
+        .query_row("SELECT value_json FROM settings WHERE key = ?1 AND scope = 'global'", [counts_key(scope)], |r| r.get(0))
+        .optional()?;
+    Ok(raw.and_then(|j| serde_json::from_str(&j).ok()))
+}
+
+pub fn set_counts(conn: &Connection, scope: &Scope, remaining: i64, to_sort: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, scope, value_json, updated_at) VALUES (?1, 'global', ?2, ?3)
+         ON CONFLICT(key, scope) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+        params![counts_key(scope), serde_json::to_string(&(remaining.max(0), to_sort.max(0)))?, crate::now_ms()],
+    )?;
+    Ok(())
+}
+
 pub fn set_blueprint(conn: &Connection, scope: &Scope, choice: BlueprintChoice, now: i64) -> Result<()> {
+    // A new choice means new counts.
+    conn.execute("DELETE FROM settings WHERE key = ?1 AND scope = 'global'", [counts_key(scope)])?;
     conn.execute(
         "INSERT INTO filing_blueprints (scope_key, choice, chosen_at) VALUES (?1, ?2, ?3)
          ON CONFLICT(scope_key) DO UPDATE SET choice = excluded.choice, chosen_at = excluded.chosen_at",
@@ -309,13 +333,15 @@ pub fn scope_statuses(store: &mut crate::db::SqliteStore) -> Result<Vec<ScopeSta
         )?;
         let choice = blueprint_of(store.conn(), &scope)?;
         let (mut remaining, mut to_sort) = (0, 0);
-        if let Some(c) = choice
-            && online
-        {
-            let ps = blueprint::plan(store, &scope, c)?;
-            let s = blueprint::summarize(&ps, c, store)?;
-            remaining = s.moves;
-            to_sort = s.to_sort;
+        if let Some(c) = choice {
+            if let Some((r, t)) = cached_counts(store.conn(), &scope)? {
+                (remaining, to_sort) = (r, t);
+            } else if online {
+                let ps = blueprint::plan(store, &scope, c)?;
+                let s = blueprint::summarize(&ps, c, store)?;
+                (remaining, to_sort) = (s.moves, s.to_sort);
+                set_counts(store.conn(), &scope, remaining, to_sort)?;
+            }
         }
         out.push(ScopeStatus {
             open_batch: batches::open_filing_batch(store.conn(), &scope)?,

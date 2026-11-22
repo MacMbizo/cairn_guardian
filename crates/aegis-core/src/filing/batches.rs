@@ -90,7 +90,9 @@ pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<Strin
     let roots: Vec<String> = scope_roots(store, scope)?.into_iter().map(|(p, _)| p).collect();
     let no = declined(store.conn())?;
     let busy = busy_files(store.conn())?;
-    let moves: Vec<Placement> = plan(store, scope, choice)?
+    let all = plan(store, scope, choice)?;
+    let to_sort = all.iter().filter(|p| p.to_sort).count() as i64;
+    let moves: Vec<Placement> = all
         .into_iter()
         .filter(|p| p.to.is_some() && !p.to_sort && !no.contains(&p.from.to_lowercase()))
         .filter(|p| match &p.target {
@@ -98,6 +100,14 @@ pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<Strin
             Target::Group { .. } => true,
         })
         .collect();
+    let moving: i64 = moves
+        .iter()
+        .map(|p| match &p.target {
+            Target::Group { files, .. } => *files as i64,
+            Target::File { .. } => 1,
+        })
+        .sum();
+    super::set_counts(store.conn(), scope, moving, to_sort)?;
     if moves.is_empty() {
         return Ok(None);
     }
@@ -285,6 +295,7 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     let roots: Vec<String> = scope_roots(store, &scope).map(|r| r.into_iter().map(|(p, _)| p).collect()).unwrap_or_default();
     let now = now_ms();
     let mut moved_from = Vec::new();
+    let mut moved_files = 0i64;
     for a in &rows {
         match a.status.as_str() {
             "executed" => {
@@ -294,6 +305,7 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                     if let Some((_, _, vol)) = children.first().cloned() {
                         reindex_moved_dir(store, &vol, &a.from, &to)?;
                     }
+                    moved_files += children.len() as i64;
                     for (id, old, _) in children {
                         let new: Option<String> = store
                             .conn()
@@ -306,6 +318,7 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                 } else if let Some(fid) = &a.file_id {
                     let new: String = store.conn().query_row("SELECT path FROM files WHERE id = ?1", [fid], |r| r.get(0))?;
                     history(store.conn(), Some(fid), &a.from, &new, batch_id, now)?;
+                    moved_files += 1;
                 }
                 moved_from.push(a.from.clone());
                 learn(store.conn(), &scope_key, a, batch_id, Outcome::Approved, now)?;
@@ -319,6 +332,9 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
         }
     }
     remove_emptied(&roots, &moved_from);
+    if let Some((remaining, to_sort)) = super::cached_counts(store.conn(), &scope)? {
+        super::set_counts(store.conn(), &scope, remaining - moved_files, to_sort)?;
+    }
     Ok(())
 }
 

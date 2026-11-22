@@ -1121,3 +1121,31 @@ fn files_on_unplugged_drives_wait_to_be_read() {
     let id: String = s.conn().query_row("SELECT id FROM files WHERE name = 'later.docx'", [], |r| r.get(0)).unwrap();
     assert!(load_meta(s.conn(), &id).unwrap().is_none_or(|m| m.read_at.is_none()));
 }
+
+#[test]
+fn scope_counts_are_cached_and_kept_current_by_batches() {
+    let (_t, mut s, _mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+        common::put(m, "b-setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let drive = |s: &mut SqliteStore| aegis_core::filing::scope_statuses(s).unwrap().into_iter().find(|x| x.scope == scope).unwrap();
+    assert_eq!(drive(&mut s).remaining, 2);
+    let cached: Option<String> = s
+        .conn()
+        .query_row("SELECT value_json FROM settings WHERE key LIKE 'filing.counts:%'", [], |r| r.get(0))
+        .ok();
+    assert!(cached.is_some(), "counts are cached, not re-planned on every visit");
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    assert_eq!(drive(&mut s).remaining, 0);
+    // Choosing another structure starts the count afresh.
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Tidy, 2).unwrap();
+    let none: Option<String> = s
+        .conn()
+        .query_row("SELECT value_json FROM settings WHERE key LIKE 'filing.counts:%'", [], |r| r.get(0))
+        .ok();
+    assert!(none.is_none());
+}

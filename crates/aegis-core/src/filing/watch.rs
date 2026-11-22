@@ -3,7 +3,7 @@
 //! or proposed in a batch for the owner to approve.
 
 use super::batches::{after_execute, busy_file_ids, declined_paths, open_filing_batch, propose_placements};
-use super::blueprint::{KnownFolder, PROPOSE_AT, Placement, plan_one, scope_roots};
+use super::blueprint::{KnownFolder, PROPOSE_AT, Placement, Target, plan, scope_roots};
 use super::rules::automatic_rule_for;
 use super::{Scope, blueprint_of};
 use crate::db::SqliteStore;
@@ -110,8 +110,18 @@ impl Watch for FilingWatch {
             }
             let mut auto: Vec<Placement> = Vec::new();
             let mut pending: Vec<Placement> = Vec::new();
-            for id in arrivals(store, &dirs, now)? {
-                let Some(p) = plan_one(store, &scope, choice, &id)? else { continue };
+            let new_ids: std::collections::HashSet<String> = arrivals(store, &dirs, now)?.into_iter().collect();
+            // Plan the scope once and pick out the arrivals (planning per file would redo the
+            // whole drive for each one).
+            let planned: Vec<Placement> = if new_ids.is_empty() {
+                Vec::new()
+            } else {
+                plan(store, &scope, choice)?
+                    .into_iter()
+                    .filter(|p| matches!(&p.target, Target::File { file_id } if new_ids.contains(file_id)))
+                    .collect()
+            };
+            for p in planned {
                 if p.to.is_none() || p.to_sort || p.confidence < PROPOSE_AT {
                     continue;
                 }
