@@ -5,6 +5,7 @@
 //! - `profile`: per-folder statistics from the catalog
 //! - `store`: persistence of collections, locations and the owner's answers
 
+pub mod answers;
 pub mod profile;
 pub mod projects;
 pub mod recognise;
@@ -12,6 +13,7 @@ pub mod relate;
 pub mod store;
 pub mod watch;
 
+pub use answers::{Answer, answer};
 pub use recognise::{RecogniseReport, recognise};
 
 use serde::{Deserialize, Serialize};

@@ -268,9 +268,9 @@ pub fn relate(home: &ContentSummary, other: &ContentSummary) -> (Relationship, i
 }
 
 /// A location's stable identity for the owner's answers (spec §12): its normalized name, the
-/// names its manifests declare, and short keys of its 20 biggest files. Survives a drive letter
-/// change, and a rename as long as the contents stay.
-pub fn fingerprint(name: &str, declared: &[String], summary: &ContentSummary) -> String {
+/// names its manifests declare, short keys of its 20 biggest files, its volume and its path.
+/// See [`fingerprints_match`] for how it survives renames and drive letters.
+pub fn fingerprint(name: &str, declared: &[String], summary: &ContentSummary, volume_id: &str, root: &str) -> String {
     let mut biggest: Vec<(&String, &FileKey)> = summary.files.iter().collect();
     biggest.sort_by(|a, b| b.1.size.cmp(&a.1.size).then_with(|| a.0.cmp(b.0)));
     let mut keys: Vec<String> = biggest
@@ -288,27 +288,36 @@ pub fn fingerprint(name: &str, declared: &[String], summary: &ContentSummary) ->
     let mut names: Vec<String> = declared.iter().map(|d| d.to_lowercase()).collect();
     names.sort();
     names.dedup();
-    format!("{}|{}|{}", normalized_name(name), names.join(","), keys.join(","))
+    format!("{}|{}|{}|{}|{}", normalized_name(name), names.join(","), keys.join(","), volume_id, root.to_lowercase())
 }
 
-/// Whether two fingerprints are the same location: half or more of their content keys agree,
-/// or (when there is no content to go on) their names and manifests do.
+/// Whether two fingerprints are the same location, not merely a similar one (copies of a
+/// project are similar by nature). Both must be on the same drive (its id survives a new
+/// letter), and either at the same path, or holding nearly the same files (renamed or moved on
+/// that drive), or with no files to go on, carry the same name and manifests.
 pub fn fingerprints_match(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
-    let parts = |s: &str| {
-        let mut it = s.splitn(3, '|');
-        (it.next().unwrap_or("").to_string(), it.next().unwrap_or("").to_string(), it.next().unwrap_or("").to_string())
+    let parts = |s: &str| -> [String; 5] {
+        let mut it = s.splitn(5, '|');
+        std::array::from_fn(|_| it.next().unwrap_or("").to_string())
     };
-    let ((na, ma, ka), (nb, mb, kb)) = (parts(a), parts(b));
+    let ([na, ma, ka, va, pa], [nb, mb, kb, vb, pb]) = (parts(a), parts(b));
+    if va != vb {
+        return false;
+    }
+    if !pa.is_empty() && pa == pb {
+        return true;
+    }
     let ka: HashSet<&str> = ka.split(',').filter(|k| !k.is_empty()).collect();
     let kb: HashSet<&str> = kb.split(',').filter(|k| !k.is_empty()).collect();
     if !ka.is_empty() && !kb.is_empty() {
         let common = ka.intersection(&kb).count();
-        return common * 2 >= ka.len().min(kb.len());
+        let all = ka.union(&kb).count();
+        return common * 10 >= all * 8;
     }
-    na == nb && ma == mb && !na.is_empty()
+    ka.is_empty() && kb.is_empty() && na == nb && ma == mb && !na.is_empty()
 }
 
 /// The owner's answer about this pair, if any: `Some(true)` for "same project", `Some(false)`
@@ -334,8 +343,8 @@ pub fn same_identity(
     sb: &ContentSummary,
     decisions: &[Decision],
 ) -> Option<Identity> {
-    let fa = fingerprint(a.name(), &a.declared_names, sa);
-    let fb = fingerprint(b.name(), &b.declared_names, sb);
+    let fa = fingerprint(a.name(), &a.declared_names, sa, &a.volume_id, &a.root);
+    let fb = fingerprint(b.name(), &b.declared_names, sb, &b.volume_id, &b.root);
     identity_of(a, b, sa, sb, &fa, &fb, decisions)
 }
 

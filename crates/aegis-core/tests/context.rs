@@ -675,3 +675,128 @@ fn context_watch_runs_only_when_the_catalog_changed() {
     w.run(&mut s, 0).unwrap();
     assert!(!list_collections(s.conn(), CollectionKind::Project).unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------------------------------------
+// The owner's answers
+
+use aegis_core::context::{Answer, answer};
+
+fn projects_now(s: &SqliteStore) -> Vec<Collection> {
+    list_collections(s.conn(), CollectionKind::Project).unwrap()
+}
+
+#[test]
+fn is_project_no_drops_it_and_protection() {
+    let (_t, mut s, home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let nutrition = collection_named(&projects_now(&s), "Nutrition").id.clone();
+    answer(&mut s, &nutrition, None, Answer::IsProject { yes: false }).unwrap();
+    assert!(projects_now(&s).iter().all(|c| c.name != "Nutrition"));
+    let folder = common::canon(&home.join("Documents/Projectsv2/Dev Set/Nutrition"));
+    let protected = aegis_core::context::protected_roots(&s, &roots_of(&s)).unwrap();
+    assert!(protected.iter().all(|(p, _)| !p.eq_ignore_ascii_case(&folder)));
+    let ps = plan(&s, &Scope::Pc, BlueprintChoice::Fresh).unwrap();
+    assert!(ps.iter().all(|p| !p.from.eq_ignore_ascii_case(&folder)), "no longer kept whole");
+    // The answer holds on the next pass.
+    recognise(&mut s).unwrap();
+    assert!(projects_now(&s).iter().all(|c| c.name != "Nutrition"));
+}
+
+#[test]
+fn not_same_survives_rename_and_new_letter() {
+    let (t, mut s, _home, _prj) = pc();
+    let provider = aegis_core::drives::FakeVolumeProvider::new();
+    let d = common::fake_drive(&t, "Ext", "0077");
+    let copy = d.mount_point.join("Old").join("forexTrader");
+    for f in ["images/favicon_io/favicon-16x16.png", "engine/fx/signals.py", "engine/fx/backtest.py", "docs/architecture.md"] {
+        fixtures_context::put(&copy, f);
+    }
+    for f in walk(&d.mount_point) {
+        fixtures_context::age(&f, 120);
+    }
+    let id = common::plug_and_catalog(&mut s, &provider, &d);
+    recognise(&mut s).unwrap();
+    let fx = collection_named(&projects_now(&s), "forexTrader").clone();
+    assert_eq!(fx.locations.len(), 3, "{fx:?}");
+    let on_drive = fx.locations.iter().find(|l| l.volume_id == id).unwrap().id.clone();
+    answer(&mut s, &fx.id, Some(&on_drive), Answer::NotSameAs).unwrap();
+    let apart = |s: &SqliteStore| {
+        let cs = projects_now(s);
+        let fx = cs.iter().find(|c| c.locations.iter().any(|l| l.relationship == Relationship::Home && l.volume_id != id && c.name == "forexTrader")).unwrap();
+        assert_eq!(fx.locations.len(), 2, "{fx:?}");
+        assert!(cs.iter().any(|c| c.locations.len() == 1 && c.locations[0].volume_id == id), "the drive copy stands alone");
+    };
+    apart(&s);
+
+    // Renamed on the drive, and the drive comes back under another letter.
+    provider.unplug(&d.mount_point);
+    aegis_core::drives::sync_mounted(&mut s, &provider).unwrap();
+    let new_mount = t.path().join("Ext2");
+    std::fs::rename(&d.mount_point, &new_mount).unwrap();
+    std::fs::rename(new_mount.join("Old").join("forexTrader"), new_mount.join("Old").join("fx old")).unwrap();
+    let mut moved = d.clone();
+    moved.mount_point = new_mount.clone();
+    provider.plug(moved);
+    aegis_core::drives::sync_mounted(&mut s, &provider).unwrap();
+    aegis_core::scanner::catalog_volume(&mut s, &id, &mut |_| {}).unwrap();
+    recognise(&mut s).unwrap();
+    apart(&s);
+}
+
+#[test]
+fn same_as_joins_name_mismatch() {
+    let (_t, mut s, _home, prj) = pc();
+    for f in ["NutriP PRD.md", "src/planner.py", "src/meals.py", "src/shopping.py"] {
+        fixtures_context::put(&prj.join("NutriP"), f);
+    }
+    aegis_core::scanner::scan_root(&mut s, &prj, &[1]).unwrap();
+    recognise(&mut s).unwrap();
+    let cs = projects_now(&s);
+    let (a, b) = (collection_named(&cs, "Nutrition").id.clone(), collection_named(&cs, "NutriP").id.clone());
+    answer(&mut s, &b, None, Answer::SameAs { other_collection_id: a }).unwrap();
+    for _ in 0..2 {
+        let cs = projects_now(&s);
+        let joined = cs.iter().find(|c| c.locations.len() == 2 && c.locations.iter().any(|l| l.root_path.ends_with("NutriP"))).unwrap_or_else(|| panic!("not joined: {cs:?}"));
+        assert!(joined.locations.iter().any(|l| l.root_path.ends_with("Nutrition")));
+        assert!(joined.evidence.iter().any(|e| e.contains("you said")), "{:?}", joined.evidence);
+        recognise(&mut s).unwrap();
+    }
+}
+
+#[test]
+fn leave_as_is_keeps_protection() {
+    let (_t, mut s, _home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = collection_named(&projects_now(&s), "forexTrader").id.clone();
+    answer(&mut s, &fx, None, Answer::LeaveAsIs).unwrap();
+    let fx = collection_named(&projects_now(&s), "forexTrader").clone();
+    assert_eq!(fx.state, "left_as_is");
+    let protected = aegis_core::context::protected_roots(&s, &roots_of(&s)).unwrap();
+    assert!(protected.iter().any(|(p, _)| p.eq_ignore_ascii_case(&common::canon(&prj.join("forexTrader")))));
+}
+
+#[test]
+fn rename_is_remembered() {
+    let (_t, mut s, _home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = collection_named(&projects_now(&s), "forexTrader").id.clone();
+    answer(&mut s, &fx, None, Answer::Rename { name: "FX Sentinel".into() }).unwrap();
+    recognise(&mut s).unwrap();
+    assert_eq!(collection_named(&projects_now(&s), "FX Sentinel").locations.len(), 2);
+    let empty = answer(&mut s, &fx, None, Answer::Rename { name: "  ".into() });
+    assert!(empty.is_err());
+}
+
+#[test]
+fn fingerprints_name_one_location_not_its_copies() {
+    use aegis_core::context::relate::{fingerprint, fingerprints_match};
+    let full = summary(named("f", 15), 1);
+    let part = summary(named("f", 9), 1);
+    let here = fingerprint("forexTrader", &[], &full, "v-c", r"C:\Users\me\Documents\Dev Set\forexTrader");
+    let copy = fingerprint("forexTrader", &[], &part, "v-c", r"C:\Prj\forexTrader");
+    let renamed = fingerprint("fx old", &[], &full, "v-c", r"C:\Users\me\Documents\Dev Set\fx old");
+    let other_drive = fingerprint("forexTrader", &[], &full, "v-d", r"D:\Prj\forexTrader");
+    assert!(!fingerprints_match(&here, &copy), "a copy is another location");
+    assert!(fingerprints_match(&here, &renamed), "a rename keeps its identity");
+    assert!(!fingerprints_match(&here, &other_drive));
+}

@@ -5,7 +5,8 @@
 use super::profile::profiles_for;
 use super::projects::{PROJECT_THRESHOLD, ProjectCandidate, find_projects};
 use super::relate::{
-    ContentSummary, Identity, choose_home, content_summaries, fingerprint, fingerprints_match, identity_of, normalized_name, relate,
+    ContentSummary, Identity, answered_same, choose_home, content_summaries, fingerprint, fingerprints_match, identity_of,
+    normalized_name, relate,
     version_series,
 };
 use super::store::{decisions, save_collections};
@@ -92,7 +93,7 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
 
     let locs: Vec<(String, String)> = cands.iter().map(|c| (c.volume_id.clone(), c.root.clone())).collect();
     let summaries: Vec<ContentSummary> = content_summaries(store, &roots, &locs)?;
-    let fps: Vec<String> = cands.iter().zip(&summaries).map(|(c, s)| fingerprint(c.name(), &c.declared_names, s)).collect();
+    let fps: Vec<String> = cands.iter().zip(&summaries).map(|(c, s)| fingerprint(c.name(), &c.declared_names, s, &c.volume_id, &c.root)).collect();
 
     // "Not a project" drops a folder; "yes" confirms it.
     let keep: Vec<usize> = (0..cands.len())
@@ -137,16 +138,30 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
     }
     let mut parent: Vec<usize> = (0..cands.len()).collect();
     let mut identities: HashMap<(usize, usize), Identity> = HashMap::new();
-    for (i, j) in pairs {
-        {
-            if let Some(id) = identity_of(&cands[i], &cands[j], &summaries[i], &summaries[j], &fps[i], &fps[j], &answers) {
-                identities.insert((i, j), id);
-                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
-                if ri != rj {
-                    parent[rj] = ri;
-                }
+    // Confirmed links first, so a "possibly the same" never decides a group.
+    let mut found: Vec<((usize, usize), Identity)> = pairs
+        .into_iter()
+        .filter_map(|(i, j)| {
+            identity_of(&cands[i], &cands[j], &summaries[i], &summaries[j], &fps[i], &fps[j], &answers).map(|id| ((i, j), id))
+        })
+        .collect();
+    found.sort_by_key(|(p, id)| (!id.confirmed, *p));
+    let mut sets: HashMap<usize, Vec<usize>> = keep.iter().map(|&i| (i, vec![i])).collect();
+    for ((i, j), id) in found {
+        let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+        if ri != rj {
+            // Never join through a third copy what the owner said are different projects.
+            let ruled_out = sets[&ri]
+                .iter()
+                .any(|&x| sets[&rj].iter().any(|&y| answered_same(&fps[x], &fps[y], &answers) == Some(false)));
+            if ruled_out {
+                continue;
             }
+            parent[rj] = ri;
+            let moved = sets.remove(&rj).unwrap_or_default();
+            sets.entry(ri).or_default().extend(moved);
         }
+        identities.insert((i, j), id);
     }
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for &i in &keep {
