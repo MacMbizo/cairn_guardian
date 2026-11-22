@@ -7,6 +7,7 @@
 
 pub mod profile;
 pub mod projects;
+pub mod relate;
 pub mod store;
 
 use serde::{Deserialize, Serialize};

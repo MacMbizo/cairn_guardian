@@ -368,3 +368,164 @@ fn waiting_batch_items_inside_projects_are_superseded() {
     assert_eq!(status(&s, &favicon), "superseded");
     assert_eq!(status(&s, &installer), "proposed");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Identity and relationships
+
+use aegis_core::context::relate::{
+    ContentSummary, FileKey, choose_home, content_summary, normalized_name, relate, same_identity, version_series,
+};
+
+/// A summary holding `rels` (each 2 KB), modified at `mtime`.
+fn summary(rels: impl IntoIterator<Item = String>, mtime: i64) -> ContentSummary {
+    let mut s = ContentSummary::default();
+    for r in rels {
+        s.files.insert(r, FileKey { size: 2048, mtime, blake3: None });
+        s.newest_mtime = s.newest_mtime.max(mtime);
+    }
+    s
+}
+
+fn named(prefix: &str, n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("{prefix}{i}.md")).collect()
+}
+
+fn merged(mut a: ContentSummary, b: ContentSummary) -> ContentSummary {
+    a.newest_mtime = a.newest_mtime.max(b.newest_mtime);
+    a.files.extend(b.files);
+    a
+}
+
+#[test]
+fn identical_copies() {
+    let a = summary(named("f", 50), 100);
+    let (rel, shared, by) = relate(&a, &a.clone());
+    assert_eq!((rel, shared), (Relationship::Identical, 50));
+    assert_eq!(by, "name and size");
+}
+
+#[test]
+fn older_subset_like_forextrader() {
+    // C:\Prj holds 356 files, all also in the Dev Set copy of 8,901 files, which is newer.
+    let home = merged(summary(named("s", 356), 100), summary(named("h", 8_545), 200));
+    let other = summary(named("s", 356), 100);
+    assert_eq!(relate(&home, &other), (Relationship::OlderSubset, 356, "name and size".into()));
+}
+
+#[test]
+fn diverged_like_drivingschool() {
+    // 99 shared; 9 only in one copy, 13 only in the other (newer).
+    let home = merged(summary(named("s", 99), 100), summary(named("a", 9), 150));
+    let other = merged(summary(named("s", 99), 100), summary(named("b", 13), 300));
+    assert_eq!(relate(&home, &other).0, Relationship::Diverged);
+    assert_eq!(relate(&home, &other).1, 99);
+    // A subset holding a newer version of a shared file is diverged, not an older subset.
+    let mut newer = summary(named("s", 10), 100);
+    newer.files.get_mut("s0.md").unwrap().mtime = 900;
+    newer.newest_mtime = 900;
+    let home = merged(summary(named("s", 10), 100), summary(named("h", 20), 200));
+    assert_eq!(relate(&home, &newer).0, Relationship::Diverged);
+}
+
+#[test]
+fn different_material_like_paperpilot() {
+    let code: Vec<String> = (0..300).map(|i| format!("src{}c{i}.tsx", std::path::MAIN_SEPARATOR)).collect();
+    let home = merged(summary(code, 100), summary(named("s", 2), 100));
+    let other = merged(summary(named("doc", 344), 100), summary(named("s", 2), 100));
+    assert_eq!(relate(&home, &other), (Relationship::DifferentMaterial, 2, "name and size".into()));
+}
+
+#[test]
+fn matching_by_hash_ignores_paths() {
+    let mut a = ContentSummary::default();
+    let mut b = ContentSummary::default();
+    for i in 0..30u8 {
+        a.files.insert(format!("x{i}"), FileKey { size: 5000, mtime: 1, blake3: Some(vec![i; 32]) });
+        b.files.insert(format!("moved{}y{i}", std::path::MAIN_SEPARATOR), FileKey { size: 5000, mtime: 1, blake3: Some(vec![i; 32]) });
+    }
+    assert_eq!(relate(&a, &b), (Relationship::Identical, 30, "content".into()));
+}
+
+fn cand(root: &str, declared: &[&str]) -> ProjectCandidate {
+    ProjectCandidate {
+        root: root.into(),
+        volume_id: "v".into(),
+        confidence: 0.9,
+        evidence: vec![],
+        project_kind: aegis_core::context::ProjectKind::Software,
+        sub_projects: vec![],
+        is_repo: false,
+        declared_names: declared.iter().map(|d| d.to_string()).collect(),
+        files: 0,
+        bytes: 0,
+        newest_mtime: 0,
+    }
+}
+
+#[test]
+fn name_only_match_is_possible_not_assumed() {
+    let a = cand(r"C:\Prj\wellness", &[]);
+    let b = cand(r"C:\Users\me\Documents\Projectsv2\Dev Set\wellness_app", &[]);
+    let (sa, sb) = (summary(named("a", 30), 1), summary(named("b", 20), 1));
+    let id = same_identity(&a, &b, &sa, &sb, &[]).expect("names agree");
+    assert!(!id.confirmed, "{id:?}");
+    let other = cand(r"C:\Prj\chatbot", &[]);
+    assert!(same_identity(&a, &other, &sa, &sb, &[]).is_none());
+    // A manifest or shared content confirms it.
+    let (ma, mb) = (cand(r"C:\Prj\x", &["mcc-wellness"]), cand(r"D:\y", &["mcc-wellness"]));
+    assert!(same_identity(&ma, &mb, &sa, &sb, &[]).unwrap().confirmed);
+    let (ca, cb) = (summary(named("s", 25), 1), merged(summary(named("s", 25), 1), summary(named("z", 100), 1)));
+    let id = same_identity(&cand(r"C:\Prj\one", &[]), &cand(r"D:\two", &[]), &ca, &cb, &[]).unwrap();
+    assert!(id.confirmed && id.evidence.contains("25 files"), "{id:?}");
+}
+
+#[test]
+fn build_output_is_ignored_in_relationships() {
+    let (_t, s, home, prj) = pc();
+    let vol = |p: &Path| -> String {
+        s.conn()
+            .query_row("SELECT volume_id FROM files WHERE lower(path) LIKE lower(?1) || '%' LIMIT 1", [common::canon(p)], |r| r.get(0))
+            .unwrap()
+    };
+    let code = content_summary(&s, &vol(&prj), &common::canon(&prj.join("paperPilot"))).unwrap();
+    assert_eq!(code.len(), 5, "node_modules must not count: {:?}", code.files.keys().collect::<Vec<_>>());
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    let docs = content_summary(&s, &vol(&ds), &common::canon(&ds.join("paperPilot"))).unwrap();
+    assert_eq!(relate(&code, &docs).0, Relationship::DifferentMaterial);
+    let older = content_summary(&s, &vol(&prj), &common::canon(&prj.join("forexTrader"))).unwrap();
+    let newer = content_summary(&s, &vol(&ds), &common::canon(&ds.join("forexTrader"))).unwrap();
+    assert_eq!(relate(&newer, &older).0, Relationship::OlderSubset);
+}
+
+#[test]
+fn version_series_inv_inv2_inv3() {
+    assert!(version_series("Inv", "Inv2"));
+    assert!(version_series("Inv2", "Inv3"));
+    assert!(!version_series("Inv", "Inv"));
+    assert!(!version_series("D1", "D2"), "too short to be a series by name");
+    assert!(!version_series("Inv", "Invoice"));
+    for (raw, want) in [
+        ("Inv2", "inv"),
+        ("wellness_app", "wellness"),
+        ("forexTrader", "forextrader"),
+        ("set_files_v2(backup)", "setfiles"),
+        ("NewDevSet", "devset"),
+        ("DrivingSchool-main", "drivingschool"),
+        ("budget_v1.1", "budget"),
+    ] {
+        assert_eq!(normalized_name(raw), want, "{raw}");
+    }
+}
+
+#[test]
+fn home_is_repo_then_newest_then_biggest() {
+    let loc = |files: i64, newest: i64, repo: bool| Location {
+        is_repo: repo,
+        newest_mtime: newest,
+        files,
+        ..location("x", "c", "v-c", r"C:\x", Relationship::Unknown)
+    };
+    assert_eq!(choose_home(&[loc(10, 5, false), loc(5, 9, false)]), 1);
+    assert_eq!(choose_home(&[loc(10, 5, false), loc(5, 1, true)]), 1);
+    assert_eq!(choose_home(&[loc(10, 5, false), loc(50, 5, false)]), 1);
+}

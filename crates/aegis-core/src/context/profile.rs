@@ -179,7 +179,7 @@ fn is_source_ext(ext: &str) -> bool {
 
 /// SQL that keeps only files below a root (`?1` = lowercased root plus separator, `?2` = its
 /// length) that aren't build output, ignoring the root's own path when looking for build folders.
-fn live_under_root_sql() -> String {
+pub(crate) fn live_under_root_sql() -> String {
     let mut s = String::from(
         "deleted_at IS NULL AND container_file_id IS NULL AND state != 'quarantine'
          AND substr(lower(path), 1, ?2) = ?1 AND lower(COALESCE(ext, '')) != 'pyc'",

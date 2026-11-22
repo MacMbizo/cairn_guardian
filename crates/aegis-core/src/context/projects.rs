@@ -32,6 +32,12 @@ pub struct ProjectCandidate {
     /// Code projects inside it, relative to its root (`template\prompt-pigeon`).
     pub sub_projects: Vec<String>,
     pub is_repo: bool,
+    /// Names its manifests declare (`package.json` "name" and the like).
+    pub declared_names: Vec<String>,
+    /// Files that aren't build output, their size and the newest one's time.
+    pub files: i64,
+    pub bytes: i64,
+    pub newest_mtime: i64,
 }
 
 impl ProjectCandidate {
@@ -303,6 +309,10 @@ impl<'a> Ctx<'a> {
                 project_kind: kind_of_project(p),
                 sub_projects: self.sub_projects(p),
                 is_repo: p.has_git,
+                declared_names: p.manifests.iter().map(|(_, n)| n.clone()).filter(|n| !n.is_empty()).collect(),
+                files: p.files,
+                bytes: p.bytes,
+                newest_mtime: p.newest_mtime,
             });
         } else {
             for c in self.children(p) {
