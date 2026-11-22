@@ -179,3 +179,86 @@ fn profile_rolls_up_subtrees() {
     assert!(driving.newest_mtime >= src.newest_mtime);
     assert_eq!(driving.kind_count(aegis_core::filing::Kind::Photo), 2);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Projects recogniser
+
+use aegis_core::context::projects::{ProjectCandidate, find_projects};
+
+fn projects_of(s: &SqliteStore) -> Vec<ProjectCandidate> {
+    let roots = roots_of(s);
+    find_projects(&profiles(s, &roots).unwrap(), &roots)
+}
+
+fn project_at<'a>(ps: &'a [ProjectCandidate], p: &Path) -> Option<&'a ProjectCandidate> {
+    let want = common::canon(p);
+    ps.iter().find(|c| c.root.eq_ignore_ascii_case(&want))
+}
+
+fn roots_list(ps: &[ProjectCandidate]) -> String {
+    ps.iter().map(|p| format!("{} {:.2} {:?}", p.root, p.confidence, p.evidence)).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn deep_marker_climbs_to_project_root_not_container() {
+    let (_t, s, home, _prj) = pc();
+    let ps = projects_of(&s);
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    let ai = project_at(&ps, &ds.join("AIPrompt")).unwrap_or_else(|| panic!("AIPrompt missing:\n{}", roots_list(&ps)));
+    assert_eq!(ai.sub_projects, vec![format!("template{}prompt-pigeon", std::path::MAIN_SEPARATOR)]);
+    assert!(project_at(&ps, &ds.join("AIPrompt/template/prompt-pigeon")).is_none());
+    assert!(project_at(&ps, &ds).is_none());
+}
+
+#[test]
+fn markerless_dev_set_folders_are_projects() {
+    let (_t, s, home, _prj) = pc();
+    let ps = projects_of(&s);
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    for name in ["chatbot", "discipline_app", "Nutrition", "paperPilot", "forexTrader", "DrivingSchool"] {
+        let p = project_at(&ps, &ds.join(name)).unwrap_or_else(|| panic!("{name} missing:\n{}", roots_list(&ps)));
+        assert!(p.confidence >= 0.60, "{name}: {}", p.confidence);
+        assert!(!p.evidence.is_empty(), "{name} has no evidence");
+    }
+    let disc = project_at(&ps, &ds.join("discipline_app")).unwrap();
+    assert!(disc.evidence.iter().any(|e| e.contains("PRD")), "{:?}", disc.evidence);
+}
+
+#[test]
+fn containers_are_not_projects() {
+    let (_t, s, home, prj) = pc();
+    let ps = projects_of(&s);
+    let v2 = home.join("Documents/Projectsv2");
+    for c in [v2.join("Dev Set"), v2.clone(), prj.clone(), prj.join("DevSet"), home.join("Documents")] {
+        assert!(project_at(&ps, &c).is_none(), "{} is a container:\n{}", c.display(), roots_list(&ps));
+    }
+    assert!(project_at(&ps, &prj.join("DevSet/mccShepherd")).is_some(), "{}", roots_list(&ps));
+    assert!(project_at(&ps, &prj.join("DevSet/wellness")).is_some());
+    assert!(project_at(&ps, &v2.join("F1")).is_some(), "F1 holds forexTrader's logos:\n{}", roots_list(&ps));
+    for p in ["forexTrader", "DrivingSchool", "paperPilot"] {
+        assert!(project_at(&ps, &prj.join(p)).is_some(), "{p} missing:\n{}", roots_list(&ps));
+    }
+}
+
+#[test]
+fn ordinary_folders_are_not_projects() {
+    let (_t, s, home, _prj) = pc();
+    let ps = projects_of(&s);
+    for f in ["Downloads/misc", "Pictures/2026/2026-10", "Pictures/2026", "Documents/CVs"] {
+        assert!(project_at(&ps, &home.join(f)).is_none(), "{f} is not a project:\n{}", roots_list(&ps));
+    }
+    let n = ps.len();
+    assert_eq!(n, 13, "{}", roots_list(&ps));
+}
+
+#[test]
+fn kind_is_inferred() {
+    let (_t, s, home, prj) = pc();
+    let ps = projects_of(&s);
+    use aegis_core::context::ProjectKind;
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    assert_eq!(project_at(&ps, &ds.join("forexTrader")).unwrap().project_kind, ProjectKind::Software);
+    assert_eq!(project_at(&ps, &prj.join("forexTrader")).unwrap().project_kind, ProjectKind::Software);
+    assert_eq!(project_at(&ps, &home.join("Documents/Projectsv2/F1")).unwrap().project_kind, ProjectKind::Design);
+    assert_eq!(project_at(&ps, &ds.join("Nutrition")).unwrap().project_kind, ProjectKind::Writing);
+}

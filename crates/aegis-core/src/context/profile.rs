@@ -60,6 +60,9 @@ pub struct FolderProfile {
     pub doc_signals: Vec<String>,
     /// Asset words and design extensions found in the subtree (`logo`, `favicon`, `.psd` ...).
     pub asset_signals: Vec<String>,
+    /// The same words, from files directly in the folder (and its own name, for `set_files`).
+    pub direct_doc_signals: Vec<String>,
+    pub direct_asset_signals: Vec<String>,
     /// Files in the subtree whose name carries a project-document word.
     pub doc_files: i64,
     /// Files in the subtree whose name carries an asset word or design extension.
@@ -329,6 +332,10 @@ pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfi
             }
         }
 
+        let direct: HashMap<String, (Vec<String>, Vec<String>)> = acc
+            .iter()
+            .map(|(k, a)| (k.clone(), (a.docs.iter().cloned().collect(), a.assets.iter().cloned().collect())))
+            .collect();
         // Roll the subtree up, deepest folders first.
         let mut order: Vec<String> = acc.keys().cloned().collect();
         order.sort_by_key(|k| std::cmp::Reverse(k.matches(SEP).count()));
@@ -370,7 +377,10 @@ pub fn profiles(store: &SqliteStore, roots: &[String]) -> Result<Vec<FolderProfi
                 continue;
             }
             let unit = units.get(&k);
+            let (direct_doc_signals, direct_asset_signals) = direct.get(&k).cloned().unwrap_or_default();
             out.push(FolderProfile {
+                direct_doc_signals,
+                direct_asset_signals,
                 depth: k.matches(SEP).count() - root_depth,
                 path: a.display,
                 volume_id: a.volume_id,
