@@ -10,8 +10,7 @@ use aegis_core::error::IpcError;
 use aegis_core::filing::batches::{RecentBatch, after_execute, after_rollback, next_batch, propose_placements, recent_batches};
 use aegis_core::filing::blueprint::{BlueprintSummary, Placement, Target, destinations, plan, rule_key, summarize};
 use aegis_core::filing::rules::{FilingRule, delete_rule, list_rules, stop_automatic};
-use aegis_core::filing::{BlueprintChoice, Scope, ScopeStatus, load_meta, scope_statuses, set_blueprint};
-use aegis_core::now_ms;
+use aegis_core::filing::{BlueprintChoice, Scope, ScopeStatus, change_blueprint, load_meta, scope_statuses};
 use std::path::Path;
 use tauri::{AppHandle, State};
 
@@ -35,8 +34,8 @@ pub fn filing_blueprints(state: State<'_, AppState>, scope: Scope) -> Result<(Bl
 
 #[tauri::command(async)]
 pub fn filing_choose(state: State<'_, AppState>, scope: Scope, choice: BlueprintChoice) -> Result<(), IpcError> {
-    let store = lock_store(&state)?;
-    map_err(set_blueprint(store.conn(), &scope, choice, now_ms()))
+    let mut store = lock_store(&state)?;
+    map_err(change_blueprint(&mut store, &scope, choice))
 }
 
 /// Prepares the next batch (or returns the one already waiting).

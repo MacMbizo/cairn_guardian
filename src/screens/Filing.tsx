@@ -94,10 +94,23 @@ function PlanView({ s, preview, onChosen, onBack }: { s: ScopeStatus; preview: b
     aegis.filing.blueprints(s.scope).then(setPair, (e) => setErr(errorMessage(e)));
   }, [s, preview]);
 
+  const [err2, setErr2] = useState<string | null>(null);
   const choose = async (c: BlueprintChoice) => {
-    if (!preview) await aegis.filing.choose(s.scope, c);
-    onChosen(`${s.label} will use the ${CHOICE_TEXT[c].title.toLowerCase()} structure. Review the first batch when you're ready.`);
+    try {
+      if (!preview) await aegis.filing.choose(s.scope, c);
+    } catch (e) {
+      setErr2(errorMessage(e));
+      return;
+    }
+    const switched = s.blueprint !== null && s.blueprint !== c;
+    onChosen(
+      switched
+        ? `${s.label} now uses the ${CHOICE_TEXT[c].title.toLowerCase()} structure. Files already filed stayed where they are; the next batch follows the new structure.`
+        : `${s.label} will use the ${CHOICE_TEXT[c].title.toLowerCase()} structure. Review the first batch when you're ready.`,
+    );
   };
+  // Switching after batches have run: say what happens to the work already done.
+  const midway = s.blueprint !== null && s.filed > 0;
 
   return (
     <div className="space-y-4">
@@ -108,7 +121,14 @@ function PlanView({ s, preview, onChosen, onBack }: { s: ScopeStatus; preview: b
         <h1 className="text-lg font-semibold">Choose a structure for {s.label}</h1>
         <p className="text-xs text-slate-400">Nothing moves yet. After you choose, Aegis proposes batches you approve one at a time, and every batch can be undone.</p>
       </header>
-      {err && <p className="text-xs text-rose-300">{err}</p>}
+      {midway && s.blueprint && (
+        <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          {s.filed.toLocaleString()} file{s.filed === 1 ? " has" : "s have"} already been filed under the {CHOICE_TEXT[s.blueprint].title.toLowerCase()} structure.
+          Switching won't move them back or again: they stay where they are, and only files not yet filed follow the new choice
+          {s.open_batch ? ". The batch waiting for you now is dropped" : ""}. To start over, undo batches from Recent batches first.
+        </p>
+      )}
+      {(err ?? err2) && <p className="text-xs text-rose-300">{err ?? err2}</p>}
       {!pair && !err && <p className="text-xs text-slate-400">Working out both structures… this can take a minute on a big drive.</p>}
       {pair && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -140,7 +160,7 @@ function PlanView({ s, preview, onChosen, onBack }: { s: ScopeStatus; preview: b
                 </div>
               )}
               <button type="button" className={primary} onClick={() => void choose(b.choice)}>
-                Use this structure
+                {s.blueprint === b.choice ? "Keep this structure" : midway ? "Switch to this structure" : "Use this structure"}
               </button>
             </section>
           ))}

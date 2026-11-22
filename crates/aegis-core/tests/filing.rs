@@ -1359,6 +1359,21 @@ fn scope_status_counts_files_in_the_waiting_batch() {
     assert_eq!(status_of(&mut s2, &scope2).open_batch_files, 3);
 }
 
+#[test]
+fn changing_structure_retires_the_old_draft_without_a_no() {
+    let (_t, mut s, _mount, scope) = two_installers();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    aegis_core::filing::change_blueprint(&mut s, &scope, BlueprintChoice::Tidy).unwrap();
+    assert_eq!(blueprint_of(s.conn(), &scope).unwrap(), Some(BlueprintChoice::Tidy));
+    assert!(open_filing_batch(s.conn(), &scope).unwrap().is_none(), "the old choice's draft is gone");
+    assert!(actions_of(&s, &b).iter().all(|a| a.3 == "superseded"), "{:?}", actions_of(&s, &b));
+    assert!(aegis_core::filing::batches::declined_paths(s.conn()).unwrap().is_empty(), "not a no from the owner");
+    // Choosing the same structure again leaves a waiting batch alone.
+    let b2 = next_batch(&mut s, &scope).unwrap();
+    aegis_core::filing::change_blueprint(&mut s, &scope, BlueprintChoice::Tidy).unwrap();
+    assert_eq!(open_filing_batch(s.conn(), &scope).unwrap(), b2);
+}
+
 // ---------- Final review fixes ----------
 
 use aegis_core::filing::batches::skip_batch;

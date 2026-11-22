@@ -270,6 +270,30 @@ pub fn set_blueprint(conn: &Connection, scope: &Scope, choice: BlueprintChoice, 
     Ok(())
 }
 
+/// The owner chose a structure. Choosing a different one mid-way retires the batch waiting
+/// under the old one (marked superseded: it isn't a "no" for those files or their rules); files
+/// already filed stay where they are.
+pub fn change_blueprint(store: &mut crate::db::SqliteStore, scope: &Scope, choice: BlueprintChoice) -> Result<()> {
+    let old = blueprint_of(store.conn(), scope)?;
+    store.with_full_sync_tx(|tx| {
+        if old.is_some_and(|o| o != choice)
+            && let Some(open) = batches::open_filing_batch(tx, scope)?
+        {
+            tx.execute(
+                "UPDATE actions SET status = 'superseded', error_message = 'The structure was changed'
+                 WHERE batch_id = ?1 AND status IN ('proposed', 'approved')",
+                [&open],
+            )?;
+            tx.execute(
+                "UPDATE action_batches SET status = 'failed' WHERE id = ?1 AND NOT EXISTS (
+                    SELECT 1 FROM actions WHERE batch_id = ?1 AND executed_at IS NOT NULL)",
+                [&open],
+            )?;
+        }
+        set_blueprint(tx, scope, choice, crate::now_ms())
+    })
+}
+
 pub fn blueprint_of(conn: &Connection, scope: &Scope) -> Result<Option<BlueprintChoice>> {
     let c: Option<String> = conn
         .query_row("SELECT choice FROM filing_blueprints WHERE scope_key = ?1", [scope.key()], |r| r.get(0))
