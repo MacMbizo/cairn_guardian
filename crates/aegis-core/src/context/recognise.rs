@@ -3,7 +3,7 @@
 //! to the project's home, the owner's answers applied, and the result saved.
 
 use super::profile::profiles_for;
-use super::projects::{PROJECT_THRESHOLD, ProjectCandidate, find_projects};
+use super::projects::{PROJECT_THRESHOLD, ProjectCandidate, find_projects_with};
 use super::relate::{
     ContentSummary, Identity, answered_same, choose_home, content_summaries, fingerprint, fingerprints_match, identity_of,
     normalized_name, relate,
@@ -19,6 +19,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 use ts_rs::TS;
+
+/// A file (or a declared name) found in projects of this many different names is boilerplate,
+/// not evidence of identity.
+pub const BOILERPLATE_NAMES: usize = 3;
+
+fn hex(h: &[u8]) -> String {
+    h.iter().map(|b| format!("{b:02x}")).collect()
+}
 
 /// Settings key recording when recognition last ran (scope `context`).
 pub const RECOGNISED_AT: &str = "recognised_at";
@@ -83,7 +91,9 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
     let mut cands: Vec<ProjectCandidate> = Vec::new();
     for (root, volume) in &roots {
         let ps = profiles_for(store, &[(root.clone(), volume.clone())])?;
-        cands.extend(find_projects(&ps, std::slice::from_ref(root)));
+        // A drive's top level is a general place, like Documents: it lends no project status.
+        let general: Vec<String> = volume.iter().map(|_| root.clone()).collect();
+        cands.extend(find_projects_with(&ps, std::slice::from_ref(root), &general));
     }
     let answers = decisions(store.conn())?;
     let online: HashMap<String, bool> = {
@@ -109,7 +119,7 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
         for (rel, f) in &summaries[i].files {
             keys.push(format!("p:{rel}:{}", f.size));
             if let Some(h) = &f.blake3 {
-                keys.push(format!("h:{}", blake3::Hash::from_bytes(h.as_slice().try_into().unwrap_or([0; 32])).to_hex()));
+                keys.push(format!("h:{}", hex(h)));
             }
         }
         keys.sort();
@@ -118,8 +128,41 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
             index.entry(k).or_default().push(i);
         }
     }
+    // Boilerplate: a file found in projects of four or more different names (a starter kit, the
+    // same agent files, a build wrapper). It says nothing about which project a copy belongs to,
+    // so identity is judged without it; relationships between real copies still count it.
+    let names: Vec<String> = cands.iter().map(|c| normalized_name(c.name())).collect();
+    let boilerplate: std::collections::HashSet<&str> = index
+        .iter()
+        .filter(|(k, m)| {
+            (k.starts_with("p:") || k.starts_with("h:") || k.starts_with("d:"))
+                && m.iter().map(|&i| names[i].as_str()).collect::<std::collections::HashSet<_>>().len() >= BOILERPLATE_NAMES
+        })
+        .map(|(k, _)| k.as_str())
+        .collect();
+    let distinct: Vec<ContentSummary> = summaries
+        .iter()
+        .map(|s| {
+            let mut d = s.clone();
+            d.files.retain(|rel, f| {
+                let by_path = format!("p:{rel}:{}", f.size);
+                let by_hash = f.blake3.as_ref().map(|h| format!("h:{}", hex(h)));
+                !boilerplate.contains(by_path.as_str()) && by_hash.is_none_or(|h| !boilerplate.contains(h.as_str()))
+            });
+            d
+        })
+        .collect();
+    // Candidates as identity sees them: without boilerplate declared names (`vite_react_shadcn_ts`).
+    let ident: Vec<ProjectCandidate> = cands
+        .iter()
+        .map(|c| {
+            let mut c = c.clone();
+            c.declared_names.retain(|d| !boilerplate.contains(format!("d:{}", d.to_lowercase()).as_str()));
+            c
+        })
+        .collect();
     let mut pairs: std::collections::BTreeSet<(usize, usize)> = std::collections::BTreeSet::new();
-    for members in index.values().filter(|m| m.len() > 1 && m.len() <= 50) {
+    for (_, members) in index.iter().filter(|(k, m)| m.len() > 1 && m.len() <= 50 && !boilerplate.contains(k.as_str())) {
         for (x, &i) in members.iter().enumerate() {
             for &j in &members[x + 1..] {
                 pairs.insert((i.min(j), i.max(j)));
@@ -142,7 +185,7 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
     let mut found: Vec<((usize, usize), Identity)> = pairs
         .into_iter()
         .filter_map(|(i, j)| {
-            identity_of(&cands[i], &cands[j], &summaries[i], &summaries[j], &fps[i], &fps[j], &answers).map(|id| ((i, j), id))
+            identity_of(&ident[i], &ident[j], &distinct[i], &distinct[j], &fps[i], &fps[j], &answers).map(|id| ((i, j), id))
         })
         .collect();
     found.sort_by_key(|(p, id)| (!id.confirmed, *p));
@@ -154,7 +197,9 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
             let ruled_out = sets[&ri]
                 .iter()
                 .any(|&x| sets[&rj].iter().any(|&y| answered_same(&fps[x], &fps[y], &answers) == Some(false)));
-            if ruled_out {
+            // "Possibly the same" only ever pairs two folders that have nothing else: it never
+            // pulls a third folder into a project on name alone.
+            if ruled_out || (!id.confirmed && (sets[&ri].len() > 1 || sets[&rj].len() > 1)) {
                 continue;
             }
             parent[rj] = ri;

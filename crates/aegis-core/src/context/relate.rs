@@ -377,9 +377,11 @@ pub fn identity_of(
     if let Some(n) = b.declared_names.iter().find(|n| declared_a.contains(&n.to_lowercase())) {
         return Some(Identity { evidence: format!("both call themselves \"{n}\""), confirmed: true });
     }
+    // Different names need most of the smaller copy in common (a renamed copy); a few shared
+    // files between differently named folders are usually a kit both were built from.
     let (shared, _, _) = overlap(sa, sb);
     let smaller = sa.len().min(sb.len());
-    if shared >= 20 || (smaller > 0 && shared * 10 >= smaller * 3) {
+    if shared >= 3 && shared * 10 >= smaller * 8 {
         return Some(Identity { evidence: format!("{shared} files in common"), confirmed: true });
     }
     let (na, nb) = (normalized_name(a.name()), normalized_name(b.name()));

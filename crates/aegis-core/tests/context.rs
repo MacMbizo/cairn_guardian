@@ -800,3 +800,62 @@ fn fingerprints_name_one_location_not_its_copies() {
     assert!(fingerprints_match(&here, &renamed), "a rename keeps its identity");
     assert!(!fingerprints_match(&here, &other_drive));
 }
+
+#[test]
+fn shared_boilerplate_does_not_make_projects_one() {
+    let (_t, mut s, _home, prj) = pc();
+    // Four unrelated projects built from the same starter kit: 25 identical files each.
+    for name in ["alpha", "bravo", "charlie", "delta"] {
+        for i in 0..25 {
+            fixtures_context::put_as(&prj.join(name), &format!("agents/agent{i}.md"), &format!("starter kit agent number {i}"));
+        }
+        fixtures_context::put(&prj.join(name), &format!("src/{name}_main.py"));
+        fixtures_context::put(&prj.join(name), &format!("docs/{name} PRD.md"));
+    }
+    aegis_core::scanner::scan_root(&mut s, &prj, &[1]).unwrap();
+    recognise(&mut s).unwrap();
+    let cs = projects_now(&s);
+    for name in ["alpha", "bravo", "charlie", "delta"] {
+        let c = collection_named(&cs, name);
+        assert_eq!(c.locations.len(), 1, "{name} was joined with others: {c:?}");
+    }
+}
+
+#[test]
+fn a_mixed_drive_root_lends_no_project_status() {
+    let (t, mut s, _home, _prj) = pc();
+    let provider = aegis_core::drives::FakeVolumeProvider::new();
+    let d = common::fake_drive(&t, "Mixed", "0051");
+    let m = d.mount_point.clone();
+    // Two real projects at the top of the drive...
+    for f in ["README.md", "src/main.py"] {
+        fixtures_context::put(&m.join("webscraper"), f);
+    }
+    for f in ["package.json", "src/app.ts"] {
+        fixtures_context::put(&m.join("shop"), f);
+    }
+    // ...beside the owner's ordinary folders.
+    for (dir, f) in [
+        ("Self Development", "Atomic Habits.pdf"),
+        ("Self Development", "course notes.docx"),
+        ("Self Development", "lecture 1.mp4"),
+        ("Self Development", "script.py"),
+        ("Movies", "film.mkv"),
+        ("Movies", "film2.mkv"),
+        ("Movies", "film3.mkv"),
+        ("Books", "a.pdf"),
+        ("Books", "b.pdf"),
+        ("Books", "c.epub"),
+        ("Music", "x.mp3"),
+    ] {
+        fixtures_context::put(&m.join(dir), f);
+    }
+    common::plug_and_catalog(&mut s, &provider, &d);
+    recognise(&mut s).unwrap();
+    let cs = projects_now(&s);
+    let at = |n: &str| cs.iter().any(|c| c.locations.iter().any(|l| l.root_path.eq_ignore_ascii_case(&common::canon(&m.join(n)))));
+    assert!(at("webscraper") && at("shop"));
+    for n in ["Self Development", "Movies", "Books"] {
+        assert!(!at(n), "{n} is not a project");
+    }
+}

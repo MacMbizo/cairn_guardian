@@ -83,8 +83,16 @@ pub fn is_part_name(name: &str) -> bool {
 struct Ctx<'a> {
     by_path: HashMap<String, &'a FolderProfile>,
     roots: BTreeSet<String>,
+    /// Roots that are general places (a drive's top level): they never lend project status.
+    general: BTreeSet<String>,
     containers: HashMap<String, bool>,
+    /// For each container, the share of its sizeable sub-folders that are projects by themselves.
+    project_share: HashMap<String, f64>,
 }
+
+/// A container lends "sits among other projects" only when at least this share of its sizeable
+/// sub-folders (three files or more) are projects on their own merits.
+pub const LENDING_SHARE: f64 = 0.4;
 
 /// What a folder holds itself, plus its parts (sub-folders that are parts of it).
 #[derive(Default)]
@@ -277,15 +285,23 @@ impl<'a> Ctx<'a> {
             return *c;
         }
         let mut scores = Vec::new();
+        let (mut sizeable, mut projects) = (0usize, 0usize);
         for c in self.children(p) {
             if is_part_name(c.name()) {
                 continue;
             }
             let s = if self.is_container(c) { 1.0 } else { self.score(c, None).0 };
+            if c.files >= 3 {
+                sizeable += 1;
+                if s >= PROJECT_THRESHOLD {
+                    projects += 1;
+                }
+            }
             scores.push(s);
         }
         let c = !self.strong(p) && is_container(p, &scores);
         self.containers.insert(key(&p.path), c);
+        self.project_share.insert(key(&p.path), projects as f64 / sizeable.max(1) as f64);
         c
     }
 
@@ -293,7 +309,11 @@ impl<'a> Ctx<'a> {
         let area = self.is_area(p);
         let container = self.is_container(p);
         if area || container {
-            let here = container.then(|| p.name().to_string());
+            let lends = container
+                && !self.general.contains(&key(&p.path))
+                && !(area && self.is_root(p) && AREA_NAMES.contains(&p.name().to_lowercase().as_str()))
+                && self.project_share.get(&key(&p.path)).copied().unwrap_or(0.0) >= LENDING_SHARE;
+            let here = lends.then(|| p.name().to_string());
             for c in self.children(p) {
                 self.visit(c, here.clone(), out);
             }
@@ -379,10 +399,18 @@ pub fn is_container(p: &FolderProfile, child_scores: &[f64]) -> bool {
 /// Every project under the roots (spec §7.1, §7.2). `known_roots` are the PC roots and drive
 /// mount points; folders at depth 0 in `profiles` are roots too.
 pub fn find_projects(profiles: &[FolderProfile], known_roots: &[String]) -> Vec<ProjectCandidate> {
+    find_projects_with(profiles, known_roots, &[])
+}
+
+/// Like [`find_projects`], with `general_roots` (drive mount points) that never lend project
+/// status to what sits at their top level.
+pub fn find_projects_with(profiles: &[FolderProfile], known_roots: &[String], general_roots: &[String]) -> Vec<ProjectCandidate> {
     let mut ctx = Ctx {
         by_path: profiles.iter().map(|p| (key(&p.path), p)).collect(),
         roots: known_roots.iter().map(|r| key(r.trim_end_matches(SEP))).collect(),
+        general: general_roots.iter().map(|r| key(r.trim_end_matches(SEP))).collect(),
         containers: HashMap::new(),
+        project_share: HashMap::new(),
     };
     let mut out = Vec::new();
     for p in profiles.iter().filter(|p| p.depth == 0) {
