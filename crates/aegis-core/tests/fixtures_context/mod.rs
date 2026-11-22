@@ -24,6 +24,31 @@ pub fn put(root: &Path, rel: &str) -> PathBuf {
     put_as(root, rel, rel)
 }
 
+/// A scanned PC: `me\Documents` (with `Projectsv2\Dev Set`), `me\Downloads`, `me\Pictures` and
+/// `Prj`, all roots. Returns (tmp, store, home, prj).
+pub fn pc() -> (tempfile::TempDir, aegis_core::db::SqliteStore, PathBuf, PathBuf) {
+    let t = tempfile::TempDir::new().unwrap();
+    let home = t.path().join("me");
+    let prj = t.path().join("Prj");
+    for f in ["Documents", "Downloads", "Pictures"] {
+        std::fs::create_dir_all(home.join(f)).unwrap();
+    }
+    dev_set(&home.join("Documents"));
+    self::prj(&prj);
+    ordinary(&home);
+    let mut s = aegis_core::db::SqliteStore::open_in_memory().unwrap();
+    for r in [home.join("Documents"), home.join("Downloads"), home.join("Pictures"), prj.clone()] {
+        s.add_root(&r).unwrap();
+        aegis_core::scanner::scan_root(&mut s, &r, &[1]).unwrap();
+    }
+    aegis_core::filing::reader::read_pending(&mut s, 5_000, std::time::Duration::from_secs(30)).unwrap();
+    (t, s, home, prj)
+}
+
+pub fn roots_of(s: &aegis_core::db::SqliteStore) -> Vec<String> {
+    s.list_roots().unwrap().into_iter().map(|r| r.path).collect()
+}
+
 /// Sets a file's modified time to `days` days ago.
 pub fn age(p: &Path, days: u64) {
     let f = std::fs::OpenOptions::new().write(true).open(p).unwrap();

@@ -22,6 +22,7 @@ function loc(cid: string, root: string, relationship: Relationship, files: numbe
     is_repo: false,
     online,
     fingerprint: `fp${n}`,
+    keep_here: false,
   };
 }
 
@@ -34,7 +35,7 @@ function project(
   locations: (cid: string) => Location[],
   state = "candidate",
 ): Collection {
-  return { id, kind: "project", name, project_kind: kind, confidence, state, evidence, locations: locations(id), sub_projects: [] };
+  return { id, kind: "project", name, project_kind: kind, confidence, state, evidence, locations: locations(id), sub_projects: [], plan_state: null };
 }
 
 const V2 = String.raw`C:\Users\Mac\Documents\Projectsv2`;

@@ -96,6 +96,7 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
         cands.extend(find_projects_with(&ps, std::slice::from_ref(root), &general));
     }
     let answers = decisions(store.conn())?;
+    let runs = super::store::plan_runs(store.conn())?;
     let online: HashMap<String, bool> = {
         let mut stmt = store.conn().prepare("SELECT id, status = 'online' FROM volumes")?;
         stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
@@ -235,10 +236,18 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
                     is_repo: c.is_repo,
                     online: online.get(&c.volume_id).copied().unwrap_or(false),
                     fingerprint: fps[i].clone(),
+                    keep_here: answer_for(&answers, DecisionKind::KeepHere, &fps[i]).is_some_and(|d| d.value == "yes"),
                 }
             })
             .collect();
-        let h = choose_home(&locations);
+        // The owner's choice of home (the latest one among these copies) beats the rules.
+        let chosen = members
+            .iter()
+            .enumerate()
+            .filter_map(|(k, &i)| answer_for(&answers, DecisionKind::Home, &fps[i]).map(|d| (d.at, k)))
+            .max()
+            .map(|(_, k)| k);
+        let h = chosen.unwrap_or_else(|| choose_home(&locations));
         let home = members[h];
         let mut evidence = cands[home].evidence.clone();
         for (k, &m) in members.iter().enumerate() {
@@ -280,6 +289,11 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
             evidence,
             locations,
             sub_projects: cands[home].sub_projects.clone(),
+            plan_state: runs
+                .iter()
+                .rev()
+                .find(|r| r.fingerprints.iter().any(|f| members.iter().any(|&i| fingerprints_match(f, &fps[i]))))
+                .map(|r| format!("{}:{}", r.state, r.batch_id)),
         });
     }
     collections.sort_by_key(|c| (std::cmp::Reverse(c.locations.len().min(2)), c.name.to_lowercase()));

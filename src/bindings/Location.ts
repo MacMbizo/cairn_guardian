@@ -24,4 +24,8 @@ online: boolean,
 /**
  * Stable identity for the owner's answers: survives renames and drive letters.
  */
-fingerprint: string, };
+fingerprint: string, 
+/**
+ * The owner said "keep this copy here": the project's plan leaves it where it is.
+ */
+keep_here: boolean, };

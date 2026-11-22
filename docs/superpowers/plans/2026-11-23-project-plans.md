@@ -89,17 +89,21 @@ This plan touches these binding rules (`docs/superpowers/specs/2026-11-23-local-
 - Create `migrations/0007_project_plans.sql`.
 - Modify `db/mod.rs` (migration 7), `tests/drives.rs` (versions list), `context/mod.rs`, `context/answers.rs` and `context/store.rs`.
 
-**Schema:**
+**Schema** (as built):
 - `ALTER TABLE actions ADD COLUMN step INTEGER NOT NULL DEFAULT 0`.
-- `ALTER TABLE collections ADD COLUMN plan_state TEXT`, holding NULL, `waiting`, `proposed:<batch id>`, `done:<batch id>` or `undone:<batch id>`. Recognition must carry it over on save, like decisions.
+- `collections.plan_state` holds `<state>:<batch id>`.
+  - It is **computed on each recognition pass**, from a new `project_plan_runs(batch_id, volume_id, fingerprints_json, state, at)` table, by matching location fingerprints.
+  - Collection ids are new on every pass, so a stored state could not carry over by id.
+- `collection_locations.keep_here`.
 
 **Interfaces (Produces):**
-- `DecisionKind::Home`: `fingerprint_a` is the collection's chosen home location; `value` is empty.
-- `DecisionKind::KeepHere`: `fingerprint_a` is a location the owner wants left where it is.
-- `Answer::ChangeHome { location_id }` and `Answer::KeepHere { location_id, keep: bool }`.
-- Recognition applies them:
-  - a `Home` decision overrides `choose_home` when its fingerprint matches a location;
-  - `KeepHere` marks the location so `plan_for` gives it no step.
+- `DecisionKind::Home` and `DecisionKind::KeepHere` (`yes` or `no`) are keyed by the location fingerprint.
+- `Answer::ChangeHome` and `Answer::KeepHere { keep }` take the location through `answer`'s `location_id`, like `NotSameAs`.
+- `Location.keep_here` and `Collection.plan_state`.
+- `store::record_plan_run(conn, batch_id, volume_id, fingerprints, state)` and `store::plan_runs(conn)`.
+- Recognition applies the answers:
+  - the latest `Home` answer among a project's copies overrides `choose_home`;
+  - `KeepHere` sets `keep_here`, and `plan_for` gives that location no step.
 
 **Tests:**
 - `change_home_survives_recognition`

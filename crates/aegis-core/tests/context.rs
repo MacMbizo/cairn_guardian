@@ -33,6 +33,7 @@ fn location(id: &str, collection: &str, volume: &str, root: &str, rel: Relations
         is_repo: false,
         online: true,
         fingerprint: format!("fp-{id}"),
+        keep_here: false,
     }
 }
 
@@ -50,6 +51,7 @@ fn forex() -> Collection {
             location("l2", "c1", "v-d", "D:\\Prj\\forexTrader", Relationship::OlderSubset),
         ],
         sub_projects: vec!["engine".into()],
+        plan_state: None,
     }
 }
 
@@ -95,32 +97,8 @@ fn saving_again_replaces_computed_rows_but_keeps_decisions() {
 mod fixtures_context;
 
 use aegis_core::context::profile::{FolderProfile, profiles};
+use fixtures_context::{pc, roots_of};
 use std::path::{Path, PathBuf};
-
-/// A scanned PC: `me\Documents` (with `Projectsv2\Dev Set`), `me\Downloads`, `me\Pictures` and
-/// `Prj`, all roots. Returns (tmp, store, home, prj).
-pub fn pc() -> (tempfile::TempDir, SqliteStore, PathBuf, PathBuf) {
-    let t = tempfile::TempDir::new().unwrap();
-    let home = t.path().join("me");
-    let prj = t.path().join("Prj");
-    for f in ["Documents", "Downloads", "Pictures"] {
-        std::fs::create_dir_all(home.join(f)).unwrap();
-    }
-    fixtures_context::dev_set(&home.join("Documents"));
-    fixtures_context::prj(&prj);
-    fixtures_context::ordinary(&home);
-    let mut s = SqliteStore::open_in_memory().unwrap();
-    for r in [home.join("Documents"), home.join("Downloads"), home.join("Pictures"), prj.clone()] {
-        s.add_root(&r).unwrap();
-        aegis_core::scanner::scan_root(&mut s, &r, &[1]).unwrap();
-    }
-    aegis_core::filing::reader::read_pending(&mut s, 5_000, std::time::Duration::from_secs(30)).unwrap();
-    (t, s, home, prj)
-}
-
-pub fn roots_of(s: &SqliteStore) -> Vec<String> {
-    s.list_roots().unwrap().into_iter().map(|r| r.path).collect()
-}
 
 fn profile_at<'a>(ps: &'a [FolderProfile], p: &Path) -> &'a FolderProfile {
     let want = common::canon(p);

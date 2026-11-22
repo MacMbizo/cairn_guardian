@@ -25,6 +25,10 @@ pub enum Answer {
     /// Keep protecting it, and stop asking about it.
     LeaveAsIs,
     Rename { name: String },
+    /// The given location is the project's home: its plan centres on it.
+    ChangeHome,
+    /// Leave the given location where it is (or no longer): the plan gives it no step.
+    KeepHere { keep: bool },
 }
 
 fn collection(store: &SqliteStore, id: &str) -> Result<Collection> {
@@ -76,6 +80,18 @@ pub fn answer(store: &mut SqliteStore, collection_id: &str, location_id: Option<
             for other in c.locations.iter().filter(|x| x.id != l) {
                 out.push(decision(DecisionKind::NotSameAs, fp, Some(&other.fingerprint), "no", at));
             }
+        }
+        Answer::ChangeHome => {
+            if location_id.is_none() {
+                return Err(AegisError::InvalidInput("Say which folder should be the main copy.".into()));
+            }
+            out.push(decision(DecisionKind::Home, targets[0], None, "yes", at));
+        }
+        Answer::KeepHere { keep } => {
+            if location_id.is_none() {
+                return Err(AegisError::InvalidInput("Say which folder to keep where it is.".into()));
+            }
+            out.push(decision(DecisionKind::KeepHere, targets[0], None, if *keep { "yes" } else { "no" }, at));
         }
         Answer::SameAs { other_collection_id } => {
             let other = collection(store, other_collection_id)?;

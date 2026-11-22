@@ -3,4 +3,4 @@
 /**
  * One of the owner's answers about a project card.
  */
-export type Answer = { "kind": "is_project", yes: boolean, } | { "kind": "same_as", other_collection_id: string, } | { "kind": "not_same_as" } | { "kind": "leave_as_is" } | { "kind": "rename", name: string, };
+export type Answer = { "kind": "is_project", yes: boolean, } | { "kind": "same_as", other_collection_id: string, } | { "kind": "not_same_as" } | { "kind": "leave_as_is" } | { "kind": "rename", name: string, } | { "kind": "change_home" } | { "kind": "keep_here", keep: boolean, };

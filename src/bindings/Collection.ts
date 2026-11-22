@@ -10,4 +10,9 @@ export type Collection = { id: string, kind: CollectionKind, name: string, proje
 /**
  * `candidate`, `confirmed`, `left_as_is` or `not_a_project`.
  */
-state: string, evidence: Array<string>, locations: Array<Location>, sub_projects: Array<string>, };
+state: string, evidence: Array<string>, locations: Array<Location>, sub_projects: Array<string>, 
+/**
+ * The latest plan proposed or run for this project, as `<state>:<batch id>` with state
+ * `proposed`, `done` or `undone`; `None` when there has been none.
+ */
+plan_state: string | null, };

@@ -145,6 +145,8 @@ pub struct Location {
     pub online: bool,
     /// Stable identity for the owner's answers: survives renames and drive letters.
     pub fingerprint: String,
+    /// The owner said "keep this copy here": the project's plan leaves it where it is.
+    pub keep_here: bool,
 }
 
 /// A group of files that belong together, with every place it lives.
@@ -161,6 +163,9 @@ pub struct Collection {
     pub evidence: Vec<String>,
     pub locations: Vec<Location>,
     pub sub_projects: Vec<String>,
+    /// The latest plan proposed or run for this project, as `<state>:<batch id>` with state
+    /// `proposed`, `done` or `undone`; `None` when there has been none.
+    pub plan_state: Option<String>,
 }
 
 /// Which question the owner answered.
@@ -173,6 +178,10 @@ pub enum DecisionKind {
     NotSameAs,
     LeaveAsIs,
     Name,
+    /// The owner chose this location as the project's home.
+    Home,
+    /// The owner wants this location left where it is (`yes`), or no longer (`no`).
+    KeepHere,
 }
 
 impl DecisionKind {
@@ -183,6 +192,8 @@ impl DecisionKind {
             Self::NotSameAs => "not_same_as",
             Self::LeaveAsIs => "leave_as_is",
             Self::Name => "name",
+            Self::Home => "home",
+            Self::KeepHere => "keep_here",
         }
     }
 
@@ -193,6 +204,8 @@ impl DecisionKind {
             "not_same_as" => Self::NotSameAs,
             "leave_as_is" => Self::LeaveAsIs,
             "name" => Self::Name,
+            "home" => Self::Home,
+            "keep_here" => Self::KeepHere,
             _ => return None,
         })
     }
