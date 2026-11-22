@@ -184,7 +184,7 @@ export const fixtureRules: FilingRule[] = [
 ];
 
 export const fixtureRecent: RecentBatch[] = [
-  { id: "rb3", scope: { type: "pc" }, automatic: true, at: Date.now() - 3_600_000, files: 2, undone: false, can_undo: true },
-  { id: "rb2", scope: { type: "pc" }, automatic: false, at: Date.now() - 86_400_000, files: 148, undone: false, can_undo: true },
-  { id: "rb1", scope: { type: "volume", volume_id: "pp-d" }, automatic: false, at: Date.now() - 3 * 86_400_000, files: 40, undone: true, can_undo: false },
+  { id: "rb3", scope: { type: "pc" }, automatic: true, at: Date.now() - 3_600_000, files: 2, undone: false, can_undo: true, project: null },
+  { id: "rb2", scope: { type: "pc" }, automatic: false, at: Date.now() - 86_400_000, files: 148, undone: false, can_undo: true, project: null },
+  { id: "rb1", scope: { type: "volume", volume_id: "pp-d" }, automatic: false, at: Date.now() - 3 * 86_400_000, files: 40, undone: true, can_undo: false, project: null },
 ];

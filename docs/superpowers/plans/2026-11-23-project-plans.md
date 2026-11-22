@@ -220,6 +220,15 @@ Make a checkpoint commit first. These changes touch `execute_batch`, which every
   - destination exists: "`<folder>` appeared in the way. Aegis will make a fresh plan.";
   - drive gone: "`<drive>` was unplugged."
 
+**As built** (traps found by the tests, now covered):
+- `execute_batch` stops a project batch at its first failed or held step; later steps are marked skipped. Without this, a quarantine after a failed home move ran its content check against a home that wasn't there, fell back, and created a half-made `Versions` folder that blocked the undo.
+- Folder moves in a plan re-point their files' catalog paths and write `file_history` at the moment they run (`rebase_children`), and undo reverses that. The catalog is therefore right for the plan's later steps: a copy quarantined at its temporary name takes its files' state with it.
+- Undo's up-front check replays a plan's steps in reverse order (`preflight`). Each step is checked against the disk as the steps undone before it will leave it.
+- Undo also removes empty folders a step created (`Versions`, the companion folder), so they don't travel back with the home.
+- Origin `project:<pc|volume id>:<name>`. `RecentBatch.project` carries the name.
+- Proposing again marks the waiting batch's actions superseded. It does not reuse the batch: a fresh plan reflects the disk as it is now.
+- `plan::undo` (not `filing_undo`, whose after-rollback ignores project origins) sets the run state and forgets the history. Task 8's IPC must route project batches to it.
+
 **Tests:**
 - `forextrader_plan_frees_the_name_then_moves_home`: run it, then undo, then check the disk and the catalog.
 - `failed_step_rolls_back_the_whole_plan`: hold a file open in home with a Windows share-deny handle (`std::fs::OpenOptions` plus `share_mode(0)`) so the rename fails.

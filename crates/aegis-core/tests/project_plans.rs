@@ -326,6 +326,146 @@ fn keep_here_location_gets_no_step() {
     assert!(!mv.to.eq_ignore_ascii_case(&target), "the kept copy keeps its name: {}", mv.to);
 }
 
+// ---- Task 4: one batch per project, all or nothing ----
+
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn forextrader_plan_frees_the_name_then_moves_home() {
+    use aegis_core::context::plan::{propose, run, undo};
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let dev = home.join("Documents/Projectsv2/Dev Set/forexTrader");
+    let target = prj.join("forexTrader");
+    let old_files = names_in(&target);
+    let dev_files = names_in(&dev);
+    let p = only_plan(&s, &fx);
+    let batch = propose(&mut s, &fx, &p).unwrap();
+    let out = run(&mut s, &batch).unwrap();
+    assert!(out.done, "{out:?}");
+    // The main copy now lives in the projects home, under its own name.
+    assert!(!dev.exists());
+    assert_eq!(names_in(&target), dev_files);
+    assert!(!prj.join("forexTrader (old copy)").exists(), "the temporary name is gone");
+    assert!(names_in(&prj).iter().all(|n| !n.ends_with(" (2)")), "{:?}", names_in(&prj));
+    // The older copy went to quarantine whole (everything in it is in the main copy).
+    let q: i64 = s.conn().query_row("SELECT COUNT(*) FROM quarantine_entries WHERE restored_at IS NULL", [], |r| r.get(0)).unwrap();
+    assert_eq!(q, 1);
+    assert!(out.freed_bytes > 0 && out.moved_files > 0, "{out:?}");
+    // The catalog follows: the main copy's files are at their new paths.
+    let at_target: i64 = s
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND state = 'active' AND lower(path) LIKE lower(?1)",
+            [format!("{}{}%", common::canon(&target), std::path::MAIN_SEPARATOR)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(at_target >= fx.locations.iter().find(|l| l.relationship == Relationship::Home).unwrap().files, "{at_target}");
+    // One undo puts everything back.
+    let r = undo(&mut s, &batch).unwrap();
+    assert!(r.conflicts.is_empty(), "{:?}", r.conflicts.iter().map(|c| format!("{c:?}")).collect::<Vec<_>>());
+    assert_eq!(names_in(&dev), dev_files);
+    assert_eq!(names_in(&target), old_files);
+    assert!(!prj.join("forexTrader (old copy)").exists());
+    let history: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [&batch], |r| r.get(0)).unwrap();
+    assert_eq!(history, 0, "nothing is remembered as moved");
+    recognise(&mut s).unwrap();
+    assert_eq!(named(&s, "forexTrader").plan_state.as_deref(), Some(format!("undone:{batch}").as_str()));
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_step_rolls_back_the_whole_plan() {
+    use aegis_core::context::plan::{propose, run};
+    use std::os::windows::fs::OpenOptionsExt;
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let dev = home.join("Documents/Projectsv2/Dev Set/forexTrader");
+    let old_files = names_in(&prj.join("forexTrader"));
+    let p = only_plan(&s, &fx);
+    let batch = propose(&mut s, &fx, &p).unwrap();
+    // A program holds a file in the main copy open, so the main copy can't move.
+    let open = walk_first_file(&dev);
+    let _held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&open).unwrap();
+    let out = run(&mut s, &batch).unwrap();
+    assert!(!out.done);
+    let reason = out.reason.unwrap();
+    assert!(reason.contains("A program is using files in") && reason.contains("Nothing was changed."), "{reason}");
+    // The step already done (moving the old copy aside) was undone.
+    assert_eq!(names_in(&prj.join("forexTrader")), old_files);
+    assert!(!prj.join("forexTrader (old copy)").exists());
+    assert!(dev.is_dir());
+    let q: i64 = s.conn().query_row("SELECT COUNT(*) FROM quarantine_entries WHERE restored_at IS NULL", [], |r| r.get(0)).unwrap();
+    assert_eq!(q, 0);
+}
+
+fn walk_first_file(dir: &Path) -> PathBuf {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_file() {
+                return p;
+            }
+            stack.push(p);
+        }
+    }
+    panic!("no file in {}", dir.display())
+}
+
+#[test]
+fn proposing_again_replaces_the_waiting_batch() {
+    use aegis_core::context::plan::propose;
+    let (_t, mut s, _home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let p = only_plan(&s, &fx);
+    let first = propose(&mut s, &fx, &p).unwrap();
+    let second = propose(&mut s, &fx, &p).unwrap();
+    assert_ne!(first, second);
+    let waiting: i64 = s
+        .conn()
+        .query_row("SELECT COUNT(*) FROM actions WHERE batch_id = ?1 AND status = 'proposed'", [&first], |r| r.get(0))
+        .unwrap();
+    assert_eq!(waiting, 0, "the older plan no longer waits");
+}
+
+#[test]
+fn project_batches_show_in_recent_batches() {
+    use aegis_core::context::plan::{propose, run, undo};
+    let (_t, mut s, _home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let c = named(&s, "chatbot");
+    let p = only_plan(&s, &c);
+    let batch = propose(&mut s, &c, &p).unwrap();
+    assert!(run(&mut s, &batch).unwrap().done);
+    let recent = aegis_core::filing::batches::recent_batches(s.conn(), 10).unwrap();
+    let r = recent.iter().find(|r| r.id == batch).unwrap_or_else(|| panic!("{recent:?}"));
+    assert_eq!(r.project.as_deref(), Some("chatbot"));
+    assert!(r.can_undo);
+    undo(&mut s, &batch).unwrap();
+    let recent = aegis_core::filing::batches::recent_batches(s.conn(), 10).unwrap();
+    assert!(recent.iter().find(|r| r.id == batch).unwrap().undone);
+}
+
+#[test]
+fn a_plan_that_waits_is_not_proposed() {
+    use aegis_core::context::plan::propose;
+    let (_t, mut s, _home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let mut p = only_plan(&s, &fx);
+    p.waits_for = Some("New Volume is unplugged.".into());
+    assert!(propose(&mut s, &fx, &p).is_err());
+}
+
 // ---- Task 3: executor hardening ----
 
 use aegis_core::contracts::{ActionType, ProposedActionInput, RefilePlan, TargetKind};

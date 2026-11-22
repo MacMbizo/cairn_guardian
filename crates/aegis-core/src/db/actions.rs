@@ -64,6 +64,49 @@ fn files_inside_sql(dir: &str, first_param: usize) -> (String, String, i64) {
     )
 }
 
+/// Removes the empty folders above `gone` (a path just moved away), innermost first, stopping
+/// at the first folder that isn't empty or that also holds `other`.
+fn remove_empty_ancestors(gone: &Path, other: &Path) {
+    let mut cur = gone.parent();
+    while let Some(d) = cur {
+        if other.starts_with(d) {
+            break;
+        }
+        let empty = std::fs::read_dir(d).map(|mut it| it.next().is_none()).unwrap_or(false);
+        if !empty || std::fs::remove_dir(d).is_err() {
+            break;
+        }
+        cur = d.parent();
+    }
+}
+
+/// Re-points every catalogued file inside folder `from` to the same place inside `to` (a whole
+/// folder that moved), with a `file_history` row per file when `batch_id` is given.
+fn rebase_children(tx: &Connection, from: &str, to: &str, case_sensitive: bool, batch_id: Option<&str>, now: i64) -> Result<()> {
+    let (inside, prefix, n) = files_inside_sql(from, 1);
+    let rows: Vec<(String, String)> = {
+        let mut stmt = tx.prepare(&format!("SELECT id, path FROM files WHERE {inside}"))?;
+        stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    let to = to.trim_end_matches(['\\', '/']);
+    for (id, old) in rows {
+        let rest: String = old.chars().skip(n as usize).collect();
+        let new = format!("{to}{}{rest}", std::path::MAIN_SEPARATOR);
+        let (disp, ph) = normalize_path(Path::new(&new), case_sensitive);
+        tx.execute(
+            "UPDATE files SET path = ?1, path_hash = ?2, updated_at = ?3 WHERE id = ?4",
+            params![disp, ph.as_slice(), now, id],
+        )?;
+        if let Some(b) = batch_id {
+            tx.execute(
+                "INSERT INTO file_history (id, file_id, old_path, new_path, batch_id, changed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![new_id(), id, old, disp, b, now],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// The evidence of a project-plan folder step (plan 2026-11-23-project-plans): what the folder
 /// looked like when the plan was made, and for a quarantine, the home it must be proven against
 /// and where it goes instead if it can't be.
@@ -900,6 +943,12 @@ fn record_executed_in_tx(
                     crate::backup::record_backup_copy_in_tx(tx, &ev, dest, Some(fid), rec.post_blake3.as_deref())?;
                 }
             }
+            // A project-plan folder move: its files' catalog paths follow it at once, so the
+            // plan's later steps (and their bookkeeping) see where things really are.
+            if row.target_kind == TargetKind::Dir && plan_evidence(&row.evidence_json).exact_dest {
+                let case_sensitive = rec.volume.map(|v| v.2).unwrap_or(false);
+                rebase_children(tx, &row.from_path, &display_string(dest), case_sensitive, Some(rec.batch_id), now)?;
+            }
         }
         FsOutcome::Copied { dest } => {
             if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&row.evidence_json) {
@@ -1044,9 +1093,18 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         Ok(())
     })?;
 
+    // A project plan is all or nothing: after one step fails or is held back, the rest wait
+    // (and the caller undoes what was done).
+    let plan_batch = rows.iter().any(|r| plan_evidence(&r.evidence_json).exact_dest);
+    let mut held = 0usize;
     for row in &rows {
         if row.status != ActionStatus::Approved {
             skipped_count += 1;
+            continue;
+        }
+        if plan_batch && failed_count + held > 0 {
+            skipped_count += 1;
+            mark_action(store, &row.id, "skipped", "An earlier step of this plan didn't run, so this one was left.")?;
             continue;
         }
         // Project-plan folder steps: the folder must be as it was when the plan was made, and a
@@ -1073,6 +1131,7 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         }
         if verdict == PolicyVerdict::HoldLowConfidence {
             skipped_count += 1;
+            held += 1;
             mark_action(store, &row.id, "skipped", "hold_low_confidence")?;
             continue;
         }
@@ -1266,7 +1325,35 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
     })
 }
 
-fn check_single_action_preflight(row: &DbActionRow) -> Option<RollbackConflictItem> {
+/// Pre-flight checks for undoing `rows` (newest first). A project plan's steps are chained (a
+/// copy moved aside frees a name the home then takes), so its steps are checked in undo order
+/// against the disk as the earlier undo steps will leave it, not as it is now.
+fn preflight(rows: &[DbActionRow]) -> Vec<RollbackConflictItem> {
+    if !rows.iter().any(|r| plan_evidence(&r.evidence_json).exact_dest) {
+        return rows.iter().filter_map(|r| check_single_action_preflight(r, &|p: &Path| p.exists())).collect();
+    }
+    let key = |p: &str| p.trim_end_matches(['\\', '/']).to_lowercase();
+    let mut will_exist: HashMap<String, bool> = HashMap::new();
+    let mut out = Vec::new();
+    for r in rows {
+        let found = {
+            let exists = |p: &Path| will_exist.get(&key(&p.to_string_lossy())).copied().unwrap_or_else(|| p.exists());
+            check_single_action_preflight(r, &exists)
+        };
+        match found {
+            Some(c) => out.push(c),
+            None => {
+                if let Some(t) = &r.to_path {
+                    will_exist.insert(key(t), false);
+                }
+                will_exist.insert(key(&r.from_path), true);
+            }
+        }
+    }
+    out
+}
+
+fn check_single_action_preflight(row: &DbActionRow, exists: &dyn Fn(&Path) -> bool) -> Option<RollbackConflictItem> {
     if !matches!(
         row.action_type,
         ActionType::Move | ActionType::Rename | ActionType::Quarantine | ActionType::Copy
@@ -1277,7 +1364,7 @@ fn check_single_action_preflight(row: &DbActionRow) -> Option<RollbackConflictIt
     let to_path = Path::new(to_str);
     let from_path = Path::new(&row.from_path);
 
-    if !to_path.exists() {
+    if !exists(to_path) {
         return Some(RollbackConflictItem {
             action_id: row.id.clone(),
             from_path: row.from_path.clone(),
@@ -1304,7 +1391,7 @@ fn check_single_action_preflight(row: &DbActionRow) -> Option<RollbackConflictIt
     }
 
     let case_rename = row.to_path.as_deref().is_some_and(|t| case_only(from_path, Path::new(t)));
-    if row.action_type != ActionType::Copy && from_path.exists() && !case_rename {
+    if row.action_type != ActionType::Copy && exists(from_path) && !case_rename {
         return Some(RollbackConflictItem {
             action_id: row.id.clone(),
             from_path: row.from_path.clone(),
@@ -1356,6 +1443,13 @@ fn db_revert_in_tx(
                 params![fid, now],
             )?;
         }
+    }
+    if matches!(row.action_type, ActionType::Move | ActionType::Rename)
+        && row.target_kind == TargetKind::Dir
+        && plan_evidence(&row.evidence_json).exact_dest
+        && let Some(to) = row.to_path.as_deref()
+    {
+        rebase_children(tx, to, &dest_str, case_sensitive, None, now)?;
     }
     if row.action_type == ActionType::Quarantine {
         if copy_back {
@@ -1471,6 +1565,11 @@ fn revert_one(store: &mut SqliteStore, row: &DbActionRow, mode: RevertMode) -> R
                 };
                 return Err(e);
             }
+            // A project plan step leaves no empty folders it made (`Versions`, a companion
+            // folder) behind, so later steps of the undo find their places free.
+            if row.target_kind == TargetKind::Dir && plan_evidence(&row.evidence_json).exact_dest {
+                remove_empty_ancestors(&src, &dest);
+            }
             Ok(())
         }
         ActionType::Archive => {
@@ -1501,10 +1600,7 @@ fn continue_rollback(
     mut reverted_count: usize,
 ) -> Result<RollbackResult> {
     let executed = executed_rows_reversed(store.conn(), batch_id)?;
-    let conflicts: Vec<RollbackConflictItem> = executed
-        .iter()
-        .filter_map(check_single_action_preflight)
-        .collect();
+    let conflicts: Vec<RollbackConflictItem> = preflight(&executed);
 
     if !conflicts.is_empty() {
         store.with_full_sync_tx(|tx| {

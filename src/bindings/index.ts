@@ -63,6 +63,7 @@ export * from './Level';
 export * from './LifecycleState';
 export * from './Location';
 export * from './Placement';
+export * from './PlanOutcome';
 export * from './PlanStep';
 export * from './PreviousVersionItem';
 export * from './ProjectKind';

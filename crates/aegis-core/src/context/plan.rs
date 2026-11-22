@@ -466,6 +466,172 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
     Ok(ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, summary })
 }
 
+/// How a plan run ended.
+#[derive(TS, Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[ts(export)]
+pub struct PlanOutcome {
+    pub batch_id: String,
+    /// Everything was done. When false, nothing was changed: steps already done were undone.
+    pub done: bool,
+    /// Why it stopped, in plain words.
+    pub reason: Option<String>,
+    /// Files that moved (counting every file inside the folders).
+    #[ts(type = "number")]
+    pub moved_files: i64,
+    /// Space quarantined copies will free when their 30 days are up.
+    #[ts(type = "number")]
+    pub freed_bytes: i64,
+}
+
+/// The batch origin of a project plan: `project:<scope key>:<project name>`, where the scope
+/// key is `pc` for the PC's drive and the volume id otherwise.
+fn origin_of(store: &SqliteStore, c: &Collection, plan: &ProjectPlan) -> Result<String> {
+    let roots = store.list_roots()?;
+    let on_pc = c
+        .locations
+        .iter()
+        .filter(|l| l.volume_id == plan.volume_id)
+        .any(|l| roots.iter().any(|r| r.enabled && path_is_within(&l.root_path, &r.path, false)));
+    let key = if on_pc { "pc".to_string() } else { plan.volume_id.clone() };
+    Ok(format!("project:{key}:{}", c.name))
+}
+
+/// Proposes `plan` (for collection `c`) as one batch of folder steps, replacing any plan for
+/// the same project that is still waiting. Each step records the folder as it is now, so it
+/// stops if the folder changes before it runs.
+pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> Result<String> {
+    use crate::contracts::{ActionType, ProposedActionInput, RefilePlan, TargetKind};
+    if let Some(w) = &plan.waits_for {
+        return Err(AegisError::InvalidInput(w.clone()));
+    }
+    if plan.steps.is_empty() {
+        return Err(AegisError::InvalidInput("Nothing to do: it is already where it belongs.".into()));
+    }
+    let origin = origin_of(store, c, plan)?;
+    store.conn().execute(
+        "UPDATE actions SET status = 'superseded'
+         WHERE status IN ('proposed', 'approved')
+           AND batch_id IN (SELECT id FROM action_batches WHERE origin = ?1 AND status IN ('draft', 'approved'))",
+        [&origin],
+    )?;
+    let mut actions = Vec::new();
+    for st in &plan.steps {
+        let loc = c
+            .locations
+            .iter()
+            .find(|l| l.id == st.location_id)
+            .ok_or_else(|| AegisError::NotFound("A folder in this plan is no longer part of the project.".into()))?;
+        let (files, newest) = folder_state(Path::new(&loc.root_path))?;
+        let mut ev = serde_json::json!({
+            "step": st.step,
+            "exact_dest": true,
+            "expect": {"files": files, "newest": newest},
+            "project": c.name,
+            "kind": st.kind,
+        });
+        let kind = if st.kind == StepKind::Quarantine {
+            ev["verify_against"] = serde_json::json!(plan.home_after);
+            ev["fallback"] = serde_json::json!(st.fallback);
+            ActionType::Quarantine
+        } else {
+            ActionType::Move
+        };
+        actions.push(ProposedActionInput {
+            agent: Some("context.plan".into()),
+            action_type: kind,
+            target_kind: TargetKind::Dir,
+            file_id: None,
+            atomic_unit_id: None,
+            from_path: st.from.clone(),
+            to_path: if kind == ActionType::Quarantine { None } else { Some(st.to.clone()) },
+            reason: st.reason.clone(),
+            confidence: c.confidence,
+            evidence_json: ev.to_string(),
+        });
+    }
+    let id = crate::db::actions::propose_batch(store, &RefilePlan { origin, actions })?;
+    let fps: Vec<String> = c.locations.iter().filter(|l| l.volume_id == plan.volume_id).map(|l| l.fingerprint.clone()).collect();
+    super::store::record_plan_run(store.conn(), &id, &plan.volume_id, &fps, "proposed")?;
+    Ok(id)
+}
+
+/// A failure message as the owner should read it.
+fn plain_reason(msg: &str, folder: &str) -> String {
+    let lower = msg.to_lowercase();
+    if lower.contains("os error 5") || lower.contains("os error 32") || lower.contains("access is denied") || lower.contains("used by another process") {
+        return format!("A program is using files in {folder}. Close it and try again.");
+    }
+    if lower.contains("os error 3") || lower.contains("os error 21") || lower.contains("device is not ready") {
+        return format!("The drive holding {folder} went away.");
+    }
+    // Our own messages come as "code: message"; keep the message.
+    match msg.split_once(": ") {
+        Some((code, rest)) if !code.contains(' ') => rest.to_string(),
+        _ => msg.to_string(),
+    }
+}
+
+/// Runs a proposed project batch as one unit: every step, or none. If any step fails, the
+/// steps already done are undone at once and the outcome says why.
+pub fn run(store: &mut SqliteStore, batch_id: &str) -> Result<PlanOutcome> {
+    use crate::db::actions::{approve_batch, execute_batch, rollback_batch};
+    approve_batch(store, batch_id, None)?;
+    execute_batch(store, batch_id)?;
+    let first_bad: Option<(String, String)> = store
+        .conn()
+        .query_row(
+            "SELECT from_path, COALESCE(error_message, status) FROM actions
+             WHERE batch_id = ?1 AND status NOT IN ('executed', 'superseded')
+             ORDER BY step, created_at, id LIMIT 1",
+            [batch_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((folder, msg)) = first_bad {
+        rollback_batch(store, batch_id)?;
+        after_undo(store, batch_id)?;
+        set_run_state(store, batch_id, "failed")?;
+        return Ok(PlanOutcome {
+            batch_id: batch_id.to_string(),
+            done: false,
+            reason: Some(format!("{} Nothing was changed.", plain_reason(&msg, &folder))),
+            moved_files: 0,
+            freed_bytes: 0,
+        });
+    }
+    set_run_state(store, batch_id, "done")?;
+    let moved_files: i64 = store.conn().query_row("SELECT COUNT(*) FROM file_history WHERE batch_id = ?1", [batch_id], |r| r.get(0))?;
+    let freed_bytes: i64 = store.conn().query_row(
+        "SELECT COALESCE(SUM(q.size_bytes), 0) FROM quarantine_entries q JOIN actions a ON a.id = q.action_id WHERE a.batch_id = ?1",
+        [batch_id],
+        |r| r.get(0),
+    )?;
+    Ok(PlanOutcome { batch_id: batch_id.to_string(), done: true, reason: None, moved_files, freed_bytes })
+}
+
+/// Undoes a project plan that ran: every folder back where it was, quarantined copies restored.
+pub fn undo(store: &mut SqliteStore, batch_id: &str) -> Result<crate::contracts::RollbackResult> {
+    let r = crate::db::actions::rollback_batch(store, batch_id)?;
+    after_undo(store, batch_id)?;
+    set_run_state(store, batch_id, "undone")?;
+    Ok(r)
+}
+
+/// Forgets the "was here" records of files that really are back where they were.
+fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
+    store.conn().execute(
+        "DELETE FROM file_history WHERE batch_id = ?1 AND EXISTS (
+            SELECT 1 FROM files f WHERE f.id = file_history.file_id AND lower(f.path) = lower(file_history.old_path))",
+        [batch_id],
+    )?;
+    Ok(())
+}
+
+fn set_run_state(store: &SqliteStore, batch_id: &str, state: &str) -> Result<()> {
+    store.conn().execute("UPDATE project_plan_runs SET state = ?1, at = ?2 WHERE batch_id = ?3", params![state, crate::now_ms(), batch_id])?;
+    Ok(())
+}
+
 fn summarise(steps: &[PlanStep], home_after: &str) -> String {
     if steps.is_empty() {
         return "Nothing to do: it is already where it belongs.".into();

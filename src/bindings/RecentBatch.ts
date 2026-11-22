@@ -20,4 +20,8 @@ undone: boolean,
 /**
  * Something it moved is still in its new place.
  */
-can_undo: boolean, };
+can_undo: boolean, 
+/**
+ * For a project plan: the project's name.
+ */
+project: string | null, };
