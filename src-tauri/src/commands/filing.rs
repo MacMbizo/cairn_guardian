@@ -174,3 +174,10 @@ pub fn filing_rule_delete(state: State<'_, AppState>, id: String) -> Result<(), 
     let store = lock_store(&state)?;
     map_err(delete_rule(store.conn(), &id))
 }
+
+/// What search can be narrowed by: categories, organisations, years, kinds and drives.
+#[tauri::command(async)]
+pub fn search_facets(state: State<'_, AppState>) -> Result<aegis_core::filing::SearchFacets, IpcError> {
+    let store = own_store(&state)?;
+    map_err(aegis_core::filing::search_facets(store.conn()))
+}

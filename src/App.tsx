@@ -32,6 +32,7 @@ import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
 import { EngineSettings } from "./screens/EngineSettings";
 import { FilingScreen } from "./screens/Filing";
+import { NO_NARROWING, SearchFilterBar, type SearchNarrowing } from "./components/SearchFilterBar";
 import { useFiling } from "./screens/useFiling";
 import { ThisWeek } from "./screens/ThisWeek";
 import { useEngine } from "./screens/useEngine";
@@ -93,6 +94,7 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("dashboard");
   // The weekly note's "Filed N files by itself" opens Filing on its Recent batches list.
   const [filingRecent, setFilingRecent] = useState(false);
+  const [narrowing, setNarrowing] = useState<SearchNarrowing>(NO_NARROWING);
   useEffect(() => {
     if (tab !== "filing") setFilingRecent(false);
   }, [tab]);
@@ -309,11 +311,7 @@ export default function App() {
             before_ts: null,
             sensitivity: null,
             include_quarantined: includeQuarantined,
-            category: null,
-            who: null,
-            year: null,
-            kind: null,
-            volume_id: null,
+            ...narrowing,
           },
           30
         );
@@ -821,6 +819,7 @@ export default function App() {
                   Search
                 </button>
               </form>
+              <SearchFilterBar value={narrowing} onChange={setNarrowing} enabled={desktop} />
 
               {searchPage && (
                 <div className="space-y-2">

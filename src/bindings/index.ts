@@ -75,6 +75,7 @@ export * from './ScanStatus';
 export * from './Scope';
 export * from './ScopeStatus';
 export * from './Screen';
+export * from './SearchFacets';
 export * from './SearchFilters';
 export * from './SearchHit';
 export * from './SearchPage';

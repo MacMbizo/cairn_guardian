@@ -18,6 +18,7 @@ import type {
   RunReport,
   Scope,
   ScopeStatus,
+  SearchFacets,
   GroupedDupeReport,
   PreviousVersionItem,
   Reminder,
@@ -120,6 +121,8 @@ export const aegis = {
   search: {
     query: (q: string, filters?: SearchFilters, limit?: number) =>
       call<SearchPage>("search_query", { q, filters, limit }),
+    /** What search can be narrowed by (categories, organisations, years, kinds, drives). */
+    facets: () => call<SearchFacets>("search_facets"),
   },
   file: {
     get: (id: string) => call<FileDetail>("file_get", { id }),

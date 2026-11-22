@@ -294,6 +294,51 @@ pub fn change_blueprint(store: &mut crate::db::SqliteStore, scope: &Scope, choic
     })
 }
 
+/// The values search can be narrowed by, as they exist in the catalog.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SearchFacets {
+    /// Every life area and its parents ("Finance" and "Finance/Tax").
+    pub categories: Vec<String>,
+    /// The organisations and people documents are from, most common first (at most 100).
+    pub who: Vec<String>,
+    /// Newest first.
+    pub years: Vec<i32>,
+    pub kinds: Vec<Kind>,
+    /// `(volume id, label)` for every drive with files in the catalog, plugged in or not.
+    pub drives: Vec<(String, String)>,
+}
+
+pub fn search_facets(conn: &Connection) -> Result<SearchFacets> {
+    let strings = |sql: &str| -> Result<Vec<String>> {
+        let mut st = conn.prepare(sql)?;
+        Ok(st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()?)
+    };
+    let mut categories = std::collections::BTreeSet::new();
+    for c in strings("SELECT DISTINCT category FROM file_meta WHERE category IS NOT NULL")? {
+        let parts: Vec<&str> = c.split('/').collect();
+        for n in 1..=parts.len() {
+            categories.insert(parts[..n].join("/"));
+        }
+    }
+    let who = strings("SELECT who FROM file_meta WHERE who IS NOT NULL AND who != '' GROUP BY lower(who) ORDER BY COUNT(*) DESC, who LIMIT 100")?;
+    let years: Vec<i32> = strings(
+        "SELECT y FROM (SELECT substr(doc_date, 1, 4) AS y FROM file_meta WHERE doc_date IS NOT NULL
+                        UNION SELECT strftime('%Y', exif_taken_at / 1000, 'unixepoch') FROM file_meta WHERE exif_taken_at IS NOT NULL)
+         WHERE y GLOB '[12][0-9][0-9][0-9]' ORDER BY y DESC",
+    )?
+    .into_iter()
+    .filter_map(|y| y.parse().ok())
+    .collect();
+    let kinds = strings("SELECT DISTINCT kind FROM file_meta ORDER BY kind")?.iter().map(|k| Kind::from_db(k)).collect();
+    let mut st = conn.prepare(
+        "SELECT id, COALESCE(NULLIF(label, ''), mount_point) FROM volumes
+         WHERE EXISTS (SELECT 1 FROM files f WHERE f.volume_id = volumes.id) ORDER BY 2",
+    )?;
+    let drives = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    Ok(SearchFacets { categories: categories.into_iter().collect(), who, years, kinds, drives })
+}
+
 pub fn blueprint_of(conn: &Connection, scope: &Scope) -> Result<Option<BlueprintChoice>> {
     let c: Option<String> = conn
         .query_row("SELECT choice FROM filing_blueprints WHERE scope_key = ?1", [scope.key()], |r| r.get(0))

@@ -1078,6 +1078,22 @@ use aegis_core::contracts::SearchFilters;
 use aegis_core::db::files::search_fts;
 
 #[test]
+fn search_facets_list_what_exists() {
+    let (_t, s, _mount, scope) = drive_with(|m| {
+        fixtures_filing::docx(m, "scan1.docx", invoice_text());
+        fixtures_filing::jpeg_with_exif(m, "IMG_1.jpg", "2024:03:14 10:22:05", "Pixel 7");
+    });
+    let f = aegis_core::filing::search_facets(s.conn()).unwrap();
+    assert!(f.categories.iter().any(|c| c == "Finance/Invoices & receipts"), "{f:?}");
+    assert!(f.who.iter().any(|w| w == "Vodacom"), "{f:?}");
+    assert!(f.years.contains(&2026) && f.years.contains(&2024), "{f:?}");
+    assert!(f.kinds.contains(&Kind::Document) && f.kinds.contains(&Kind::Photo), "{f:?}");
+    let Scope::Volume { volume_id } = &scope else { unreachable!() };
+    assert!(f.drives.iter().any(|(id, label)| id == volume_id && label == "Data"), "{f:?}");
+    assert_eq!(f.years.first(), Some(&2026), "newest year first");
+}
+
+#[test]
 fn finds_by_name_without_content() {
     let (_t, s, _root) = scanned(|r| {
         common::put(r, "Holiday budget plan.bin", b"\x00\x01");

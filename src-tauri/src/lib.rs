@@ -172,6 +172,7 @@ pub fn run() {
             commands::filing::filing_destinations,
             commands::filing::filing_place,
             commands::filing::filing_recent,
+            commands::filing::search_facets,
             commands::filing::filing_rules,
             commands::filing::filing_rule_stop,
             commands::filing::filing_rule_delete,
