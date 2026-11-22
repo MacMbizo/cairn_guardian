@@ -14,6 +14,7 @@ import type {
   EngineStatus,
   FilingRule,
   Placement,
+  RecentBatch,
   Scope,
   ScopeStatus,
   GroupedDupeReport,
@@ -236,6 +237,8 @@ export const aegis = {
       call<Record<string, string[]>>("filing_destinations", { scope, fileIds }),
     place: (scope: Scope, fileId: string, destFolder: string) =>
       call<void>("filing_place", { scope, fileId, destFolder }),
+    /** Filing batches that have run, newest first (manual and automatic). */
+    recent: () => call<RecentBatch[]>("filing_recent"),
     rules: () => call<FilingRule[]>("filing_rules"),
     stopRule: (id: string) => call<void>("filing_rule_stop", { id }),
     deleteRule: (id: string) => call<void>("filing_rule_delete", { id }),

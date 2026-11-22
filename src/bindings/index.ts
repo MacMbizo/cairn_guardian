@@ -60,6 +60,7 @@ export * from './PreviousVersionItem';
 export * from './ProposedActionInput';
 export * from './QuarantineEntry';
 export * from './QuarantineSpaceSummary';
+export * from './RecentBatch';
 export * from './RefilePlan';
 export * from './RefreshMode';
 export * from './RefreshReport';

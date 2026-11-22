@@ -1318,6 +1318,28 @@ fn unplugged_drive_without_counts_says_plug_in() {
     assert!(status_of(&mut s, &scope).counts_known);
 }
 
+#[test]
+fn recent_batches_list_manual_and_automatic_with_undo() {
+    let (_t, mut s, _home) = pc_with_invoice(true);
+    set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
+    approved_before(&s);
+    for i in 1..=3 {
+        record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
+    }
+    FilingWatch::default().run(&mut s, later()).unwrap();
+    let list = aegis_core::filing::batches::recent_batches(s.conn(), 20).unwrap();
+    let auto = list.iter().find(|b| b.automatic).expect("the automatic batch is listed");
+    assert_eq!((auto.files, auto.undone, auto.can_undo), (1, false, true));
+    assert_eq!(auto.scope, Scope::Pc);
+    assert!(list.iter().all(|b| b.id != "prev"), "empty batches are left out");
+
+    rollback_batch(&mut s, &auto.id).unwrap();
+    after_rollback(&mut s, &auto.id).unwrap();
+    let list = aegis_core::filing::batches::recent_batches(s.conn(), 20).unwrap();
+    let again = list.iter().find(|b| b.automatic).unwrap();
+    assert!(again.undone && !again.can_undo, "{again:?}");
+}
+
 // ---------- Final review fixes ----------
 
 use aegis_core::filing::batches::skip_batch;

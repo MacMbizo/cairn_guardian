@@ -91,6 +91,11 @@ function formatBytes(bytes: number): string {
 export default function App() {
   const desktop = useMemo(() => isTauriRuntime(), []);
   const [tab, setTab] = useState<TabId>("dashboard");
+  // The weekly note's "Filed N files by itself" opens Filing on its Recent batches list.
+  const [filingRecent, setFilingRecent] = useState(false);
+  useEffect(() => {
+    if (tab !== "filing") setFilingRecent(false);
+  }, [tab]);
   const drivesData = useDrives();
   const engineData = useEngine();
   const filingData = useFiling(tab === "filing" || tab === "dashboard");
@@ -577,9 +582,18 @@ export default function App() {
           {tab === "drives" && (
             <DrivesScreen data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}
-          {tab === "week" && <ThisWeek data={engineData} onOpen={goTo} />}
+          {tab === "week" && (
+            <ThisWeek
+              data={engineData}
+              onOpen={goTo}
+              onOpenRecentFiling={() => {
+                setFilingRecent(true);
+                setTab("filing");
+              }}
+            />
+          )}
           {tab === "settings" && <EngineSettings data={engineData} />}
-          {tab === "filing" && <FilingScreen data={filingData} />}
+          {tab === "filing" && <FilingScreen data={filingData} startRecent={filingRecent} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}

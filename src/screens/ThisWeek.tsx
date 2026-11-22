@@ -25,7 +25,18 @@ function Section({ icon: Icon, title, children }: { icon: typeof BellRing; title
 }
 
 /** The weekly note (spec §9): one calm page, sections with nothing to say are left out. */
-export function ThisWeek({ data, onOpen }: { data: EngineData; onOpen: (s: Screen) => void }) {
+/** The note builder's wording for automatic filing (`engine::note::build`). */
+const AUTO_FILED = /^Filed .+ by itself$/;
+
+export function ThisWeek({
+  data,
+  onOpen,
+  onOpenRecentFiling,
+}: {
+  data: EngineData;
+  onOpen: (s: Screen) => void;
+  onOpenRecentFiling?: () => void;
+}) {
   const { note, status, preview, reload } = data;
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -112,7 +123,15 @@ export function ThisWeek({ data, onOpen }: { data: EngineData; onOpen: (s: Scree
         <Section icon={CheckCheck} title="What Aegis did by itself">
           <ul className="list-inside list-disc space-y-0.5 text-sm text-slate-300">
             {note.did.map((d) => (
-              <li key={d}>{d}</li>
+              <li key={d}>
+                {AUTO_FILED.test(d) && onOpenRecentFiling ? (
+                  <button type="button" onClick={onOpenRecentFiling} className="text-emerald-300 hover:underline">
+                    {d} — see or undo
+                  </button>
+                ) : (
+                  d
+                )}
+              </li>
             ))}
           </ul>
         </Section>

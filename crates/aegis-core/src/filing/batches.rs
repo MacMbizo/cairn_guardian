@@ -31,6 +31,55 @@ fn scope_of_origin(origin: &str) -> Option<Scope> {
     Some(if key == "pc" { Scope::Pc } else { Scope::Volume { volume_id: key.to_string() } })
 }
 
+/// A filing batch that has run, for the "Recent batches" list.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct RecentBatch {
+    pub id: String,
+    pub scope: Scope,
+    /// Filed by a learned rule, without asking.
+    pub automatic: bool,
+    #[ts(type = "number")]
+    pub at: i64,
+    /// Files and folders it moved (including any since undone).
+    #[ts(type = "number")]
+    pub files: i64,
+    /// Everything it moved has been put back.
+    pub undone: bool,
+    /// Something it moved is still in its new place.
+    pub can_undo: bool,
+}
+
+/// Filing batches that moved something, newest first, manual and automatic.
+pub fn recent_batches(conn: &Connection, limit: usize) -> Result<Vec<RecentBatch>> {
+    let mut stmt = conn.prepare(
+        "SELECT b.id, b.origin, COALESCE(b.executed_at, b.created_at),
+                SUM(a.status = 'executed'), SUM(a.status = 'rolled_back')
+         FROM action_batches b JOIN actions a ON a.batch_id = b.id
+         WHERE b.origin LIKE 'filing:%' OR b.origin LIKE 'filing-auto:%'
+         GROUP BY b.id HAVING SUM(a.status IN ('executed', 'rolled_back')) > 0
+         ORDER BY 3 DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([limit as i64], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, origin, at, executed, rolled_back) = row?;
+        let Some(scope) = scope_of_origin(&origin) else { continue };
+        out.push(RecentBatch {
+            id,
+            scope,
+            automatic: origin.starts_with("filing-auto:"),
+            at,
+            files: executed + rolled_back,
+            undone: executed == 0,
+            can_undo: executed > 0,
+        });
+    }
+    Ok(out)
+}
+
 /// The scope's filing batch that is waiting for the owner (or approved and not yet run).
 pub fn open_filing_batch(conn: &Connection, scope: &Scope) -> Result<Option<String>> {
     Ok(conn

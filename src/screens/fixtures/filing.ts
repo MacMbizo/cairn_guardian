@@ -1,5 +1,5 @@
 // Sample filing data so the Filing screen renders in the browser preview.
-import type { ActionItem, BlueprintSummary, FilingRule, Placement, ScopeStatus } from "../../bindings/client";
+import type { ActionItem, BlueprintSummary, FilingRule, Placement, RecentBatch, ScopeStatus } from "../../bindings/client";
 
 const GB = 1_000_000_000;
 
@@ -178,4 +178,10 @@ export const fixtureRules: FilingRule[] = [
     state: "asking",
     approved_scopes: ["pc"],
   },
+];
+
+export const fixtureRecent: RecentBatch[] = [
+  { id: "rb3", scope: { type: "pc" }, automatic: true, at: Date.now() - 3_600_000, files: 2, undone: false, can_undo: true },
+  { id: "rb2", scope: { type: "pc" }, automatic: false, at: Date.now() - 86_400_000, files: 148, undone: false, can_undo: true },
+  { id: "rb1", scope: { type: "volume", volume_id: "pp-d" }, automatic: false, at: Date.now() - 3 * 86_400_000, files: 40, undone: true, can_undo: false },
 ];

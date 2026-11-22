@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, FolderTree, HardDrive, Laptop, ListChecks, Sparkles, Undo2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, FolderTree, HardDrive, History, Laptop, ListChecks, Sparkles, Undo2 } from "lucide-react";
 import {
   aegis,
   errorMessage,
@@ -8,12 +8,13 @@ import {
   type BlueprintSummary,
   type FilingRule,
   type Placement,
+  type RecentBatch,
   type Scope,
   type ScopeStatus,
   type TreeNode,
 } from "../bindings/client";
 import { formatBytes } from "../format";
-import { fixtureBatch, fixtureBlueprints, fixtureDestinations, fixtureRules, fixtureToSort } from "./fixtures/filing";
+import { fixtureBatch, fixtureBlueprints, fixtureDestinations, fixtureRecent, fixtureRules, fixtureToSort } from "./fixtures/filing";
 import type { FilingData } from "./useFiling";
 
 const card = "rounded-xl border border-slate-800 bg-slate-900/50 p-4";
@@ -25,7 +26,8 @@ type View =
   | { kind: "plan"; s: ScopeStatus }
   | { kind: "batch"; s: ScopeStatus; batch: string }
   | { kind: "sort"; s: ScopeStatus }
-  | { kind: "rules" };
+  | { kind: "rules" }
+  | { kind: "recent" };
 
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const folderOf = (p: string) => p.split(/[\\/]/).slice(0, -1).join("\\");
@@ -336,6 +338,77 @@ function ruleLabel(r: FilingRule): string {
   return r.who ? `${what} from ${r.who}` : (what ?? r.kind);
 }
 
+const whenText = (ms: number) =>
+  new Date(ms).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function RecentView({
+  scopes,
+  preview,
+  onUndo,
+  onBack,
+}: {
+  scopes: ScopeStatus[];
+  preview: boolean;
+  onUndo: (batch: string) => Promise<void>;
+  onBack: () => void;
+}) {
+  const [list, setList] = useState<RecentBatch[] | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
+  const load = () => (preview ? Promise.resolve(fixtureRecent) : aegis.filing.recent()).then(setList);
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
+  const label = (sc: Scope) => scopes.find((x) => scopeKey(x.scope) === scopeKey(sc))?.label ?? (sc.type === "pc" ? "This PC" : "a drive");
+  const undo = async (id: string) => {
+    if (undoing) return;
+    setUndoing(id);
+    try {
+      await onUndo(id);
+      await load();
+    } finally {
+      setUndoing(null);
+    }
+  };
+  return (
+    <div className="space-y-4">
+      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-emerald-300 hover:underline">
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> All drives
+      </button>
+      <header>
+        <h1 className="text-lg font-semibold">Recent batches</h1>
+        <p className="text-xs text-slate-400">Everything filing has moved, including what Aegis filed by itself. Any batch can be put back.</p>
+      </header>
+      {list?.length === 0 && <p className="text-xs text-slate-400">Nothing has been filed yet.</p>}
+      <ul className={`${card} divide-y divide-slate-800 p-0`}>
+        {list?.map((b) => (
+          <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs">
+            <span className="min-w-0">
+              <span className="block font-medium text-slate-100">
+                {b.files.toLocaleString()} item{b.files === 1 ? "" : "s"} on {label(b.scope)}
+                {b.automatic && (
+                  <span className="ml-2 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 font-normal text-emerald-300">
+                    <Sparkles className="h-3 w-3" aria-hidden="true" /> Filed by itself
+                  </span>
+                )}
+              </span>
+              <span className="block text-slate-500">{whenText(b.at)}</span>
+            </span>
+            {b.can_undo ? (
+              <button type="button" className={btn} disabled={undoing !== null} onClick={() => void undo(b.id)}>
+                <Undo2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+                {undoing === b.id ? "Undoing…" : "Undo"}
+              </button>
+            ) : (
+              <span className="text-slate-500">Undone</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function RulesView({ preview, onBack }: { preview: boolean; onBack: () => void }) {
   const [rules, setRules] = useState<FilingRule[] | null>(null);
   const load = () => (preview ? Promise.resolve(fixtureRules) : aegis.filing.rules()).then(setRules);
@@ -396,9 +469,9 @@ function RulesView({ preview, onBack }: { preview: boolean; onBack: () => void }
 const scopeKey = (s: Scope) => (s.type === "pc" ? "pc" : s.volume_id);
 
 /** Filing (spec §14): structure per drive, batch review, to sort, learned rules. */
-export function FilingScreen({ data }: { data: FilingData }) {
+export function FilingScreen({ data, startRecent = false }: { data: FilingData; startRecent?: boolean }) {
   const { scopes, loading, error, preview, reload } = data;
-  const [view, setView] = useState<View>({ kind: "overview" });
+  const [view, setView] = useState<View>(startRecent ? { kind: "recent" } : { kind: "overview" });
   const [msg, setMsg] = useState<{ text: string; undo?: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -446,6 +519,7 @@ export function FilingScreen({ data }: { data: FilingData }) {
     return <BatchView s={view.s} batch={view.batch} preview={preview} onBack={back} onDone={(text, b) => { setMsg({ text, undo: b }); back(); }} />;
   if (view.kind === "sort") return <SortView s={view.s} preview={preview} onBack={back} />;
   if (view.kind === "rules") return <RulesView preview={preview} onBack={back} />;
+  if (view.kind === "recent") return <RecentView scopes={scopes} preview={preview} onUndo={undo} onBack={back} />;
 
   return (
     <div className="space-y-4">
@@ -457,9 +531,14 @@ export function FilingScreen({ data }: { data: FilingData }) {
             {totals > 0 && ` ${totals.toLocaleString()} files filed so far.`}
           </p>
         </div>
-        <button type="button" className={btn} onClick={() => setView({ kind: "rules" })}>
-          <ListChecks className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> What Aegis has learned
-        </button>
+        <span className="flex flex-wrap gap-2">
+          <button type="button" className={btn} onClick={() => setView({ kind: "recent" })}>
+            <History className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Recent batches
+          </button>
+          <button type="button" className={btn} onClick={() => setView({ kind: "rules" })}>
+            <ListChecks className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> What Aegis has learned
+          </button>
+        </span>
       </header>
       {msg && (
         <p role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">

@@ -7,7 +7,7 @@ use aegis_core::contracts::{ExecuteResult, RollbackResult};
 use aegis_core::db::SqliteStore;
 use aegis_core::db::actions::{approve_batch, execute_batch, rollback_batch};
 use aegis_core::error::IpcError;
-use aegis_core::filing::batches::{after_execute, after_rollback, next_batch, propose_placements};
+use aegis_core::filing::batches::{RecentBatch, after_execute, after_rollback, next_batch, propose_placements, recent_batches};
 use aegis_core::filing::blueprint::{BlueprintSummary, Placement, Target, destinations, plan, rule_key, summarize};
 use aegis_core::filing::rules::{FilingRule, delete_rule, list_rules, stop_automatic};
 use aegis_core::filing::{BlueprintChoice, Scope, ScopeStatus, load_meta, scope_statuses, set_blueprint};
@@ -148,6 +148,13 @@ pub fn filing_place(
     }
     wake(&app);
     Ok(())
+}
+
+/// Filing batches that have run, newest first, so any of them can be undone.
+#[tauri::command(async)]
+pub fn filing_recent(state: State<'_, AppState>) -> Result<Vec<RecentBatch>, IpcError> {
+    let store = lock_store(&state)?;
+    map_err(recent_batches(store.conn(), 30))
 }
 
 #[tauri::command(async)]
