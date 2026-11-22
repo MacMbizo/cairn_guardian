@@ -47,6 +47,15 @@ One approve runs the whole plan as one batch, with one undo. This is build-order
   - Never commit `canonical/Aegis Guardian Full PRD.md` or `canonical/local-intelligence-system-architecture.md`.
   - Make a checkpoint commit before each task that changes the executor (Tasks 3–4).
 
+## North-star rules
+
+This plan touches these binding rules (`docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` §3):
+- **K1 (propose, approve, undo):** every plan is an ordinary batch the owner approves, with one undo. Nothing moves outside `execute_batch`.
+- **K2 (deletes ask, 30-day quarantine):** copies are only ever quarantined, never deleted. Purging is left to the existing quarantine expiry.
+- **R8 (no shredding):** a quarantined copy that expires is deleted normally.
+- **K5 (background budget):** planning runs on demand from the card and in the dry run. Recognition keeps its existing gating, and plans add no new background job.
+- **K3 (local only):** this plan uses no models and no network.
+
 ## Review Focus
 
 1. **The forexTrader card** (spec §8.4): the `C:\Prj\forexTrader` older copy is quarantined first, then the Dev Set home moves to `C:\Prj\forexTrader`. One undo restores both. Test: `forextrader_plan_frees_the_name_then_moves_home` (Task 4).

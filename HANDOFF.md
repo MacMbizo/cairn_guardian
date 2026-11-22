@@ -56,6 +56,10 @@ clippy clean; `pnpm build` clean; Projects screen checked in the browser preview
 
 ## Owner's vision document (read 2026-11-22)
 
+**2026-11-23:** the review below is now recorded as binding rules and a build order in
+`docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md`. Every new spec and plan must add a
+"North-star rules" section. Owner decision D1 (encryption at rest and key handling) is due before the embeddings work.
+
 `canonical/local-intelligence-system-architecture.md` (the owner's; untracked, **never commit it**) describes the 14 backlog
 ideas below as one local-first "intelligence OS". Claude's review, given to the owner:
 - Treat it as the north star, mapped onto Aegis, not a restart: Aegis already has the USN journal (read **without** admin),
