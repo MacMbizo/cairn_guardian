@@ -642,6 +642,17 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
             Path::new(p).ancestors().skip(1).find_map(|a| group_index.get(&a.to_string_lossy().to_lowercase()).copied())
         };
         let in_group = |p: &str| group_of(p).is_some();
+        // Folders that hold two or more projects (`Dev Set`, `C:\Prj`): under Fresh, their loose
+        // files are left for project plans (spec §9, 2nd bullet) rather than filed one by one.
+        let containers: HashSet<String> = if choice == BlueprintChoice::Fresh {
+            let mut per_parent: HashMap<String, usize> = HashMap::new();
+            for (p, _) in crate::context::protected_roots(store, std::slice::from_ref(root))? {
+                *per_parent.entry(parent_of(&p).to_string_lossy().to_lowercase()).or_default() += 1;
+            }
+            per_parent.into_iter().filter(|(_, n)| *n >= 2).map(|(d, _)| d).collect()
+        } else {
+            HashSet::new()
+        };
         if only.is_none() {
             let mut totals = vec![(0usize, 0i64); groups.len()];
             for r in &root_rows {
@@ -712,6 +723,10 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
         }
         for r in &root_rows {
             if only.is_some_and(|o| !o.contains(&r.id)) || in_group(&r.path) {
+                continue;
+            }
+            if containers.contains(&parent_of(&r.path).to_string_lossy().to_lowercase()) {
+                out.push(stays(r, "In your projects folder: left for project plans"));
                 continue;
             }
             let c = classification_of(&r.meta);

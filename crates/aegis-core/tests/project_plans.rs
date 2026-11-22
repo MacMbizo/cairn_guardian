@@ -542,6 +542,49 @@ fn build_units_follow_their_folder() {
     assert_eq!(count_under(&s, Path::new(&target)), before);
 }
 
+// ---- Task 6: loose files in project containers ----
+
+fn with_loose_container_files() -> (tempfile::TempDir, SqliteStore, PathBuf, PathBuf) {
+    let (t, mut s, home, prj) = pc();
+    let ds = home.join("Documents/Projectsv2/Dev Set");
+    fixtures_context::put(&ds, "ideas for later.docx");
+    fixtures_context::put(&prj, "meeting notes.docx");
+    for r in [home.join("Documents"), prj.clone()] {
+        aegis_core::scanner::scan_root(&mut s, &r, &[1]).unwrap();
+    }
+    aegis_core::filing::reader::read_pending(&mut s, 5_000, std::time::Duration::from_secs(30)).unwrap();
+    recognise(&mut s).unwrap();
+    (t, s, ds, prj)
+}
+
+fn placement_of<'a>(ps: &'a [aegis_core::filing::blueprint::Placement], path: &Path) -> &'a aegis_core::filing::blueprint::Placement {
+    let want = common::canon(path);
+    ps.iter().find(|p| p.from.eq_ignore_ascii_case(&want)).unwrap_or_else(|| panic!("no placement for {want}"))
+}
+
+#[test]
+fn fresh_leaves_container_loose_files() {
+    use aegis_core::filing::blueprint::plan;
+    use aegis_core::filing::{BlueprintChoice, Scope};
+    let (_t, s, ds, prj) = with_loose_container_files();
+    let ps = plan(&s, &Scope::Pc, BlueprintChoice::Fresh).unwrap();
+    for f in [ds.join("ideas for later.docx"), prj.join("meeting notes.docx")] {
+        let p = placement_of(&ps, &f);
+        assert!(p.to.is_none() && p.new_name.is_none(), "{p:?}");
+        assert!(p.reason.contains("projects folder"), "{}", p.reason);
+    }
+}
+
+#[test]
+fn tidy_still_tidies_container_loose_files() {
+    use aegis_core::filing::blueprint::plan;
+    use aegis_core::filing::{BlueprintChoice, Scope};
+    let (_t, s, _ds, prj) = with_loose_container_files();
+    let ps = plan(&s, &Scope::Pc, BlueprintChoice::Tidy).unwrap();
+    let p = placement_of(&ps, &prj.join("meeting notes.docx"));
+    assert!(!p.reason.contains("projects folder"), "{p:?}");
+}
+
 // ---- Task 3: executor hardening ----
 
 use aegis_core::contracts::{ActionType, ProposedActionInput, RefilePlan, TargetKind};
