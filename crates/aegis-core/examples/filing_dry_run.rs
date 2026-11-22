@@ -1,5 +1,6 @@
-//! Dry run of auto-filing against a COPY of a real database: reads and classifies files, then
-//! plans both structures for the PC and every catalogued drive and prints what would happen.
+//! Dry run of auto-filing against a COPY of a real database: reads and classifies files,
+//! recognises projects (and how their copies relate), then plans both structures for the PC and
+//! every catalogued drive and prints what would happen.
 //! Nothing on disk is moved; only the copy's metadata tables are written. It refuses the live
 //! database (and any database inside an app data folder).
 //!
@@ -41,9 +42,56 @@ fn main() -> aegis_core::error::Result<()> {
         let (c, n, sure, unsure) = r?;
         println!("  {c:<34} {n:>7} · {sure:>6} · {unsure:>6}");
     }
+    drop(stmt);
     let mut stmt = store.conn().prepare("SELECT kind, COUNT(*) FROM file_meta GROUP BY kind ORDER BY 2 DESC")?;
     let kinds: Vec<(String, i64)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
     println!("kinds: {kinds:?}");
+    drop(stmt);
+
+    // Projects (context layer): what filing keeps whole, and where each project lives.
+    let rep = aegis_core::context::recognise(&mut store)?;
+    println!("
+projects: {} ({} in more than one place) in {:.1}s", rep.projects, rep.multi_location, rep.took_ms as f64 / 1000.0);
+    let projects = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::Project)?;
+    let mut by_container: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for c in &projects {
+        for l in &c.locations {
+            let (parent, _) = l.root_path.rsplit_once(std::path::MAIN_SEPARATOR).unwrap_or(("", ""));
+            let sure = if c.confidence >= aegis_core::context::projects::SURE_THRESHOLD { "sure" } else { "asks" };
+            by_container.entry(parent.to_string()).or_default().push(format!(
+                "{} [{:.2} {} {:?}] {}",
+                l.root_path.rsplit(std::path::MAIN_SEPARATOR).next().unwrap_or(""),
+                c.confidence,
+                sure,
+                c.project_kind,
+                c.evidence.first().map(String::as_str).unwrap_or("")
+            ));
+        }
+    }
+    for (container, ps) in &by_container {
+        println!("  {container} ({})", ps.len());
+        for p in ps {
+            println!("    {p}");
+        }
+    }
+    println!("
+projects in more than one place:");
+    for c in projects.iter().filter(|c| c.locations.len() > 1) {
+        println!("  {} ({:?})", c.name, c.project_kind);
+        for l in &c.locations {
+            println!(
+                "    {:<18} {:>6} files  shared {:>5}  {:<13} {}{}",
+                format!("{:?}", l.relationship),
+                l.files,
+                l.shared_files,
+                l.compared_by,
+                l.root_path,
+                if l.online { "" } else { "  (unplugged)" }
+            );
+        }
+    }
+    let protected: i64 = projects.iter().flat_map(|c| &c.locations).map(|l| l.files).sum();
+    println!("files kept whole inside projects (build output not counted): {protected}");
 
     let mut scopes = vec![(Scope::Pc, "This PC".to_string())];
     {
@@ -76,6 +124,7 @@ fn main() -> aegis_core::error::Result<()> {
             let groups: BTreeMap<String, usize> = ps
                 .iter()
                 .filter_map(|p| match &p.target {
+                    Target::Group { files, .. } if p.reason.starts_with("Part of project") => Some(("Part of a project".to_string(), *files)),
                     Target::Group { files, .. } => Some((p.reason.split(':').next().unwrap_or("").to_string(), *files)),
                     _ => None,
                 })
