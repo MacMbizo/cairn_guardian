@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, FolderTree, HardDrive, History, Laptop, ListChecks, Sparkles, Undo2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, FolderGit2, FolderTree, HardDrive, History, Laptop, ListChecks, Sparkles, Undo2 } from "lucide-react";
 import {
   aegis,
   errorMessage,
@@ -17,6 +17,7 @@ import {
 import { formatBytes } from "../format";
 import { fixtureBatch, fixtureBlueprints, fixtureDestinations, fixtureRecent, fixtureRules, fixtureToSort } from "./fixtures/filing";
 import type { FilingData } from "./useFiling";
+import { ProjectsView } from "./Projects";
 
 const card = "rounded-xl border border-slate-800 bg-slate-900/50 p-4";
 const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
@@ -28,7 +29,8 @@ type View =
   | { kind: "batch"; s: ScopeStatus; batch: string }
   | { kind: "sort"; s: ScopeStatus }
   | { kind: "rules" }
-  | { kind: "recent" };
+  | { kind: "recent" }
+  | { kind: "projects" };
 
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const folderOf = (p: string) => p.split(/[\\/]/).slice(0, -1).join("\\");
@@ -556,6 +558,7 @@ export function FilingScreen({ data, startRecent = false }: { data: FilingData; 
   if (view.kind === "sort") return <SortView s={view.s} preview={preview} onBack={back} />;
   if (view.kind === "rules") return <RulesView preview={preview} onBack={back} />;
   if (view.kind === "recent") return <RecentView scopes={scopes} preview={preview} onUndo={undo} onBack={back} />;
+  if (view.kind === "projects") return <ProjectsView preview={preview} onBack={back} />;
 
   return (
     <div className="space-y-4">
@@ -568,6 +571,9 @@ export function FilingScreen({ data, startRecent = false }: { data: FilingData; 
           </p>
         </div>
         <span className="flex flex-wrap gap-2">
+          <button type="button" className={btn} onClick={() => setView({ kind: "projects" })}>
+            <FolderGit2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Projects
+          </button>
           <button type="button" className={btn} onClick={() => setView({ kind: "recent" })}>
             <History className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Recent batches
           </button>

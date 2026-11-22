@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  Answer,
   AppliedPlan,
+  Collection,
   BackupCoverage,
   BackupSourceItem,
   DecisionOutcome,
@@ -21,6 +23,7 @@ import type {
   SearchFacets,
   GroupedDupeReport,
   PreviousVersionItem,
+  RecogniseReport,
   Reminder,
   Screen,
   WeeklyNote,
@@ -246,6 +249,17 @@ export const aegis = {
     rules: () => call<FilingRule[]>("filing_rules"),
     stopRule: (id: string) => call<void>("filing_rule_stop", { id }),
     deleteRule: (id: string) => call<void>("filing_rule_delete", { id }),
+  },
+  context: {
+    /** Recognised projects, those found in more than one place first. */
+    projects: () => call<Collection[]>("context_projects"),
+    /** Whether Aegis is looking for projects right now. */
+    recognising: () => call<boolean>("context_recognising"),
+    /** Looks for projects again (one pass at a time). */
+    recogniseNow: () => call<RecogniseReport>("context_recognise_now"),
+    /** One of the owner's answers about a card, or about one of its folders. */
+    answer: (collectionId: string, answer: Answer, locationId?: string) =>
+      call<void>("context_answer", { collectionId, locationId, answerGiven: answer }),
   },
   engine: {
     remindersOpen: () => call<Reminder[]>("reminders_open"),
