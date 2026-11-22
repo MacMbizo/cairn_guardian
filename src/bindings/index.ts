@@ -38,6 +38,7 @@ export * from './EngineStatus';
 export * from './ExecuteResult';
 export * from './FileDetail';
 export * from './FileMeta';
+export * from './FilingRule';
 export * from './Finding';
 export * from './FindingAction';
 export * from './FingerprintStats';

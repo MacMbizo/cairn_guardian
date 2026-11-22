@@ -844,3 +844,112 @@ fn tidy_does_not_rename_folders_holding_code() {
         "renaming a folder that holds code would break the code's paths"
     );
 }
+
+// ---------- Task 9: filing watch ----------
+
+use aegis_core::engine::Watch;
+use aegis_core::filing::watch::FilingWatch;
+
+fn age(path: &std::path::Path, days: f64) {
+    let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs_f64(days * 86_400.0)).unwrap();
+}
+
+const INVOICE_RULE: &str = "document|Finance/Invoices & receipts|Vodacom";
+
+/// PC folders Documents + Downloads, an aged invoice in Downloads, read and classified.
+fn pc_with_invoice(aged: bool) -> (tempfile::TempDir, SqliteStore, std::path::PathBuf) {
+    let t = tempfile::TempDir::new().unwrap();
+    let home = t.path().join("me");
+    std::fs::create_dir_all(home.join("Documents")).unwrap();
+    let p = fixtures_filing::docx(&home.join("Downloads"), "scan77.docx", invoice_text());
+    if aged {
+        age(&p, 1.0);
+    }
+    let mut s = store();
+    for f in ["Documents", "Downloads"] {
+        s.add_root(&home.join(f)).unwrap();
+        scan_root(&mut s, &home.join(f), &[1]).unwrap();
+    }
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    (t, s, home)
+}
+
+/// The owner has approved filing on the PC before.
+fn approved_before(s: &SqliteStore) {
+    s.conn()
+        .execute(
+            "INSERT INTO action_batches (id, origin, status, total_actions, created_at) VALUES ('prev', 'filing:pc', 'executed', 0, 0)",
+            [],
+        )
+        .unwrap();
+}
+
+fn later() -> i64 {
+    aegis_core::now_ms() + 20 * 60_000
+}
+
+#[test]
+fn new_invoice_in_downloads_files_itself_when_rule_is_automatic() {
+    let (_t, mut s, home) = pc_with_invoice(true);
+    set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
+    approved_before(&s);
+    for i in 1..=3 {
+        record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
+    }
+    FilingWatch.run(&mut s, later()).unwrap();
+    let dest = home.join("Documents").join("Finance").join("Invoices & receipts").join("2026").join("2026-03-14 Vodacom invoice.docx");
+    assert!(dest.is_file(), "filed by itself");
+    assert!(!home.join("Downloads").join("scan77.docx").exists());
+    let n: i64 = s.conn().query_row("SELECT COUNT(*) FROM file_history", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1);
+}
+
+#[test]
+fn waits_for_settle_time() {
+    let (_t, mut s, home) = pc_with_invoice(false);
+    set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
+    approved_before(&s);
+    for i in 1..=3 {
+        record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
+    }
+    FilingWatch.run(&mut s, aegis_core::now_ms()).unwrap();
+    assert!(home.join("Downloads").join("scan77.docx").is_file());
+}
+
+#[test]
+fn without_blueprint_nothing_happens() {
+    let (_t, mut s, home) = pc_with_invoice(true);
+    approved_before(&s);
+    let f = FilingWatch.run(&mut s, later()).unwrap();
+    assert!(f.is_empty());
+    assert!(home.join("Downloads").join("scan77.docx").is_file());
+    assert!(open_filing_batch(s.conn(), &Scope::Pc).unwrap().is_none());
+}
+
+#[test]
+fn confident_but_not_automatic_is_proposed_not_moved() {
+    let (_t, mut s, home) = pc_with_invoice(true);
+    set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
+    approved_before(&s);
+    let f = FilingWatch.run(&mut s, later()).unwrap();
+    assert!(home.join("Downloads").join("scan77.docx").is_file(), "only proposed");
+    let b = open_filing_batch(s.conn(), &Scope::Pc).unwrap().expect("a batch waits for the owner");
+    assert_eq!(actions_of(&s, &b).len(), 1);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].level, aegis_core::engine::Level::Note);
+    assert_eq!(f[0].title, "1 new file ready to file");
+}
+
+#[test]
+fn note_counts_auto_filed() {
+    let (_t, mut s, _home) = pc_with_invoice(true);
+    set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
+    approved_before(&s);
+    for i in 1..=3 {
+        record_outcome(s.conn(), "pc", INVOICE_RULE, "Finance", true, Outcome::Approved, i).unwrap();
+    }
+    FilingWatch.run(&mut s, later()).unwrap();
+    let note = aegis_core::engine::note::build(s.conn(), "2026-11-22", 0, "2026-11-22", later()).unwrap();
+    assert!(note.did.contains(&"Filed 1 file by itself".to_string()), "{:?}", note.did);
+}

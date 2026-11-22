@@ -138,6 +138,15 @@ pub fn build(conn: &Connection, week: &str, week_start_ms: i64, today: &str, now
     if catalogued > 0 {
         did.push(format!("Catalogued {}", plural(catalogued, "drive", "drives")));
     }
+    let auto_filed: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM actions a JOIN action_batches b ON b.id = a.batch_id
+         WHERE b.origin LIKE 'filing-auto:%' AND a.status = 'executed' AND b.created_at >= ?1",
+        [week_start_ms],
+        |r| r.get(0),
+    )?;
+    if auto_filed > 0 {
+        did.push(format!("Filed {} by itself", plural(auto_filed, "file", "files")));
+    }
 
     let mut fully_backed_up = false;
     let safety = match coverage_summary(conn)? {

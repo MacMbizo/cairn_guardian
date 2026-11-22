@@ -131,9 +131,15 @@ pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<Strin
     });
     let (_, (_, mut picked)) = ordered.into_iter().next().expect("non-empty");
     picked.truncate(BATCH_MAX);
+    Ok(Some(propose_placements(store, scope, &origin_for(scope), picked)?))
+}
 
+/// Proposes `placements` as one filing batch under `origin`. Destinations that would clash
+/// within the batch get " (2)", " (3)" and so on.
+pub fn propose_placements(store: &mut SqliteStore, scope: &Scope, origin: &str, placements: Vec<Placement>) -> Result<String> {
+    let roots: Vec<String> = scope_roots(store, scope)?.into_iter().map(|(p, _)| p).collect();
     let mut taken = HashSet::new();
-    let actions: Vec<ProposedActionInput> = picked
+    let actions: Vec<ProposedActionInput> = placements
         .into_iter()
         .map(|p| {
             let to = unique_in_batch(p.to.as_deref().unwrap_or_default(), &mut taken);
@@ -164,8 +170,17 @@ pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<Strin
             }
         })
         .collect();
-    let batch = propose_batch(store, &RefilePlan { origin: origin_for(scope), actions })?;
-    Ok(Some(batch))
+    propose_batch(store, &RefilePlan { origin: origin.to_string(), actions })
+}
+
+/// Paths the owner turned down or undid, lowercase (shared with the filing watch).
+pub fn declined_paths(conn: &Connection) -> Result<HashSet<String>> {
+    declined(conn)
+}
+
+/// Files with a move waiting anywhere (shared with the filing watch).
+pub fn busy_file_ids(conn: &Connection) -> Result<HashSet<String>> {
+    busy_files(conn)
 }
 
 struct ActionRow {

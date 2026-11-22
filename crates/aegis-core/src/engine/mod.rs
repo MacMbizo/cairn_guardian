@@ -51,6 +51,7 @@ pub enum Screen {
     Simulator,
     Week,
     Settings,
+    Filing,
 }
 
 /// What acting on a finding does.
