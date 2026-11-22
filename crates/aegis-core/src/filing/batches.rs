@@ -31,6 +31,66 @@ fn scope_of_origin(origin: &str) -> Option<Scope> {
     Some(if key == "pc" { Scope::Pc } else { Scope::Volume { volume_id: key.to_string() } })
 }
 
+/// One item a batch couldn't move, and why, in plain words.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct FailedItem {
+    /// The path it was to move from.
+    pub name: String,
+    pub reason: String,
+}
+
+/// What a filing batch did: filed, left alone (unticked or held), and failed with reasons.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct RunReport {
+    pub batch_id: String,
+    #[ts(type = "number")]
+    pub filed: i64,
+    #[ts(type = "number")]
+    pub skipped: i64,
+    pub failed: Vec<FailedItem>,
+}
+
+/// An execute error, said the way the owner would put it.
+pub fn plain_reason(raw: &str) -> String {
+    let l = raw.to_lowercase();
+    let has = |s: &str| l.contains(s);
+    if has("atomic_unit_boundary") {
+        "It's inside a code project, which is kept whole".into()
+    } else if has("outside_configured_roots") {
+        "It's outside the folders Aegis looks after".into()
+    } else if has("protected_aegis_internal") {
+        "It's one of Aegis's own files".into()
+    } else if has("isn't plugged in") || has("offline") || has("isn't") && has("any more") {
+        "The drive was unplugged".into()
+    } else if has("moved since") || has("not found") || has("not_found") || has("cannot find") || has("no longer") || has("os error 2") || has("os error 3") {
+        "It was moved or deleted since".into()
+    } else if has("being used by another process") || has("os error 32") {
+        "Another program has it open".into()
+    } else if has("not enough space") || has("os error 112") {
+        "There isn't enough space on the drive".into()
+    } else {
+        format!("Windows refused ({raw})")
+    }
+}
+
+/// Plain-words summary of an executed filing batch.
+pub fn run_report(res: &crate::contracts::ExecuteResult) -> RunReport {
+    use crate::contracts::ActionStatus;
+    RunReport {
+        batch_id: res.batch_id.clone(),
+        filed: res.executed_count as i64,
+        skipped: res.skipped_count as i64,
+        failed: res
+            .actions
+            .iter()
+            .filter(|a| a.status == ActionStatus::Failed)
+            .map(|a| FailedItem { name: a.from_path.clone(), reason: plain_reason(a.error_message.as_deref().unwrap_or("")) })
+            .collect(),
+    }
+}
+
 /// A filing batch that has run, for the "Recent batches" list.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[ts(export)]

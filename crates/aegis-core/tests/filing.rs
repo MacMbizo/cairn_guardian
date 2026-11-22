@@ -1374,6 +1374,33 @@ fn changing_structure_retires_the_old_draft_without_a_no() {
     assert_eq!(open_filing_batch(s.conn(), &scope).unwrap(), b2);
 }
 
+#[test]
+fn run_report_gives_a_plain_reason_per_failed_item_and_counts_skipped() {
+    use aegis_core::filing::batches::{plain_reason, run_report};
+    let (_t, mut s, mount, scope) = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+        common::put(m, "b-setup.exe", b"MZ");
+        common::put(m, "c-setup.exe", b"MZ");
+    });
+    set_blueprint(s.conn(), &scope, BlueprintChoice::Fresh, 1).unwrap();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    std::fs::remove_file(mount.join("a-setup.exe")).unwrap();
+    let keep: Vec<String> = actions_of(&s, &b).into_iter().filter(|a| !a.1.ends_with("c-setup.exe")).map(|a| a.0).collect();
+    approve_batch(&mut s, &b, Some(&keep)).unwrap();
+    let res = execute_batch(&mut s, &b).unwrap();
+    let rep = run_report(&res);
+    assert_eq!((rep.filed, rep.skipped), (1, 1), "{rep:?}");
+    assert_eq!(rep.failed.len(), 1);
+    assert!(rep.failed[0].name.ends_with("a-setup.exe"));
+    assert_eq!(rep.failed[0].reason, "It was moved or deleted since");
+
+    assert_eq!(plain_reason("Data isn't plugged in."), "The drive was unplugged");
+    assert_eq!(plain_reason("policy_blocked:atomic_unit_boundary"), "It's inside a code project, which is kept whole");
+    assert_eq!(plain_reason("This file has moved since the change was proposed. Propose it again."), "It was moved or deleted since");
+    assert_eq!(plain_reason("policy_blocked:outside_configured_roots"), "It's outside the folders Aegis looks after");
+    assert_eq!(plain_reason("Access is denied. (os error 5)"), "Windows refused (Access is denied. (os error 5))");
+}
+
 // ---------- Final review fixes ----------
 
 use aegis_core::filing::batches::skip_batch;

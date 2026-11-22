@@ -6,6 +6,7 @@ import {
   type ActionItem,
   type BlueprintChoice,
   type BlueprintSummary,
+  type FailedItem,
   type FilingRule,
   type Placement,
   type RecentBatch,
@@ -170,7 +171,19 @@ function PlanView({ s, preview, onChosen, onBack }: { s: ScopeStatus; preview: b
   );
 }
 
-function BatchView({ s, batch, preview, onDone, onBack }: { s: ScopeStatus; batch: string; preview: boolean; onDone: (msg: string, undo?: string) => void; onBack: () => void }) {
+function BatchView({
+  s,
+  batch,
+  preview,
+  onDone,
+  onBack,
+}: {
+  s: ScopeStatus;
+  batch: string;
+  preview: boolean;
+  onDone: (msg: string, undo?: string, failed?: FailedItem[]) => void;
+  onBack: () => void;
+}) {
   const [items, setItems] = useState<ActionItem[] | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [why, setWhy] = useState<string | null>(null);
@@ -198,7 +211,10 @@ function BatchView({ s, batch, preview, onDone, onBack }: { s: ScopeStatus; batc
     try {
       const sel = all ? undefined : [...ticked];
       const res = await aegis.filing.approve(batch, sel);
-      onDone(`Filed ${res.executed_count} files${res.failed_count > 0 ? ` · ${res.failed_count} couldn't move (they changed since)` : ""}.`, batch);
+      const parts = [`Filed ${res.filed.toLocaleString()} file${res.filed === 1 ? "" : "s"}`];
+      if (res.skipped > 0) parts.push(`${res.skipped.toLocaleString()} left where ${res.skipped === 1 ? "it is" : "they are"}`);
+      if (res.failed.length > 0) parts.push(`${res.failed.length.toLocaleString()} couldn't move`);
+      onDone(`${parts.join(" · ")}.`, batch, res.failed);
     } catch (e) {
       setErr(errorMessage(e));
     } finally {
@@ -492,7 +508,7 @@ const scopeKey = (s: Scope) => (s.type === "pc" ? "pc" : s.volume_id);
 export function FilingScreen({ data, startRecent = false }: { data: FilingData; startRecent?: boolean }) {
   const { scopes, loading, error, preview, reload } = data;
   const [view, setView] = useState<View>(startRecent ? { kind: "recent" } : { kind: "overview" });
-  const [msg, setMsg] = useState<{ text: string; undo?: string } | null>(null);
+  const [msg, setMsg] = useState<{ text: string; undo?: string; failed?: FailedItem[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const back = () => {
@@ -536,7 +552,7 @@ export function FilingScreen({ data, startRecent = false }: { data: FilingData; 
   if (view.kind === "plan")
     return <PlanView s={view.s} preview={preview} onBack={back} onChosen={(text) => { setMsg({ text }); back(); }} />;
   if (view.kind === "batch")
-    return <BatchView s={view.s} batch={view.batch} preview={preview} onBack={back} onDone={(text, b) => { setMsg({ text, undo: b }); back(); }} />;
+    return <BatchView s={view.s} batch={view.batch} preview={preview} onBack={back} onDone={(text, b, failed) => { setMsg({ text, undo: b, failed }); back(); }} />;
   if (view.kind === "sort") return <SortView s={view.s} preview={preview} onBack={back} />;
   if (view.kind === "rules") return <RulesView preview={preview} onBack={back} />;
   if (view.kind === "recent") return <RecentView scopes={scopes} preview={preview} onUndo={undo} onBack={back} />;
@@ -572,6 +588,22 @@ export function FilingScreen({ data, startRecent = false }: { data: FilingData; 
             </button>
           )}
         </p>
+      )}
+      {msg?.failed && msg.failed.length > 0 && (
+        <details className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-slate-200" open={msg.failed.length <= 5}>
+          <summary className="cursor-pointer text-amber-200">
+            {msg.failed.length.toLocaleString()} couldn't move. They're still where they were.
+          </summary>
+          <ul className="mt-1.5 space-y-0.5">
+            {msg.failed.slice(0, 50).map((f) => (
+              <li key={f.name}>
+                <span className="text-slate-100">{fileName(f.name)}</span>
+                <span className="text-slate-400"> · {f.reason}</span>
+              </li>
+            ))}
+            {msg.failed.length > 50 && <li className="text-slate-500">…and {(msg.failed.length - 50).toLocaleString()} more</li>}
+          </ul>
+        </details>
       )}
       {error && <p className="text-xs text-rose-300">{error}</p>}
       {loading && <p className="text-xs text-slate-400">Loading…</p>}

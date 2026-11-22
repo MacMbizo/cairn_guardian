@@ -3,11 +3,11 @@
 
 use super::{AppState, lock_store, map_err};
 use crate::engine_host::wake;
-use aegis_core::contracts::{ExecuteResult, RollbackResult};
+use aegis_core::contracts::RollbackResult;
 use aegis_core::db::SqliteStore;
 use aegis_core::db::actions::{approve_batch, execute_batch, rollback_batch};
 use aegis_core::error::IpcError;
-use aegis_core::filing::batches::{RecentBatch, after_execute, after_rollback, next_batch, propose_placements, recent_batches};
+use aegis_core::filing::batches::{RecentBatch, RunReport, after_execute, after_rollback, next_batch, propose_placements, recent_batches, run_report};
 use aegis_core::filing::blueprint::{BlueprintSummary, Placement, Target, destinations, plan, rule_key, summarize};
 use aegis_core::filing::rules::{FilingRule, delete_rule, list_rules, stop_automatic};
 use aegis_core::filing::{BlueprintChoice, Scope, ScopeStatus, change_blueprint, load_meta, scope_statuses};
@@ -48,14 +48,15 @@ pub fn filing_next_batch(state: State<'_, AppState>, scope: Scope) -> Result<Opt
     map_err(next_batch(&mut store, &scope))
 }
 
-/// Approves the ticked items (all when `selection` is empty), runs them and records the result.
+/// Approves the ticked items (all when `selection` is empty), runs them and records the result,
+/// with a plain reason for anything that couldn't move.
 #[tauri::command(async)]
 pub fn filing_approve(
     app: AppHandle,
     state: State<'_, AppState>,
     batch: String,
     selection: Option<Vec<String>>,
-) -> Result<ExecuteResult, IpcError> {
+) -> Result<RunReport, IpcError> {
     let res = {
         let mut store = lock_store(&state)?;
         map_err(approve_batch(&mut store, &batch, selection.as_deref()))?;
@@ -64,7 +65,7 @@ pub fn filing_approve(
         res
     };
     wake(&app);
-    Ok(res)
+    Ok(run_report(&res))
 }
 
 /// Undo a filing batch. Files that changed since can't always go back; the result lists them.

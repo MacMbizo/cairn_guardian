@@ -15,6 +15,7 @@ import type {
   FilingRule,
   Placement,
   RecentBatch,
+  RunReport,
   Scope,
   ScopeStatus,
   GroupedDupeReport,
@@ -227,7 +228,7 @@ export const aegis = {
     choose: (scope: Scope, choice: BlueprintChoice) => call<void>("filing_choose", { scope, choice }),
     nextBatch: (scope: Scope) => call<string | null>("filing_next_batch", { scope }),
     /** Approves the ticked items (all when none given), runs them and records the result. */
-    approve: (batch: string, selection?: string[]) => call<ExecuteResult>("filing_approve", { batch, selection }),
+    approve: (batch: string, selection?: string[]) => call<RunReport>("filing_approve", { batch, selection }),
     /** Undo a batch; files that changed since are listed as conflicts. */
     undo: (batch: string) => call<RollbackResult>("filing_undo", { batch }),
     /** Turn a batch down: not offered again, and a "no" for its rules. */
