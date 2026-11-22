@@ -1,8 +1,39 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-21 (evening). Read this first in a new chat.
+Updated 2026-11-22. Read this first in a new chat.
 
-## IN PROGRESS: Project 3, Auto-filing (read this first)
+## NEXT CHAT: do this first (owner's instruction, 2026-11-22)
+
+**Fix the remaining review findings on `feature/auto-filing`, then merge it to master.** The owner approved the merge, to happen after the fixes. Do not push.
+
+Every critical and important finding is already fixed. These are the deferred minor ones, each to be fixed with a failing test first:
+
+1. **Collision suffix.** On-disk collisions start at ` (1)`; spec §6 says ` (2)`. This is `non_overwriting_dest` in `db/actions.rs`. Check that the existing tests still expect the right suffix.
+2. **Screenshot times are UTC** (2 hours off in South Africa) in `naming.rs` (`screenshot_time`) and in classify's `ymd`.
+   - Use local time. The desktop host has chrono; the core can take an offset.
+   - Don't rename screenshots from the modified date alone, unless the owner prefers it.
+3. **Windows reserved names.** `naming::sanitize` must reject CON, PRN, AUX, NUL, COM1–9, LPT1–9 and names made only of dots. Music tags become folder names.
+4. **Tidy merges by stripping digits.** `blueprint::folder_key` strips digits, so "Work 2019" and "Work 2020" merge. Keep digits; only strip known prefixes (msi, old, copy of, backup).
+5. **Wrong catch-all on the PC.** `filing_destinations` uses `roots.first()`, which may be Downloads. Use the Documents known-folder root.
+   - Make the suggestions per item: the same category's folder, then that category's parent.
+6. **Cached counts drift.** `filing.counts:<scope>` isn't adjusted on undo, skip or new arrivals. An unplugged drive with no cache shows "All filed"; show "Plug in to see" instead.
+7. **Undo is hard to find.** Add a "Recent batches" list to the Filing screen, with Undo for each, including automatic batches. Link the weekly note's "Filed N files by itself" line to it.
+8. **Home tile.** It should say "Next filing batch ready (N files)", not "on N drives".
+9. **Change structure mid-migration.** Warn when batches have already run. Reject any open draft from the old choice.
+10. **Failure copy.** Show the real reason per failed item (moved since, drive unplugged, blocked by a code project) and count skipped items.
+11. **Dry-run tool.** `examples/filing_dry_run.rs` must refuse the live database: compare against `%LOCALAPPDATA%\com.aegis.guardian\aegis.db`, or require a `--copy` flag.
+12. **Backup drive read twice.** `read_pending` and `classify_unread` must skip files on the Backup-role volume.
+13. **Search filters in the UI.** Add the controls: category, organisation, year, kind, drive.
+14. **Dry run with the drive plugged in.** If the owner plugs in the external drive, re-run the dry run, which reads D: content. Report the sample renames and the to-sort share, and fix misclassifications test-first.
+
+**Then:**
+1. Run `cargo test --workspace`, clippy and `pnpm build`.
+2. `git checkout master && git merge feature/auto-filing`, then re-run the tests on the merged result.
+3. Delete the branch and update this file.
+
+**Process:** use the executing-plans approach with a ledger in `.superpowers/sdd/`. After the fixes, a short fresh review is optional (minors only).
+
+## IN PROGRESS: Project 3, Auto-filing
 
 - **Branch:** `feature/auto-filing`. Project 2 is merged to master.
 - **Design:** `docs/superpowers/specs/2026-11-21-auto-filing-design.md`
