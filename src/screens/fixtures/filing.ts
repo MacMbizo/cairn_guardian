@@ -14,6 +14,7 @@ export const fixtureScopes: ScopeStatus[] = [
     filed: 212,
     remaining: 148,
     to_sort: 9,
+    counts_known: true,
   },
   {
     scope: { type: "volume", volume_id: "pp-d" },
@@ -25,6 +26,19 @@ export const fixtureScopes: ScopeStatus[] = [
     filed: 0,
     remaining: 0,
     to_sort: 0,
+    counts_known: true,
+  },
+  {
+    scope: { type: "volume", volume_id: "pp-e" },
+    label: "Photos drive",
+    online: false,
+    read_pct: 1,
+    blueprint: "tidy",
+    open_batch: null,
+    filed: 40,
+    remaining: 0,
+    to_sort: 0,
+    counts_known: false,
   },
 ];
 

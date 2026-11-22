@@ -504,7 +504,8 @@ export function FilingScreen({ data }: { data: FilingData }) {
               )}
               {s.blueprint && (
                 <p className="mb-3 text-xs text-slate-300">
-                  Filed {s.filed.toLocaleString()} · {s.remaining.toLocaleString()} still to move
+                  Filed {s.filed.toLocaleString()}
+                  {s.counts_known ? ` · ${s.remaining.toLocaleString()} still to move` : " · plug the drive in to see what's left"}
                   {s.to_sort > 0 && (
                     <>
                       {" · "}
@@ -520,6 +521,8 @@ export function FilingScreen({ data }: { data: FilingData }) {
                   <button type="button" className={primary} disabled={!s.online} onClick={() => setView({ kind: "plan", s })}>
                     Plan this {s.scope.type === "pc" ? "PC" : "drive"}
                   </button>
+                ) : !s.counts_known ? (
+                  <span className="text-xs text-slate-400">Plug in to see</span>
                 ) : s.open_batch || s.remaining > 0 ? (
                   <button type="button" className={primary} disabled={!s.online || busy !== null} onClick={() => void openBatch(s)}>
                     {busy === scopeKey(s.scope) ? "Preparing…" : "Review next batch"}

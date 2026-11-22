@@ -252,9 +252,16 @@ pub fn set_counts(conn: &Connection, scope: &Scope, remaining: i64, to_sort: i64
     Ok(())
 }
 
+/// Forgets a scope's cached counts, so the next visit counts afresh (after an undo, a skip,
+/// new arrivals or a new choice).
+pub fn clear_counts(conn: &Connection, scope: &Scope) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1 AND scope = 'global'", [counts_key(scope)])?;
+    Ok(())
+}
+
 pub fn set_blueprint(conn: &Connection, scope: &Scope, choice: BlueprintChoice, now: i64) -> Result<()> {
     // A new choice means new counts.
-    conn.execute("DELETE FROM settings WHERE key = ?1 AND scope = 'global'", [counts_key(scope)])?;
+    clear_counts(conn, scope)?;
     conn.execute(
         "INSERT INTO filing_blueprints (scope_key, choice, chosen_at) VALUES (?1, ?2, ?3)
          ON CONFLICT(scope_key) DO UPDATE SET choice = excluded.choice, chosen_at = excluded.chosen_at",
@@ -299,6 +306,8 @@ pub struct ScopeStatus {
     pub remaining: i64,
     #[ts(type = "number")]
     pub to_sort: i64,
+    /// False when the drive is unplugged and Aegis has no counts for it yet.
+    pub counts_known: bool,
 }
 
 /// The PC and every catalogued general drive (never the Backup drive), with progress.
@@ -337,15 +346,14 @@ pub fn scope_statuses(store: &mut crate::db::SqliteStore) -> Result<Vec<ScopeSta
             |r| r.get(0),
         )?;
         let choice = blueprint_of(store.conn(), &scope)?;
-        let (mut remaining, mut to_sort) = (0, 0);
+        let (mut remaining, mut to_sort, mut counts_known) = (0, 0, true);
         if let Some(c) = choice {
             if let Some((r, t)) = cached_counts(store.conn(), &scope)? {
                 (remaining, to_sort) = (r, t);
             } else if online {
-                let ps = blueprint::plan(store, &scope, c)?;
-                let s = blueprint::summarize(&ps, c, store)?;
-                (remaining, to_sort) = (s.moves, s.to_sort);
-                set_counts(store.conn(), &scope, remaining, to_sort)?;
+                (remaining, to_sort) = batches::recount(store, &scope, c)?;
+            } else {
+                counts_known = false;
             }
         }
         out.push(ScopeStatus {
@@ -358,6 +366,7 @@ pub fn scope_statuses(store: &mut crate::db::SqliteStore) -> Result<Vec<ScopeSta
             filed,
             remaining,
             to_sort,
+            counts_known,
         });
     }
     Ok(out)

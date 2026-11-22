@@ -13,4 +13,8 @@ read_pct: number, blueprint: BlueprintChoice | null, open_batch: string | null, 
 /**
  * Files the chosen structure would still move (0 without a choice).
  */
-remaining: number, to_sort: number, };
+remaining: number, to_sort: number, 
+/**
+ * False when the drive is unplugged and Aegis has no counts for it yet.
+ */
+counts_known: boolean, };

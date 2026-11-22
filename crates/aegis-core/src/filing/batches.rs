@@ -89,6 +89,33 @@ fn root_of<'a>(roots: &'a [String], path: &str) -> Option<&'a String> {
     roots.iter().filter(|r| path_is_within(path, r, false)).max_by_key(|r| r.len())
 }
 
+/// A planned move Aegis would still offer: it goes somewhere, is sure, and wasn't turned down.
+fn offerable(p: &Placement, declined: &HashSet<String>) -> bool {
+    p.to.is_some() && !p.to_sort && !declined.contains(&p.from.to_lowercase())
+}
+
+/// `(files still to move, files to sort)` from a plan, leaving out what the owner turned down.
+/// Files already in a waiting batch still count: they haven't moved yet.
+fn counts_of(all: &[Placement], declined: &HashSet<String>) -> (i64, i64) {
+    let to_sort = all.iter().filter(|p| p.to_sort).count() as i64;
+    let moving = all
+        .iter()
+        .filter(|p| offerable(p, declined))
+        .map(|p| match &p.target {
+            Target::Group { files, .. } => *files as i64,
+            Target::File { .. } => 1,
+        })
+        .sum();
+    (moving, to_sort)
+}
+
+/// Plans `scope` afresh and caches its counts (see [`counts_of`]).
+pub fn recount(store: &SqliteStore, scope: &Scope, choice: super::BlueprintChoice) -> Result<(i64, i64)> {
+    let counts = counts_of(&plan(store, scope, choice)?, &declined(store.conn())?);
+    super::set_counts(store.conn(), scope, counts.0, counts.1)?;
+    Ok(counts)
+}
+
 /// The next batch for a scope, or `None` when there is no blueprint, a batch is already
 /// waiting, or nothing is left to move.
 pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<String>> {
@@ -100,23 +127,16 @@ pub fn next_batch(store: &mut SqliteStore, scope: &Scope) -> Result<Option<Strin
     let no = declined(store.conn())?;
     let busy = busy_files(store.conn())?;
     let all = plan(store, scope, choice)?;
-    let to_sort = all.iter().filter(|p| p.to_sort).count() as i64;
+    let (moving, to_sort) = counts_of(&all, &no);
+    super::set_counts(store.conn(), scope, moving, to_sort)?;
     let moves: Vec<Placement> = all
         .into_iter()
-        .filter(|p| p.to.is_some() && !p.to_sort && !no.contains(&p.from.to_lowercase()))
+        .filter(|p| offerable(p, &no))
         .filter(|p| match &p.target {
             Target::File { file_id } => !busy.contains(file_id),
             Target::Group { .. } => true,
         })
         .collect();
-    let moving: i64 = moves
-        .iter()
-        .map(|p| match &p.target {
-            Target::Group { files, .. } => *files as i64,
-            Target::File { .. } => 1,
-        })
-        .sum();
-    super::set_counts(store.conn(), scope, moving, to_sort)?;
     if moves.is_empty() {
         return Ok(None);
     }
@@ -391,6 +411,7 @@ pub fn after_rollback(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
         lessons.note(store.conn(), a, batch_id, Outcome::Undone, now)?;
     }
     lessons.apply(store.conn(), &scope.key(), Outcome::Undone, now)?;
+    super::clear_counts(store.conn(), &scope)?;
     // Forget "was" records only for files that really are back where they were; anything an
     // undo couldn't move back (a conflict) keeps its record.
     store.conn().execute(
@@ -411,7 +432,8 @@ pub fn after_reject(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     for a in rows.iter().filter(|a| a.status == "rejected") {
         lessons.note(store.conn(), a, batch_id, Outcome::Rejected, now)?;
     }
-    lessons.apply(store.conn(), &scope.key(), Outcome::Rejected, now)
+    lessons.apply(store.conn(), &scope.key(), Outcome::Rejected, now)?;
+    super::clear_counts(store.conn(), &scope)
 }
 
 /// "Skip this folder": turns the batch down, never offers those files again, and counts as a

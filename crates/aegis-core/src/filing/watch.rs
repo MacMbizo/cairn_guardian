@@ -145,6 +145,10 @@ impl Watch for FilingWatch {
             if !pending.is_empty() && open_filing_batch(store.conn(), &scope)?.is_none() {
                 propose_placements(store, &scope, &format!("filing:{}", scope.key()), pending)?;
             }
+            if !new_ids.is_empty() {
+                // New files change what is left to file; count afresh on the next visit.
+                super::clear_counts(store.conn(), &scope)?;
+            }
             if let Some(open) = open_filing_batch(store.conn(), &scope)? {
                 let n: i64 = store.conn().query_row(
                     "SELECT COUNT(*) FROM actions WHERE batch_id = ?1 AND status = 'proposed'",

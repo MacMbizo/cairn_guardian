@@ -1251,6 +1251,73 @@ fn scope_counts_are_cached_and_kept_current_by_batches() {
     assert!(none.is_none());
 }
 
+fn status_of(s: &mut SqliteStore, scope: &Scope) -> aegis_core::filing::ScopeStatus {
+    aegis_core::filing::scope_statuses(s).unwrap().into_iter().find(|x| &x.scope == scope).unwrap()
+}
+
+fn two_installers() -> (tempfile::TempDir, SqliteStore, std::path::PathBuf, Scope) {
+    let fx = drive_with(|m| {
+        common::put(m, "a-setup.exe", b"MZ");
+        common::put(m, "b-setup.exe", b"MZ");
+    });
+    set_blueprint(fx.1.conn(), &fx.3, BlueprintChoice::Fresh, 1).unwrap();
+    fx
+}
+
+#[test]
+fn count_after_undo_matches_what_will_be_offered() {
+    let (_t, mut s, _mount, scope) = two_installers();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    approve_batch(&mut s, &b, None).unwrap();
+    execute_batch(&mut s, &b).unwrap();
+    after_execute(&mut s, &b).unwrap();
+    assert_eq!(status_of(&mut s, &scope).remaining, 0);
+    rollback_batch(&mut s, &b).unwrap();
+    after_rollback(&mut s, &b).unwrap();
+    // An undo is a "no": those files aren't offered again, and the count agrees with a re-plan.
+    assert!(next_batch(&mut s, &scope).unwrap().is_none());
+    assert_eq!(status_of(&mut s, &scope).remaining, 0);
+    s.conn().execute("DELETE FROM settings WHERE key LIKE 'filing.counts:%'", []).unwrap();
+    assert_eq!(status_of(&mut s, &scope).remaining, 0, "a fresh count leaves out declined files too");
+}
+
+#[test]
+fn skipped_files_leave_the_count() {
+    let (_t, mut s, _mount, scope) = two_installers();
+    let b = next_batch(&mut s, &scope).unwrap().unwrap();
+    skip_batch(&mut s, &b).unwrap();
+    assert_eq!(status_of(&mut s, &scope).remaining, 0, "skipped files are never offered again");
+    s.conn().execute("DELETE FROM settings WHERE key LIKE 'filing.counts:%'", []).unwrap();
+    assert_eq!(status_of(&mut s, &scope).remaining, 0);
+}
+
+#[test]
+fn new_arrivals_join_the_count() {
+    let (_t, mut s, home) = pc_with_invoice(true);
+    set_blueprint(s.conn(), &Scope::Pc, BlueprintChoice::Fresh, 1).unwrap();
+    approved_before(&s);
+    // Counts cached before the invoice was seen as an arrival.
+    aegis_core::filing::set_counts(s.conn(), &Scope::Pc, 0, 0).unwrap();
+    let p = fixtures_filing::docx(&home.join("Downloads"), "scan78.docx", invoice_text());
+    age(&p, 1.0);
+    scan_root(&mut s, &home.join("Downloads"), &[1]).unwrap();
+    read_pending(&mut s, 100, Duration::from_secs(10)).unwrap();
+    FilingWatch::default().run(&mut s, later()).unwrap();
+    let st = status_of(&mut s, &Scope::Pc);
+    assert!(st.remaining >= 2, "both invoices still to move: {st:?}");
+}
+
+#[test]
+fn unplugged_drive_without_counts_says_plug_in() {
+    let (_t, mut s, _mount, scope) = two_installers();
+    let Scope::Volume { volume_id } = &scope else { unreachable!() };
+    s.conn().execute("UPDATE volumes SET status = 'offline' WHERE id = ?1", [volume_id]).unwrap();
+    let st = status_of(&mut s, &scope);
+    assert!(!st.counts_known, "{st:?}");
+    s.conn().execute("UPDATE volumes SET status = 'online' WHERE id = ?1", [volume_id]).unwrap();
+    assert!(status_of(&mut s, &scope).counts_known);
+}
+
 // ---------- Final review fixes ----------
 
 use aegis_core::filing::batches::skip_batch;
