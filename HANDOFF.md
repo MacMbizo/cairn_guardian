@@ -1,30 +1,70 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-23 (Plan 2 of context-aware filing, Tasks 1–4 done). Read this first in a new chat.
+Updated 2026-11-23 (Plan 2 of context-aware filing done). Read this first in a new chat.
 
 ## NEXT CHAT: do this first
 
 **Plan 1 is merged into `master`** (fast-forward to `72cbe11`, 2026-11-23, owner approved). Not pushed.
 
-**Plan 2 (project plans) is in progress** on branch `feature/project-plans`.
-- Plan: `docs/superpowers/plans/2026-11-23-project-plans.md`.
+**Plan 2 (project plans) is done** on branch `feature/project-plans` (not merged, not pushed).
+- Plan: `docs/superpowers/plans/2026-11-23-project-plans.md`. Every task has an "as built" note, including the rulings from real data.
 - Ledger: `.superpowers/sdd/2026-11-23-project-plans/ledger.md`.
-- **Done (Tasks 1–4):**
-  - schema and answers (change home, keep this copy here; plan state);
-  - planning (`context::plan::plan_for`);
-  - executor hardening;
-  - `propose` / `run` / `undo`: one batch per project, all or nothing.
-- **Next:**
-  - Task 5: locations follow executed plans; `atomic_units.project_id`;
-  - Task 6: Fresh leaves the loose files in project containers alone;
-  - Task 7: the dry run prints plans;
-  - Task 8: the card UI. **Show the owner 2–3 mockups first.** Route Undo of `project:` batches to `plan::undo`;
-  - Task 9: rehearsal on scratch copies and handoff.
-- **Verified after Task 4:** `cargo test --workspace` 449 passed, 1 ignored; clippy clean; `pnpm build` clean.
-- **Nothing has moved on the owner's real folders.** Only tests in temporary folders have executed plans.
-- **North star:** `docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` holds the binding rules for every new spec or plan. Decision D1 (encryption at rest) is due before the embeddings work.
 
-Ideas backlog below: ask the owner which to design after Plan 2 (the north-star doc suggests an order).
+1. **Ask the owner:**
+   - whether to merge `feature/project-plans` into `master`;
+   - whether to try the Projects screen on the PC. Suggest starting with forexTrader, then one move-in from the compact list, then Undo once.
+2. **Owner decisions still open:**
+   - D1 (encryption at rest and key handling) before the embeddings work;
+   - whether to delete 53 orphaned test folders in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database).
+3. **Then:** Plan 3 = sets and photo subjects (spec §10), or an item from the ideas backlog (see the north-star doc).
+
+**What Plan 2 built:**
+- **Planner** (`context::plan`):
+  - one plan per project per drive;
+  - the main copy moves whole into `C:\Prj`;
+  - identical and older copies go to quarantine. Every file is proven by BLAKE3 at run time; otherwise the whole copy is kept as a version;
+  - copies changed on both sides, and earlier versions, go to `Versions\<date> <origin>`;
+  - material goes to `Docs`, `Design` or `Material`;
+  - a git repo home gets a sibling `<name> - material` folder;
+  - a copy at the target name is moved aside first;
+  - cards are ordered safest first (`rank`).
+- **Executor** (`db/actions.rs`):
+  - step order;
+  - stale-folder check;
+  - exact destinations (never ` (2)`);
+  - a project batch stops at its first failure, and `plan::run` undoes it;
+  - the catalog, `atomic_units` and `cache_dirs` follow moved folders at once;
+  - undo replays chained steps in reverse;
+  - folder quarantine takes its files' catalog state with it.
+- **UI** (owner's design A):
+  - a plan line under each place;
+  - Keep here / Include in plan;
+  - Change main copy;
+  - Approve plan, which runs at once with Undo on the card;
+  - a Move button on single projects in the compact list;
+  - Recent batches shows "Project plan: <name>".
+  - IPC: `context_plans`, `context_run_plan` (single-flight with recognition), `filing_undo` routing to `plan::undo`.
+- **Rulings from the owner's real data:** they only make plans move less.
+  - Nothing inside another project (or holding one) moves.
+  - Python environments never move. Moving a folder that holds one warns.
+  - Other drives get no plan yet (the Old copies module comes later).
+  - A home moves in only from inside a projects folder.
+  - Copies changed in the last 30 days stay.
+  - The home keeps its own folder name.
+- **Dry run on a copy of the live database:** 51 plans in 1.3 s. 41 homes move in; 1 copy goes to quarantine; 21 are kept as versions; 1 folder of material is brought in.
+- **Rehearsal** (`examples/plan_rehearsal.rs`) on copies of the real forexTrader and DrivingSchool (117,044 files): both ran, and undo restored every file exactly.
+- **Verified:** 460 passed, 1 ignored. Two timing tests (`recognise_is_fast_on_a_big_catalog`, `migration_speed_and_fts_sync`) fail only while the owner's `aegis-desktop` uses about 2 cores; both passed earlier on the same code. Clippy and `pnpm build` are clean.
+- **Nothing has moved on the owner's real folders.**
+
+**Noticed, not fixed:**
+- The owner's running `aegis-desktop` used about 2 cores continuously, with about 1 GB working set (budget: 350 MB). Worth investigating.
+- Older test files (not the plan tests) still write into the real `C:\.aegis-quarantine`.
+- The owner (or another session) changed `canonical/D3_Critical_UX_Flows_v1.0.md` and `canonical/suite_reconciliation.md`, and added `canonical/D1_Design_System_v1.0.md` and `design-system/`. These were left uncommitted, untouched.
+- Copying the live database: no `sqlite3` or Python on this PC. Use `node` with `node:sqlite` (read-only `VACUUM INTO`); the script lived in the session scratchpad.
+
+**North star:** `docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` holds the binding rules for every new spec or plan.
+
+Ideas backlog below: ask the owner which to design after Plan 2.
 
 **What Plan 1 built** (`crates/aegis-core/src/context/`):
 - `profile` (per-folder stats from the catalog), `projects` (recogniser), `relate` (identity, relationships, fingerprints),
