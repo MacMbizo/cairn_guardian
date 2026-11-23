@@ -474,7 +474,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                   900,
                 ),
               )
-            : await aegis.context.runPlan(c.id, p.volume_id);
+            : await aegis.context.runPlan(c.id, p.volume_id, p.digest);
           setOutcomes((o) => ({ ...o, [c.id]: out }));
           if (!preview && out.done) await load();
         } catch (e) {

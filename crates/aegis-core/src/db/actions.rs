@@ -82,9 +82,20 @@ fn remove_empty_ancestors(gone: &Path, other: &Path) {
 
 /// Re-points every catalogued file inside folder `from` to the same place inside `to` (a whole
 /// folder that moved), with a `file_history` row per file when `batch_id` is given.
-fn rebase_children(tx: &Connection, from: &str, to: &str, case_sensitive: bool, batch_id: Option<&str>, now: i64) -> Result<()> {
+fn rebase_children(
+    tx: &Connection,
+    volume_id: Option<&str>,
+    from: &str,
+    to: &str,
+    case_sensitive: bool,
+    batch_id: Option<&str>,
+    now: i64,
+) -> Result<()> {
     let (inside, prefix, n) = files_inside_sql(from, 1);
-    let rows: Vec<(String, String)> = {
+    let rows: Vec<(String, String)> = if let Some(vid) = volume_id {
+        let mut stmt = tx.prepare(&format!("SELECT id, path FROM files WHERE {inside} AND volume_id = ?3"))?;
+        stmt.query_map(params![prefix, n, vid], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    } else {
         let mut stmt = tx.prepare(&format!("SELECT id, path FROM files WHERE {inside}"))?;
         stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
     };
@@ -105,23 +116,49 @@ fn rebase_children(tx: &Connection, from: &str, to: &str, case_sensitive: bool, 
         }
     }
     // Cache folders inside it (`node_modules`, `.venv`) are recorded whole: they follow too.
-    let caches: Vec<(String, String)> = {
-        let mut stmt = tx.prepare("SELECT id, path FROM cache_dirs WHERE lower(substr(path, 1, ?2)) = lower(?1)")?;
-        stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
+    let from_trimmed = from.trim_end_matches(['\\', '/']);
+    let caches: Vec<(String, String, String)> = if let Some(vid) = volume_id {
+        let mut stmt = tx.prepare(
+            "SELECT id, volume_id, path FROM cache_dirs
+             WHERE volume_id = ?4 AND (lower(substr(path, 1, ?2)) = lower(?1) OR lower(rtrim(path, '\\/')) = lower(?3))",
+        )?;
+        stmt.query_map(params![prefix, n, from_trimmed, vid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    } else {
+        let mut stmt = tx.prepare(
+            "SELECT id, volume_id, path FROM cache_dirs
+             WHERE lower(substr(path, 1, ?2)) = lower(?1) OR lower(rtrim(path, '\\/')) = lower(?3)",
+        )?;
+        stmt.query_map(params![prefix, n, from_trimmed], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
-    for (id, old) in caches {
-        let rest: String = old.chars().skip(n as usize).collect();
-        let new = format!("{}{}{rest}", to.trim_end_matches(['\\', '/']), std::path::MAIN_SEPARATOR);
+    for (id, vid, old) in caches {
+        let rest = if old.trim_end_matches(['\\', '/']).eq_ignore_ascii_case(from_trimmed) {
+            String::new()
+        } else {
+            format!("{}{}", std::path::MAIN_SEPARATOR, old.chars().skip(n as usize).collect::<String>())
+        };
+        let new = format!("{to}{rest}");
         let (disp, ph) = normalize_path(Path::new(&new), case_sensitive);
-        tx.execute("UPDATE cache_dirs SET path = ?1, path_hash = ?2 WHERE id = ?3", params![disp, ph.as_slice(), id])?;
+        tx.execute(
+            "DELETE FROM cache_dirs WHERE volume_id = ?1 AND path_hash = ?2 AND state = 'active' AND id != ?3",
+            params![vid, ph.as_slice(), id],
+        )?;
+        tx.execute(
+            "UPDATE cache_dirs SET path = ?1, path_hash = ?2 WHERE id = ?3",
+            params![disp, ph.as_slice(), id],
+        )?;
     }
     // Build units (a repo, a package) inside the folder keep protecting it at its new place.
-    let from_key = from.trim_end_matches(['\\', '/']).to_lowercase();
-    let units: Vec<(String, String)> = {
-        let mut stmt = tx.prepare("SELECT id, root_path FROM atomic_units")?;
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
+    let from_key = from_trimmed.to_lowercase();
+    let units: Vec<(String, String, String)> = if let Some(vid) = volume_id {
+        let mut stmt = tx.prepare("SELECT id, volume_id, root_path FROM atomic_units WHERE volume_id = ?1")?;
+        stmt.query_map([vid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
+    } else {
+        let mut stmt = tx.prepare("SELECT id, volume_id, root_path FROM atomic_units")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
     };
-    for (id, root) in units {
+    for (id, vid, root) in units {
         let lower = root.to_lowercase();
         let rest = if lower == from_key {
             String::new()
@@ -130,7 +167,24 @@ fn rebase_children(tx: &Connection, from: &str, to: &str, case_sensitive: bool, 
         } else {
             continue;
         };
-        tx.execute("UPDATE atomic_units SET root_path = ?1, updated_at = ?2 WHERE id = ?3", params![format!("{to}{rest}"), now, id])?;
+        let new_root = format!("{to}{rest}");
+        let stale: Vec<String> = {
+            let mut st = tx.prepare(
+                "SELECT id FROM atomic_units WHERE volume_id = ?1 AND root_path = ?2 AND id != ?3",
+            )?;
+            st.query_map(params![vid, new_root, id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        for sid in stale {
+            tx.execute("UPDATE files SET atomic_unit_id = NULL WHERE atomic_unit_id = ?1", [&sid])?;
+            tx.execute("UPDATE cache_dirs SET atomic_unit_id = NULL WHERE atomic_unit_id = ?1", [&sid])?;
+            tx.execute("UPDATE actions SET atomic_unit_id = ?2 WHERE atomic_unit_id = ?1", params![sid, id])?;
+            tx.execute("UPDATE quarantine_entries SET atomic_unit_id = ?2 WHERE atomic_unit_id = ?1", params![sid, id])?;
+            tx.execute("DELETE FROM atomic_units WHERE id = ?1", [&sid])?;
+        }
+        tx.execute(
+            "UPDATE atomic_units SET root_path = ?1, updated_at = ?2 WHERE id = ?3",
+            params![new_root, now, id],
+        )?;
     }
     Ok(())
 }
@@ -942,17 +996,34 @@ fn record_executed_in_tx(
                 )?;
             }
             if row.target_kind == TargetKind::Dir {
+                let (inside, prefix, n) = files_inside_sql(&row.from_path, 1);
+                let exact_from = row.from_path.trim_end_matches(['\\', '/']);
                 tx.execute(
-                    "UPDATE cache_dirs SET state = 'quarantine', updated_at = ?1 WHERE path = ?2 AND state = 'active'",
-                    params![now, row.from_path],
+                    "UPDATE cache_dirs SET state = 'quarantine', updated_at = ?1
+                     WHERE volume_id = ?4 AND state = 'active'
+                       AND (lower(rtrim(path, '\\/')) = lower(?5) OR lower(substr(path, 1, ?3)) = lower(?2))",
+                    params![now, prefix, n, vid, exact_from],
                 )?;
                 // The folder's catalogued files went with it: out of search, duplicates and
                 // recognition until it is restored or purged. Their paths stay the originals.
-                let (inside, prefix, n) = files_inside_sql(&row.from_path, 2);
-                tx.execute(
-                    &format!("UPDATE files SET state = 'quarantine', updated_at = ?1 WHERE {inside} AND state != 'quarantine'"),
-                    params![now, prefix, n],
-                )?;
+                let fids: Vec<String> = {
+                    let mut stmt = tx.prepare(&format!(
+                        "SELECT id FROM files WHERE {inside} AND volume_id = ?3 AND state != 'quarantine'"
+                    ))?;
+                    stmt.query_map(params![prefix, n, vid], |r| r.get(0))?
+                        .collect::<rusqlite::Result<_>>()?
+                };
+                for fid in fids {
+                    tx.execute(
+                        "UPDATE files SET state = 'quarantine', updated_at = ?1 WHERE id = ?2",
+                        params![now, fid],
+                    )?;
+                    tx.execute(
+                        "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                         VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"quarantine\"}', ?2)",
+                        params![fid, now],
+                    )?;
+                }
             }
         }
         FsOutcome::Moved { dest, .. } => {
@@ -975,7 +1046,8 @@ fn record_executed_in_tx(
             // plan's later steps (and their bookkeeping) see where things really are.
             if row.target_kind == TargetKind::Dir && plan_evidence(&row.evidence_json).exact_dest {
                 let case_sensitive = rec.volume.map(|v| v.2).unwrap_or(false);
-                rebase_children(tx, &row.from_path, &display_string(dest), case_sensitive, Some(rec.batch_id), now)?;
+                let vid = rec.volume.map(|v| v.0.as_str());
+                rebase_children(tx, vid, &row.from_path, &display_string(dest), case_sensitive, Some(rec.batch_id), now)?;
             }
         }
         FsOutcome::Copied { dest } => {
@@ -1477,7 +1549,8 @@ fn db_revert_in_tx(
         && plan_evidence(&row.evidence_json).exact_dest
         && let Some(to) = row.to_path.as_deref()
     {
-        rebase_children(tx, to, &dest_str, case_sensitive, None, now)?;
+        let vol_id = resolve_online_volume(tx, dest)?.map(|v| v.0);
+        rebase_children(tx, vol_id.as_deref(), to, &dest_str, case_sensitive, None, now)?;
     }
     if row.action_type == ActionType::Quarantine {
         if copy_back {
@@ -1494,21 +1567,50 @@ fn db_revert_in_tx(
                 params![now, row.id],
             )?;
             if row.target_kind == TargetKind::Dir {
-                tx.execute(
-                    "UPDATE cache_dirs SET state = 'active', updated_at = ?1 WHERE path = ?2 AND state = 'quarantine'",
-                    params![now, row.from_path],
-                )?;
+                let vol_id = resolve_online_volume(tx, dest)?
+                    .or(resolve_online_volume(tx, Path::new(&row.from_path))?)
+                    .map(|v| v.0);
+                let (inside, prefix, n) = files_inside_sql(&row.from_path, 1);
+                let exact_from = row.from_path.trim_end_matches(['\\', '/']);
+                if let Some(vid) = vol_id.as_deref() {
+                    tx.execute(
+                        "UPDATE cache_dirs SET state = 'active', updated_at = ?1
+                         WHERE volume_id = ?4 AND state = 'quarantine'
+                           AND (lower(rtrim(path, '\\/')) = lower(?5) OR lower(substr(path, 1, ?3)) = lower(?2))",
+                        params![now, prefix, n, vid, exact_from],
+                    )?;
+                } else {
+                    tx.execute(
+                        "UPDATE cache_dirs SET state = 'active', updated_at = ?1
+                         WHERE state = 'quarantine'
+                           AND (lower(rtrim(path, '\\/')) = lower(?4) OR lower(substr(path, 1, ?3)) = lower(?2))",
+                        params![now, prefix, n, exact_from],
+                    )?;
+                }
                 // Its files are back, at their original paths. Only files really there again
                 // become active: a file quarantined on its own earlier keeps its state.
-                let (inside, prefix, n) = files_inside_sql(&row.from_path, 1);
-                let ids: Vec<(String, String)> = {
-                    let mut stmt = tx.prepare(&format!("SELECT id, path FROM files WHERE {inside} AND state = 'quarantine'"))?;
-                    stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+                let ids: Vec<(String, String)> = if let Some(vid) = vol_id.as_deref() {
+                    let mut stmt = tx.prepare(&format!(
+                        "SELECT id, path FROM files WHERE {inside} AND volume_id = ?3 AND state = 'quarantine'"
+                    ))?;
+                    stmt.query_map(params![prefix, n, vid], |r| Ok((r.get(0)?, r.get(1)?)))?
+                        .collect::<rusqlite::Result<_>>()?
+                } else {
+                    let mut stmt = tx.prepare(&format!(
+                        "SELECT id, path FROM files WHERE {inside} AND state = 'quarantine'"
+                    ))?;
+                    stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?
+                        .collect::<rusqlite::Result<_>>()?
                 };
                 for (id, path) in ids {
                     let back = Path::new(&path).strip_prefix(&row.from_path).map(|rest| dest.join(rest)).unwrap_or_else(|_| PathBuf::from(&path));
                     if back.is_file() {
                         tx.execute("UPDATE files SET state = 'active', updated_at = ?1 WHERE id = ?2", params![now, id])?;
+                        tx.execute(
+                            "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                             VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"active\"}', ?2)",
+                            params![id, now],
+                        )?;
                     }
                 }
             }

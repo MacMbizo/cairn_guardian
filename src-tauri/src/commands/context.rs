@@ -91,10 +91,16 @@ pub fn context_plans(state: State<'_, AppState>) -> Result<Vec<ProjectPlan>, Ipc
     Ok(out)
 }
 
-/// Runs one project's plan on one drive: re-planned from the disk as it is now, then every
-/// step or none. Undo goes through Recent batches (or the card's Undo) like any batch.
+/// Runs one project's plan on one drive: re-planned from the disk as it is now, verified
+/// against the card digest the user reviewed, then every step or none. Undo goes through
+/// Recent batches (or the card's Undo) like any batch.
 #[tauri::command(async)]
-pub fn context_run_plan(state: State<'_, AppState>, collection_id: String, volume_id: String) -> Result<PlanOutcome, IpcError> {
+pub fn context_run_plan(
+    state: State<'_, AppState>,
+    collection_id: String,
+    volume_id: String,
+    expected_digest: String,
+) -> Result<PlanOutcome, IpcError> {
     let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
     let mut store = own_store(&state)?;
     let projects = map_err(list_collections(store.conn(), CollectionKind::Project))?;
@@ -109,6 +115,9 @@ pub fn context_run_plan(state: State<'_, AppState>, collection_id: String, volum
         .into_iter()
         .find(|p| p.volume_id == volume_id)
         .ok_or_else(stale)?;
+    if plan.digest != expected_digest {
+        return Err(stale());
+    }
     let batch = map_err(propose(&mut store, &c, &plan))?;
     map_err(run(&mut store, &batch))
 }

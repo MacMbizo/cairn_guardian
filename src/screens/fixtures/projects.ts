@@ -201,6 +201,7 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
       notes: [],
       rank,
       summary: parts.length ? `${parts.join(", ")}.` : "Nothing to do: it is already where it belongs.",
+      digest: "fixture",
     });
     if (away.length) {
       out.push({
@@ -212,6 +213,7 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
         notes: [],
         rank: 9,
         summary: "Copies on this drive are listed. Plans for other drives come later.",
+        digest: "fixture",
       });
     }
   }

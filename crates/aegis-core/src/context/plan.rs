@@ -89,6 +89,31 @@ pub struct ProjectPlan {
     pub rank: u8,
     /// One line for the card.
     pub summary: String,
+    /// Deterministic BLAKE3 digest of what this plan will do; verified when the user clicks Approve.
+    pub digest: String,
+}
+
+/// Deterministic digest of what a plan will actually change on disk (`collection_id`,
+/// `volume_id`, `home_after`, and every step's order, kind, target and destination).
+pub fn plan_digest(collection_id: &str, volume_id: &str, home_after: &str, steps: &[PlanStep]) -> String {
+    let mut h = blake3::Hasher::new();
+    let feed = |h: &mut blake3::Hasher, s: &str| {
+        h.update(&(s.len() as u64).to_le_bytes());
+        h.update(s.as_bytes());
+    };
+    feed(&mut h, collection_id);
+    feed(&mut h, volume_id);
+    feed(&mut h, home_after);
+    h.update(&(steps.len() as u64).to_le_bytes());
+    for s in steps {
+        h.update(&s.step.to_le_bytes());
+        feed(&mut h, &serde_json::to_string(&s.kind).unwrap_or_default());
+        feed(&mut h, &s.location_id);
+        feed(&mut h, &s.from);
+        feed(&mut h, &s.to);
+        feed(&mut h, s.fallback.as_deref().unwrap_or(""));
+    }
+    h.finalize().to_hex().to_string()
 }
 
 fn is_build_name(name: &str) -> bool {
@@ -373,6 +398,7 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         notes: Vec::new(),
         rank: 9,
         summary: summary.to_string(),
+        digest: plan_digest(&c.id, volume_id, &home.root_path, &[]),
     };
     // Rulings from the dry run on the owner's database (2026-11-23):
     // - Other drives get no plan yet: they hold old copies and coursework, which the later
@@ -441,11 +467,16 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         let mut target = join(ph, &name);
         let occupant = here.iter().find(|l| l.id != home.id && same_path(&l.root_path, &target)).copied();
         let taken_by_other = occupant.is_none() && Path::new(&target).exists();
-        if taken_by_other || occupant.is_some_and(|o| o.keep_here) {
+        if taken_by_other || occupant.is_some_and(|o| o.keep_here || blocked.contains(&o.id)) {
             let year = &date_of(home.newest_mtime)[..4];
             target = join(ph, &format!("{name} ({} {year})", kind_word(c.project_kind)));
         } else if let Some(o) = occupant {
-            let moved = join(ph, &format!("{name} (old copy)"));
+            let mut moved = join(ph, &format!("{name} (old copy)"));
+            let mut n = 2;
+            while Path::new(&moved).exists() {
+                moved = join(ph, &format!("{name} (old copy {n})"));
+                n += 1;
+            }
             aside = Some((o, moved.clone()));
             steps.push(PlanStep {
                 step: 1,
@@ -569,7 +600,8 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         return Err(AegisError::InvalidInput(format!("A plan step would leave its drive ({} → {}).", bad.from, bad.to)));
     }
     let summary = summarise(&steps, &home_after);
-    let mut plan = ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, notes, summary, rank: 9 };
+    let digest = plan_digest(&c.id, volume_id, &home_after, &steps);
+    let mut plan = ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, notes, summary, rank: 9, digest };
     if !plan.steps.is_empty() {
         plan.rank = offer_rank(c, &plan);
     }
@@ -664,6 +696,7 @@ pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> R
             "kind": st.kind,
             "collection_id": c.id,
             "location_id": st.location_id,
+            "location": loc,
         });
         let kind = if st.kind == StepKind::Quarantine {
             ev["verify_against"] = serde_json::json!(plan.home_after);
@@ -724,13 +757,32 @@ pub fn run(store: &mut SqliteStore, batch_id: &str) -> Result<PlanOutcome> {
         )
         .optional()?;
     if let Some((folder, msg)) = first_bad {
-        rollback_batch(store, batch_id)?;
-        after_undo(store, batch_id)?;
-        set_run_state(store, batch_id, "failed")?;
+        let step_why = plain_reason(&msg, &folder);
+        let (state, reason) = match rollback_batch(store, batch_id) {
+            Ok(rb) if rb.status == crate::contracts::BatchStatus::RolledBack && rb.conflicts.is_empty() => {
+                ("failed", format!("{step_why} Nothing was changed."))
+            }
+            Ok(rb) => (
+                "partial",
+                format!(
+                    "{step_why} Automatic undo hit {} conflict(s) and left some steps in place. Open Recent batches to finish restoring.",
+                    rb.conflicts.len()
+                ),
+            ),
+            Err(re) => (
+                "partial",
+                format!(
+                    "{step_why} Automatic undo could not finish ({}). Open Recent batches to finish restoring.",
+                    plain_reason(&re.to_string(), &folder)
+                ),
+            ),
+        };
+        let _ = after_undo(store, batch_id);
+        set_run_state(store, batch_id, state)?;
         return Ok(PlanOutcome {
             batch_id: batch_id.to_string(),
             done: false,
-            reason: Some(format!("{} Nothing was changed.", plain_reason(&msg, &folder))),
+            reason: Some(reason),
             moved_files: 0,
             freed_bytes: 0,
         });
@@ -750,8 +802,84 @@ pub fn run(store: &mut SqliteStore, batch_id: &str) -> Result<PlanOutcome> {
 pub fn undo(store: &mut SqliteStore, batch_id: &str) -> Result<crate::contracts::RollbackResult> {
     let r = crate::db::actions::rollback_batch(store, batch_id)?;
     after_undo(store, batch_id)?;
-    set_run_state(store, batch_id, "undone")?;
+    unfollow_moves(store, batch_id)?;
+    let clean = r.status == crate::contracts::BatchStatus::RolledBack && r.conflicts.is_empty();
+    set_run_state(store, batch_id, if clean { "undone" } else { "partial" })?;
     Ok(r)
+}
+
+/// Restores `collection_locations` immediately after a batch (or part of one) is undone, so the
+/// Projects card reflects restored paths without waiting for the next background recognition pass.
+fn unfollow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
+    let evs: Vec<String> = {
+        let mut stmt = store.conn().prepare(
+            "SELECT evidence_json FROM actions WHERE batch_id = ?1 AND status = 'rolled_back' ORDER BY step DESC",
+        )?;
+        stmt.query_map([batch_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    let parsed: Vec<(String, Location)> = evs
+        .into_iter()
+        .filter_map(|ev| {
+            let v: serde_json::Value = serde_json::from_str(&ev).ok()?;
+            let kind = v.get("kind")?.as_str()?.to_string();
+            let loc: Location = serde_json::from_value(v.get("location")?.clone()).ok()?;
+            Some((kind, loc))
+        })
+        .collect();
+    let tx = store.conn().unchecked_transaction()?;
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Reverse `move_home` first so the original destination path is freed before reinserting any
+    // copy that had occupied it.
+    for (kind, loc) in &parsed {
+        if kind != "move_home" || !seen.insert(loc.id.clone()) {
+            continue;
+        }
+        let n = tx.execute(
+            "UPDATE collection_locations SET root_path = ?1 WHERE id = ?2",
+            params![loc.root_path, loc.id],
+        )?;
+        if n == 0 {
+            tx.execute(
+                "UPDATE collection_locations SET root_path = ?1 WHERE volume_id = ?2 AND fingerprint = ?3",
+                params![loc.root_path, loc.volume_id, loc.fingerprint],
+            )?;
+        }
+    }
+    for (kind, loc) in &parsed {
+        if kind == "move_home" || !seen.insert(loc.id.clone()) {
+            continue;
+        }
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM collections WHERE id = ?1)",
+            [&loc.collection_id],
+            |r| r.get(0),
+        )?;
+        if exists {
+            tx.execute(
+                "INSERT INTO collection_locations (id, collection_id, volume_id, root_path, relationship, files, bytes,
+                                                   newest_mtime, shared_files, compared_by, is_repo, fingerprint, keep_here)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 ON CONFLICT(volume_id, root_path) DO NOTHING",
+                params![
+                    loc.id,
+                    loc.collection_id,
+                    loc.volume_id,
+                    loc.root_path,
+                    loc.relationship.as_str(),
+                    loc.files,
+                    loc.bytes,
+                    loc.newest_mtime,
+                    loc.shared_files,
+                    loc.compared_by,
+                    i32::from(loc.is_repo),
+                    loc.fingerprint,
+                    i32::from(loc.keep_here),
+                ],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 /// Forgets the "was here" records of files that really are back where they were.

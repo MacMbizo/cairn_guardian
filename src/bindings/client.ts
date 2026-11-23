@@ -265,7 +265,8 @@ export const aegis = {
     /** Every project's plans (one per drive it lives on). */
     plans: () => call<ProjectPlan[]>("context_plans"),
     /** Runs one project's plan on one drive: every step or none. Undo with filing.undo. */
-    runPlan: (collectionId: string, volumeId: string) => call<PlanOutcome>("context_run_plan", { collectionId, volumeId }),
+    runPlan: (collectionId: string, volumeId: string, expectedDigest: string) =>
+      call<PlanOutcome>("context_run_plan", { collectionId, volumeId, expectedDigest }),
   },
   engine: {
     remindersOpen: () => call<Reminder[]>("reminders_open"),

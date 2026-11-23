@@ -24,4 +24,8 @@ rank: number,
 /**
  * One line for the card.
  */
-summary: string, };
+summary: string, 
+/**
+ * Deterministic BLAKE3 digest of what this plan will do; verified when the user clicks Approve.
+ */
+digest: string, };

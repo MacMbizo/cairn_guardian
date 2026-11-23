@@ -910,3 +910,229 @@ fn quarantined_folder_purges_recursively() {
         .unwrap();
     assert_eq!(live, 0, "the purged files are gone from the catalog");
 }
+
+// ---- Stabilization Pass (Phase 1): regression tests for all 6 project-plan bugs ----
+
+#[test]
+fn blocked_occupant_at_target_is_never_moved_aside_or_versioned() {
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    // Recent occupant (< 30 days) already at C:\Prj\Ledger.
+    let recent_prj = prj.join("Ledger");
+    files(&recent_prj, &["src/app.py"]);
+    let dev = home.join("Documents/Projectsv2/Dev Set/Ledger");
+    files(&dev, &["src/app.py", "src/extra.py"]);
+    for r in [&home.join("Documents"), &prj] {
+        aegis_core::scanner::scan_root(&mut s, r, &[1]).unwrap();
+    }
+    let mut c = custom(&s, "Ledger", &[(&dev, Relationship::Home, false), (&recent_prj, Relationship::Diverged, false)]);
+    c.locations[1].newest_mtime = aegis_core::now_ms() - 2 * 86_400_000;
+    let p = only_plan(&s, &c);
+    assert!(p.steps.iter().all(|st| !same(&st.from, &recent_prj)), "blocked recent occupant must never move aside: {p:?}");
+    let mv = p.steps.iter().find(|st| st.kind == StepKind::MoveHome).unwrap();
+    assert!(same(&mv.to, &prj.join("Ledger (app 2025)")), "home disambiguates instead of displacing blocked occupant: {p:?}");
+
+    // Same guarantee when the occupant at target is a Python virtual environment.
+    let venv_dir = prj.join("VenvApp");
+    files(&venv_dir, &["pyvenv.cfg", "Scripts/python.exe"]);
+    let venv_home = home.join("Documents/Projectsv2/Dev Set/VenvApp");
+    files(&venv_home, &["main.py"]);
+    aegis_core::scanner::scan_root(&mut s, &prj, &[1]).unwrap();
+    let mut c2 = custom(&s, "VenvApp", &[(&venv_home, Relationship::Home, false), (&venv_dir, Relationship::Diverged, false)]);
+    c2.locations[0].newest_mtime = aegis_core::now_ms() - 90 * 86_400_000;
+    c2.locations[1].newest_mtime = aegis_core::now_ms() - 90 * 86_400_000;
+    let p2 = only_plan(&s, &c2);
+    assert!(p2.steps.iter().all(|st| !same(&st.from, &venv_dir)), "blocked venv occupant must never move aside: {p2:?}");
+}
+
+#[test]
+fn move_aside_avoids_existing_old_copy_name_collision() {
+    use aegis_core::context::plan::{propose, run};
+    let (_t, mut s, _home, prj) = pc();
+    // Pre-create the temporary folder name that MoveAside would otherwise collide with.
+    let busy_tmp = prj.join("forexTrader (old copy)");
+    files(&busy_tmp, &["keep-me.txt"]);
+    aegis_core::scanner::scan_root(&mut s, &prj, &[1]).unwrap();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let p = only_plan(&s, &fx);
+    assert_eq!(p.steps[0].kind, StepKind::MoveAside);
+    assert!(same(&p.steps[0].to, &prj.join("forexTrader (old copy 2)")), "{p:?}");
+    assert!(same(&p.steps[2].from, &prj.join("forexTrader (old copy 2)")), "{p:?}");
+    let batch = propose(&mut s, &fx, &p).unwrap();
+    let out = run(&mut s, &batch).unwrap();
+    assert!(out.done, "{out:?}");
+    assert!(busy_tmp.join("keep-me.txt").is_file(), "pre-existing folder left untouched");
+}
+
+#[test]
+fn plan_digest_is_deterministic_and_sensitive_to_changes() {
+    let (_t, mut s, _home, _prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let p1 = only_plan(&s, &fx);
+    let p2 = only_plan(&s, &fx);
+    assert!(!p1.digest.is_empty());
+    assert_eq!(p1.digest, p2.digest);
+    // Toggling KeepHere alters steps and therefore changes the digest.
+    let copy_id = fx.locations.iter().find(|l| l.relationship != Relationship::Home).unwrap().id.clone();
+    answer(&mut s, &fx.id, Some(&copy_id), Answer::KeepHere { keep: true }).unwrap();
+    let p3 = only_plan(&s, &named(&s, "forexTrader"));
+    assert_ne!(p1.digest, p3.digest);
+}
+
+#[test]
+fn undo_restores_collection_locations_immediately_without_recognise() {
+    use aegis_core::context::plan::{propose, run, undo};
+    let (_t, mut s, home, prj) = pc();
+    recognise(&mut s).unwrap();
+    let fx = named(&s, "forexTrader");
+    let dev = home.join("Documents/Projectsv2/Dev Set/forexTrader");
+    let target = prj.join("forexTrader");
+    assert_eq!(fx.locations.len(), 2);
+
+    let p = only_plan(&s, &fx);
+    let batch = propose(&mut s, &fx, &p).unwrap();
+    let out = run(&mut s, &batch).unwrap();
+    assert!(out.done, "{out:?}");
+    // Right after run, locations reflect the moved home only.
+    let after_run = named(&s, "forexTrader");
+    assert_eq!(after_run.locations.len(), 1);
+    assert!(same(&after_run.locations[0].root_path, &target));
+
+    // Immediately after undo — before any recognise() pass — both original locations are back!
+    let r = undo(&mut s, &batch).unwrap();
+    assert!(r.conflicts.is_empty(), "{r:?}");
+    let after_undo = named(&s, "forexTrader");
+    assert_eq!(after_undo.locations.len(), 2, "{after_undo:?}");
+    assert!(after_undo.locations.iter().any(|l| same(&l.root_path, &dev)));
+    assert!(after_undo.locations.iter().any(|l| same(&l.root_path, &target)));
+    assert_eq!(after_undo.plan_state.as_deref(), Some(format!("undone:{batch}").as_str()));
+}
+
+#[test]
+fn failed_run_with_rollback_collision_reports_partial_not_unchanged() {
+    use aegis_core::context::plan::run as run_plan;
+    let (_t, mut s, _home, prj) = pc();
+    let a = prj.join("alpha");
+    let b = prj.join("beta");
+    let missing = prj.join("does_not_exist");
+    files(&a, &["one.txt"]);
+    scan(&mut s, &prj);
+    let batch = propose_batch(
+        &mut s,
+        &RefilePlan {
+            origin: "project:pc:alpha".into(),
+            actions: vec![
+                dir_action(ActionType::Move, &a, Some(&b), serde_json::json!({"step": 1, "exact_dest": true})),
+                dir_action(ActionType::Move, &missing, Some(&prj.join("gamma")), serde_json::json!({"step": 2, "exact_dest": true})),
+            ],
+        },
+    )
+    .unwrap();
+    // Move Step 1 ahead of time, mark it executed, and occupy its original path `a` so rollback
+    // hits a collision when Step 2 fails.
+    std::fs::rename(&a, &b).unwrap();
+    files(&a, &["blocker.txt"]);
+    let step1_id: String = s.conn().query_row("SELECT id FROM actions WHERE batch_id = ?1 AND step = 1", [&batch], |r| r.get(0)).unwrap();
+    s.conn()
+        .execute(
+            "UPDATE actions SET status = 'executed', executed_at = 1 WHERE id = ?1",
+            [&step1_id],
+        )
+        .unwrap();
+    aegis_core::context::store::record_plan_run(s.conn(), &batch, "v1", &[], "proposed").unwrap();
+
+    let out = run_plan(&mut s, &batch).unwrap();
+    assert!(!out.done);
+    let reason = out.reason.unwrap();
+    assert!(!reason.contains("Nothing was changed."), "must not falsely claim nothing changed: {reason}");
+    assert!(reason.contains("conflict"), "{reason}");
+    let run_state: String = s.conn().query_row("SELECT state FROM project_plan_runs WHERE batch_id = ?1", [&batch], |r| r.get(0)).unwrap();
+    assert_eq!(run_state, "partial");
+}
+
+#[test]
+fn folder_quarantine_and_rebase_isolate_by_volume_and_emit_outbox() {
+    let (_t, mut s, _home, prj) = pc();
+    let proj_a = prj.join("rebased");
+    let proj_b = prj.join("moved_rebased");
+    files(&proj_a, &["src/lib.rs"]);
+    // Include a Rust package unit + node_modules cache dir inside `proj_a`, plus a stale
+    // `atomic_units` row already at `proj_b` to exercise collision handling.
+    std::fs::write(proj_a.join("Cargo.toml"), "[package]\nname = \"rebased\"\nversion = \"0.1.0\"\n").unwrap();
+    files(&proj_a, &["node_modules/pkg/index.js"]);
+    scan(&mut s, &prj);
+    let vid: String = s.conn().query_row("SELECT id FROM volumes WHERE status = 'online' LIMIT 1", [], |r| r.get(0)).unwrap();
+    // Stale unit row at destination path `proj_b` + a foreign volume with an identically shaped path.
+    s.conn()
+        .execute(
+            "INSERT INTO atomic_units (id, volume_id, root_path, unit_type, marker_file, created_at, updated_at)
+             VALUES ('stale-unit', ?1, ?2, 'rust_crate', 'Cargo.toml', 1, 1)",
+            rusqlite::params![vid, common::canon(&proj_b)],
+        )
+        .unwrap();
+    s.conn()
+        .execute(
+            "INSERT INTO volumes (id, mount_point, fs_type, has_stable_inode, case_sensitive, status, last_seen)
+             VALUES ('v-other', 'Z:\\', 'ntfs', 1, 0, 'offline', 0)",
+            [],
+        )
+        .unwrap();
+    let foreign_file = format!("{}{}src\\lib.rs", common::canon(&proj_a), "");
+    s.conn()
+        .execute(
+            "INSERT INTO files (id, volume_id, path, path_hash, name, size, mtime, ctime, cloud_state, state, first_seen, last_seen, created_at, updated_at)
+             VALUES ('foreign-f', 'v-other', ?1, zeroblob(32), 'lib.rs', 10, 1, 1, 'local', 'active', 1, 1, 1, 1)",
+            [&foreign_file],
+        )
+        .unwrap();
+
+    // Move `proj_a` -> `proj_b` with `exact_dest: true`.
+    let mv_batch = run(
+        &mut s,
+        vec![dir_action(ActionType::Move, &proj_a, Some(&proj_b), serde_json::json!({"step": 1, "exact_dest": true}))],
+    );
+    assert_eq!(statuses(&s, &mv_batch)[0].1, "executed");
+    // Foreign volume's identically named file was NOT touched.
+    let f_path: String = s.conn().query_row("SELECT path FROM files WHERE id = 'foreign-f'", [], |r| r.get(0)).unwrap();
+    assert_eq!(f_path, foreign_file);
+    // `atomic_units` moved to `proj_b` without hitting UNIQUE violation on `stale-unit`.
+    let unit_count: i64 = s.conn().query_row("SELECT COUNT(*) FROM atomic_units WHERE volume_id = ?1 AND root_path = ?2", rusqlite::params![vid, common::canon(&proj_b)], |r| r.get(0)).unwrap();
+    assert_eq!(unit_count, 1);
+
+    // Now quarantine `proj_b` and verify nested `cache_dirs` + `outbox_events` + restore.
+    s.conn().execute("DELETE FROM outbox_events", []).unwrap();
+    let home_copy = prj.join("home_ref");
+    files(&home_copy, &["src/lib.rs"]);
+    std::fs::write(home_copy.join("Cargo.toml"), "[package]\nname = \"rebased\"\nversion = \"0.1.0\"\n").unwrap();
+    let cache_path = PathBuf::from(common::canon(&proj_b)).join("node_modules").to_string_lossy().to_string();
+    let fallback = home_copy.join("Versions/fb");
+    let q_batch = run(
+        &mut s,
+        vec![dir_action(ActionType::Quarantine, &proj_b, None, quarantine_ev(&proj_b, &home_copy, &fallback))],
+    );
+    assert_eq!(statuses(&s, &q_batch)[0].1, "executed");
+    let c_state: String = s
+        .conn()
+        .query_row("SELECT state FROM cache_dirs WHERE volume_id = ?1 AND lower(path) = lower(?2)", rusqlite::params![vid, cache_path], |r| r.get(0))
+        .unwrap();
+    assert_eq!(c_state, "quarantine", "nested cache_dir quarantined with project folder");
+    let outbox_q: i64 = s
+        .conn()
+        .query_row("SELECT COUNT(*) FROM outbox_events WHERE aggregate_type = 'file_payload' AND payload_json LIKE '%quarantine%'", [], |r| r.get(0))
+        .unwrap();
+    assert!(outbox_q >= 1, "expected outbox upsert for quarantined child file");
+
+    rollback_batch(&mut s, &q_batch).unwrap();
+    let c_state_after: String = s
+        .conn()
+        .query_row("SELECT state FROM cache_dirs WHERE volume_id = ?1 AND lower(path) = lower(?2)", rusqlite::params![vid, cache_path], |r| r.get(0))
+        .unwrap();
+    assert_eq!(c_state_after, "active");
+    let outbox_a: i64 = s
+        .conn()
+        .query_row("SELECT COUNT(*) FROM outbox_events WHERE aggregate_type = 'file_payload' AND payload_json LIKE '%active%'", [], |r| r.get(0))
+        .unwrap();
+    assert!(outbox_a >= 1, "expected outbox upsert when restoring child file");
+}
