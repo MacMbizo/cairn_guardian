@@ -19,6 +19,7 @@ import type {
   PlanOutcome,
   ProjectPlan,
   RecentBatch,
+  ReunitePlan,
   RunReport,
   Scope,
   ScopeStatus,
@@ -267,6 +268,11 @@ export const aegis = {
     /** Runs one project's plan on one drive: every step or none. Undo with filing.undo. */
     runPlan: (collectionId: string, volumeId: string, expectedDigest: string) =>
       call<PlanOutcome>("context_run_plan", { collectionId, volumeId, expectedDigest }),
+    /** Files from earlier filing batches that belong back in a project, design set or photo subject. */
+    reunitePlans: () => call<ReunitePlan[]>("context_reunite_plans"),
+    /** Puts one group's scattered files back together after verifying its digest. */
+    runReunite: (collectionId: string, volumeId: string, expectedDigest: string) =>
+      call<PlanOutcome>("context_run_reunite", { collectionId, volumeId, expectedDigest }),
   },
   engine: {
     remindersOpen: () => call<Reminder[]>("reminders_open"),

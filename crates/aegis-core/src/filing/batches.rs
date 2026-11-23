@@ -120,13 +120,22 @@ fn project_of_origin(origin: &str) -> Option<(Scope, String)> {
     Some((scope, name.to_string()))
 }
 
+/// A reunite batch's origin, `reunite:<scope key>:<name>`, as (scope, display label).
+fn reunite_of_origin(origin: &str) -> Option<(Scope, String)> {
+    let rest = origin.strip_prefix("reunite:")?;
+    let (key, name) = rest.split_once(':')?;
+    let scope = if key == "pc" { Scope::Pc } else { Scope::Volume { volume_id: key.to_string() } };
+    Some((scope, format!("Put back together: {name}")))
+}
+
 /// Filing batches that moved something, newest first, manual and automatic.
 pub fn recent_batches(conn: &Connection, limit: usize) -> Result<Vec<RecentBatch>> {
     let mut stmt = conn.prepare(
         "SELECT b.id, b.origin, COALESCE(b.executed_at, b.created_at),
                 SUM(a.status = 'executed'), SUM(a.status = 'rolled_back')
          FROM action_batches b JOIN actions a ON a.batch_id = b.id
-         WHERE b.origin LIKE 'filing:%' OR b.origin LIKE 'filing-auto:%' OR b.origin LIKE 'project:%'
+         WHERE b.origin LIKE 'filing:%' OR b.origin LIKE 'filing-auto:%'
+            OR b.origin LIKE 'project:%' OR b.origin LIKE 'reunite:%'
          GROUP BY b.id HAVING SUM(a.status IN ('executed', 'rolled_back')) > 0
          ORDER BY 3 DESC LIMIT ?1",
     )?;
@@ -136,9 +145,10 @@ pub fn recent_batches(conn: &Connection, limit: usize) -> Result<Vec<RecentBatch
     let mut out = Vec::new();
     for row in rows {
         let (id, origin, at, executed, rolled_back) = row?;
-        let (scope, project) = match (scope_of_origin(&origin), project_of_origin(&origin)) {
-            (Some(s), _) => (s, None),
-            (None, Some((s, name))) => (s, Some(name)),
+        let (scope, project) = match (scope_of_origin(&origin), project_of_origin(&origin), reunite_of_origin(&origin)) {
+            (Some(s), _, _) => (s, None),
+            (None, Some((s, name)), _) => (s, Some(name)),
+            (None, None, Some((s, name))) => (s, Some(name)),
             _ => continue,
         };
         out.push(RecentBatch {

@@ -12,12 +12,17 @@ pub mod profile;
 pub mod projects;
 pub mod recognise;
 pub mod relate;
+pub mod reunite;
 pub mod sets;
 pub mod store;
 pub mod watch;
 
 pub use answers::{Answer, answer};
 pub use recognise::{RecogniseReport, recognise};
+pub use reunite::{
+    ReuniteItem, ReunitePlan, SplitBatchRef, is_reunite_batch, propose_reunite, reunite_plans, reunite_plans_conn, run_reunite,
+    undo_reunite,
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

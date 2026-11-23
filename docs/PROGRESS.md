@@ -6,17 +6,18 @@ Updated 2026-11-23. This is the whole-project view. `HANDOFF.md` covers the work
 
 | Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3, Context-aware filing Plans 1–3 (sets, photo subjects, Design-vs-Software shelf separation, UI filter/reclassification), fast-forward merged 2026-11-23. Not pushed. |
-| `feature/sets-and-photo-subjects` | Merged (ff-only) into `master` on 2026-11-23. Not pushed. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–4 (projects, plans, sets/subjects, Design shelf separation, Put back together, learned aliases, weekly-note summary), fast-forward merged 2026-11-23. Not pushed. |
+| `feature/put-back-together-and-learning` | Merged (ff-only) into `master` on 2026-11-23. Not pushed. |
+| `feature/sets-and-photo-subjects` | Merged earlier into `master` (`43fc8bd`). Not pushed. |
 | `feature/project-plans` | Tip matching pre-Plan-3 `master`. Not pushed. |
 | `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification on `master` (fast-forward from `feature/sets-and-photo-subjects`):
-- `cargo test --workspace`: **487 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all 11 integration tests in `crates/aegis-core/tests/sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases` (`[1..=8]`); **0** folders in `C:\.aegis-quarantine` before and **0** after.
-- Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **256** projects (`87` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`, after owner approved `SmoothLite` and `Back Cement`), **5** photo subjects (`ipadcover` 12, `Mcgs Splash` 12, `Copilot` 7, `Designer` 4, `fragrances` 5), named album `Pictures\Undated\mugs` preserved (`Photo album: 15`), **53** project plans (`3.1s`) routing `SmoothLite`, `Back Cement`, and `Disst` into `C:\Prj\Design\<Name>` with zero software regressions and zero false `C:\Prj\Design` project cards.
+Verification on `master` (fast-forward from `feature/put-back-together-and-learning`):
+- `cargo test --workspace`: **496 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/reunite_and_learning.rs` (`0.30s`), all **11** tests in `crates/aegis-core/tests/sets.rs` (`0.62s`), `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases` (`[1..=8]`); **0** folders in `C:\.aegis-quarantine` before and **0** after.
+- Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **256** projects (`87` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **53** project plans, **1** `put back together` proposal (`ipadcover [PhotoSubject]`: 7 files split earlier by batch `01a203ee` into `Pictures\2026\2026-08` returning to `C:\Users\Mac\Pictures\2026\ipadcover`), zero false positives on already-reunited `SmoothLite`/`Back Cement` or `mugs`, and weekly-note `projects` line `"87 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
 - `cargo clippy --workspace --all-targets -- -D warnings`: clean (0 warnings).
 - `cargo check -p aegis-desktop --features custom-protocol`: clean.
-- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `625ms`).
+- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `761ms`).
 
 ## 2. Done
 
@@ -30,10 +31,13 @@ Verification on `master` (fast-forward from `feature/sets-and-photo-subjects`):
 | 3a | Context-aware filing, Plan 1: project recognition, filing never splits a project, Projects screen | Done, merged 2026-11-23 |
 | 3b | Context-aware filing, Plan 2: project plans (move into `C:\Prj`, quarantine/versions/material, one batch per project with undo) | Done, merged 2026-11-23 (with stabilization pass) |
 | 3c | Context-aware filing, Plan 3: sets, photo subjects, Design-vs-Software shelf separation, and inline UI reclassification | Done, merged 2026-11-23 |
-| 4 | System care | Next after Context-aware filing Plan 4 + D1/Embeddings |
+| 3d | Context-aware filing, Plan 4: put back together (`file_history` reunion), `SameAs` learned aliases, weekly-note summary | Done, merged 2026-11-23 |
+| 4 | System care | Next after remaining Context-aware filing modules (§16 step 7) + D1/Embeddings |
 | 5 | Visual app (grows alongside the others) | Ongoing |
 
-### Plan 3 in one paragraph
+### Plan 4 in one paragraph
+
+Earlier `filing:*` / `filing-auto:*` moves in `file_history` that scattered files out of a now-recognised project root, `DesignSet`, or `PhotoSubject` are surfaced per collection and volume as atomic **"Put back together"** proposals (`ReunitePlan` in `context::reunite`), tracing prior `MoveHome` directory moves, prioritizing `Project > DesignSet > PhotoSubject`, suffixing collisions `(2)` rather than overwriting, citing the split batch(es), updating `collection_members` / `LearnedSubject`, and supporting one-click undo (`undo_reunite` and Recent batches). Explicit `"Same project…"` answers (`Answer::SameAs`) teach normalized-name aliases (`learned_aliases` in `context::relate`) that match future similarly named folders while chronological `NotSameAs` vetoes/revokes them, and the weekly note (`WeeklyNote.projects` with `#[serde(default)]`) summarizes multi-location projects and pending reunite groups with a direct Review link to Projects.
 
 Loose design and print files across formats and folders (`SmoothLite`, `Back Cement`) are recognised as `DesignSet` design projects in `collection_members` (migration `0008_sets.sql`, kept separate from `collection_locations`), protected in both `Fresh` and `Tidy` Filing (and retired from stale batches), and gathered into `C:\Prj\Design\<Name>` via `StepKind::GatherFiles` with collision suffixing, TOCTOU digest checks, immediate destination protection, and one-click undo. Dedicated Design shelf separation (`kind_home` + `Ctx::is_kind_shelf`) keeps `Design` work at `C:\Prj\Design\<Name>` while software/code projects stay flat at `C:\Prj\<Name>` (leaving nested `<Software>\Design` folders intact), `Answer::SetKind` / `DecisionKind::ProjectKind` allow one-click reclassification from the card, confirmation row, or compact row, and the Projects screen adds a kind filter pill bar with counts, icons, and Design styling. Loose photo subjects (`ipadcover`, `fragrances`) route under `Fresh` to `Photos\<year>\<subject>` while keeping named photo albums (`Pictures\Undated\mugs`) intact, and approved subjects (`DecisionKind::LearnedSubject`) catch single future arrivals. `src-tauri/Cargo.toml` also enables `custom-protocol = ["tauri/custom-protocol"]` so standalone desktop release builds embed `dist/` rather than pointing at `localhost:1420`.
 
@@ -67,7 +71,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 **Still waiting on the owner:**
 1. Choose a new app name (another "eagis" / Aegis app already exists).
-2. Next active roadmap sequence (owner-approved 2026-11-23): Context-aware filing **Plan 4** (Put back together, spec §11) → **1. D1 Encryption + Embeddings & Hybrid Search** → **Project 4: System care**.
+2. Next active roadmap sequence (owner-approved 2026-11-23): Context-aware filing remaining modules (§16 step 7: Software packages, Owner's folders, Old copies, Resources, Series) → **1. D1 Encryption + Embeddings & Hybrid Search** → **Project 4: System care**.
 
 ## 4. What remains
 
@@ -78,9 +82,8 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 | 1–2 | Protection, Projects list | Done (Plan 1) |
 | 3 | Project plans | Done (Plan 2) |
 | 4 | Sets, photo subjects, Design-vs-Software shelf separation, and UI kind filtering | Done, merged 2026-11-23 (Plan 3) |
-| 5 | Put back together: undo earlier batches' scattering of project/set files, via `file_history` | Next up (Plan 4) |
-| 6 | Learning wired through (aliases from "same project", weekly-note line "6 projects have copies in 2–3 places") | Set subject learning done in Plan 3; remaining aliases & weekly-note line to do |
-| 7 | Other modules, each with a short design: Software packages, Owner's folders, Old copies (drive D: plans belong here), Resources, Series | To do |
+| 5–6 | Put back together (`file_history` reunion), `SameAs` learned name aliases, and weekly-note projects summary line | Done, merged 2026-11-23 (Plan 4) |
+| 7 | Other modules, each with a short design: Software packages, Owner's folders, Old copies (drive D: plans belong here), Resources, Series | Next up |
 
 ### Programme
 

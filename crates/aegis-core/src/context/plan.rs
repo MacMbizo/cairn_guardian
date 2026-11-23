@@ -211,30 +211,30 @@ pub fn unproven_files(copy: &Path, home: &Path) -> Result<usize> {
     Ok(missing.len() + unreadable)
 }
 
-fn join(base: &str, leaf: &str) -> String {
+pub(crate) fn join(base: &str, leaf: &str) -> String {
     format!("{}{SEP}{leaf}", base.trim_end_matches(SEP))
 }
 
-fn parent(p: &str) -> &str {
+pub(crate) fn parent(p: &str) -> &str {
     p.trim_end_matches(SEP).rfind(SEP).map_or(p, |i| &p[..i])
 }
 
-fn leaf(p: &str) -> &str {
+pub(crate) fn leaf(p: &str) -> &str {
     let p = p.trim_end_matches(SEP);
     p.rfind(SEP).map_or(p, |i| &p[i + 1..])
 }
 
-fn same_path(a: &str, b: &str) -> bool {
+pub(crate) fn same_path(a: &str, b: &str) -> bool {
     a.trim_end_matches(SEP).eq_ignore_ascii_case(b.trim_end_matches(SEP))
 }
 
 /// Strictly inside `dir` (not `dir` itself).
-fn inside(p: &str, dir: &str) -> bool {
+pub(crate) fn inside(p: &str, dir: &str) -> bool {
     !same_path(p, dir) && path_is_within(p, dir, false)
 }
 
 /// A folder name Windows accepts: reserved characters become `_`, trailing dots and spaces go.
-fn safe_name(name: &str) -> String {
+pub(crate) fn safe_name(name: &str) -> String {
     let s: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { '_' } else { c }).collect();
     let s = s.trim().trim_end_matches(['.', ' ']).to_string();
     if s.is_empty() { "Project".into() } else { s }
@@ -265,9 +265,18 @@ pub fn kind_home(ph: &str, kind: Option<ProjectKind>) -> String {
     }
 }
 
-fn volume_info(store: &SqliteStore, volume_id: &str) -> Result<Option<(String, String, bool)>> {
-    Ok(store
-        .conn()
+pub(crate) fn list_roots_conn(conn: &rusqlite::Connection) -> Result<Vec<crate::contracts::RootConfig>> {
+    let raw: Option<String> = conn
+        .query_row("SELECT value_json FROM settings WHERE key = 'roots' AND scope = 'global'", [], |r| r.get(0))
+        .optional()?;
+    match raw {
+        Some(json) => Ok(serde_json::from_str(&json)?),
+        None => Ok(Vec::new()),
+    }
+}
+
+pub(crate) fn volume_info_conn(conn: &rusqlite::Connection, volume_id: &str) -> Result<Option<(String, String, bool)>> {
+    Ok(conn
         .query_row(
             "SELECT mount_point, COALESCE(NULLIF(label, ''), mount_point), status = 'online' FROM volumes WHERE id = ?1",
             [volume_id],
@@ -276,22 +285,33 @@ fn volume_info(store: &SqliteStore, volume_id: &str) -> Result<Option<(String, S
         .optional()?)
 }
 
-/// The drive's projects home: the owner's setting; else, among the PC's roots, the one that
-/// directly holds the most recognised projects (general places such as Documents never count);
-/// else the drive's `Projects` folder if it exists; else none (projects stay where they are).
-pub fn projects_home(store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
-    if let Some(p) = store.get_setting(&format!("{PROJECTS_HOME_KEY}:{volume_id}"), "context")? {
+fn volume_info(store: &SqliteStore, volume_id: &str) -> Result<Option<(String, String, bool)>> {
+    volume_info_conn(store.conn(), volume_id)
+}
+
+pub(crate) fn projects_home_conn(
+    conn: &rusqlite::Connection,
+    roots: &[crate::contracts::RootConfig],
+    volume_id: &str,
+) -> Result<Option<String>> {
+    if let Some(p) = conn
+        .query_row(
+            "SELECT value_json FROM settings WHERE key = ?1 AND scope = 'context'",
+            [format!("{PROJECTS_HOME_KEY}:{volume_id}")],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+    {
         return Ok(Some(p));
     }
-    let roots: Vec<String> = store
-        .list_roots()?
-        .into_iter()
+    let dirs: Vec<String> = roots
+        .iter()
         .filter(|r| r.enabled && !GENERAL_FOLDERS.contains(&leaf(&r.path).to_lowercase().as_str()))
-        .map(|r| r.path)
+        .map(|r| r.path.clone())
         .collect();
-    let mut stmt = store.conn().prepare("SELECT root_path FROM collection_locations WHERE volume_id = ?1")?;
+    let mut stmt = conn.prepare("SELECT root_path FROM collection_locations WHERE volume_id = ?1")?;
     let locs: Vec<String> = stmt.query_map([volume_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    let best = roots
+    let best = dirs
         .iter()
         .map(|r| {
             let design_shelf = join(r, "Design");
@@ -307,13 +327,21 @@ pub fn projects_home(store: &SqliteStore, volume_id: &str) -> Result<Option<Stri
     if best.is_some() {
         return Ok(best);
     }
-    if let Some((mount, _, online)) = volume_info(store, volume_id)? {
+    if let Some((mount, _, online)) = volume_info_conn(conn, volume_id)? {
         let p = join(&mount, "Projects");
         if online && Path::new(&p).is_dir() {
             return Ok(Some(p));
         }
     }
     Ok(None)
+}
+
+/// The drive's projects home: the owner's setting; else, among the PC's roots, the one that
+/// directly holds the most recognised projects (general places such as Documents never count);
+/// else the drive's `Projects` folder if it exists; else none (projects stay where they are).
+pub fn projects_home(store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
+    let roots = store.list_roots()?;
+    projects_home_conn(store.conn(), &roots, volume_id)
 }
 
 /// Where material from another copy goes: `Docs` (mostly documents), `Design` (mostly images
@@ -687,15 +715,52 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
     Ok(plan)
 }
 
-fn design_projects_home(ctx: &Planner, store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
-    if let Some(ph) = projects_home(store, volume_id)? {
+pub(crate) fn design_projects_home_conn(
+    conn: &rusqlite::Connection,
+    roots: &[crate::contracts::RootConfig],
+    volume_id: &str,
+) -> Result<Option<String>> {
+    if let Some(ph) = projects_home_conn(conn, roots, volume_id)? {
         return Ok(Some(ph));
     }
-    Ok(ctx
-        .roots
+    Ok(roots
         .iter()
         .find(|r| r.enabled && r.volume_id == volume_id && matches!(leaf(&r.path).to_lowercase().as_str(), "prj" | "projects"))
         .map(|r| r.path.clone()))
+}
+
+fn design_projects_home(ctx: &Planner, store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
+    design_projects_home_conn(store.conn(), &ctx.roots, volume_id)
+}
+
+pub(crate) fn existing_design_project_dir(
+    locations: &[(String, String, String)],
+    project_info: &HashMap<String, (String, Option<ProjectKind>, bool)>,
+    volume_id: &str,
+    ph: &str,
+    shelf: &str,
+    collection_name: &str,
+) -> Option<String> {
+    let norm_c = normalized_name(collection_name);
+    let mut cands: Vec<(&str, bool)> = locations
+        .iter()
+        .filter_map(|(cid, v, r)| {
+            if v != volume_id || !path_is_within(r, ph, false) {
+                return None;
+            }
+            let (pname, pk, is_repo) = project_info.get(cid)?;
+            if *is_repo || *pk != Some(ProjectKind::Design) {
+                return None;
+            }
+            if normalized_name(pname) == norm_c || normalized_name(leaf(r)) == norm_c {
+                Some((r.as_str(), path_is_within(r, shelf, false)))
+            } else {
+                None
+            }
+        })
+        .collect();
+    cands.sort_by_key(|(r, in_shelf)| (std::cmp::Reverse(*in_shelf), r.to_lowercase()));
+    cands.first().map(|(r, _)| (*r).to_string())
 }
 
 fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<ProjectPlan> {
@@ -740,27 +805,7 @@ fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id
         })
     };
     let existing_match = if is_design_target {
-        let norm_c = normalized_name(&c.name);
-        let mut cands: Vec<(&str, bool)> = ctx
-            .locations
-            .iter()
-            .filter_map(|(cid, v, r)| {
-                if v != volume_id || !path_is_within(r, &ph, false) {
-                    return None;
-                }
-                let (pname, pk, is_repo) = ctx.project_info.get(cid)?;
-                if *is_repo || *pk != Some(ProjectKind::Design) {
-                    return None;
-                }
-                if normalized_name(pname) == norm_c || normalized_name(leaf(r)) == norm_c {
-                    Some((r.as_str(), path_is_within(r, &shelf, false)))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        cands.sort_by_key(|(r, in_shelf)| (std::cmp::Reverse(*in_shelf), r.to_lowercase()));
-        cands.first().map(|(r, _)| (*r).to_string())
+        existing_design_project_dir(&ctx.locations, &ctx.project_info, volume_id, &ph, &shelf, &c.name)
     } else {
         None
     };
@@ -904,7 +949,7 @@ fn origin_of(store: &SqliteStore, c: &Collection, plan: &ProjectPlan) -> Result<
     Ok(format!("project:{key}:{}", c.name))
 }
 
-fn unique_file_in_dir(dir: &str, name: &str, taken: &mut HashSet<String>) -> String {
+pub(crate) fn unique_file_in_dir(dir: &str, name: &str, taken: &mut HashSet<String>) -> String {
     let base = join(dir, name);
     if !Path::new(&base).exists() && taken.insert(base.to_lowercase()) {
         return base;
@@ -1037,7 +1082,7 @@ pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> R
 }
 
 /// A failure message as the owner should read it.
-fn plain_reason(msg: &str, folder: &str) -> String {
+pub(crate) fn plain_reason(msg: &str, folder: &str) -> String {
     let lower = msg.to_lowercase();
     if lower.contains("os error 5") || lower.contains("os error 32") || lower.contains("access is denied") || lower.contains("used by another process") {
         return format!("A program is using files in {folder}. Close it and try again.");

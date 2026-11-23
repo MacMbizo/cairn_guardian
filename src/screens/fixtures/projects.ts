@@ -1,6 +1,6 @@
 // Sample projects so the Projects screen renders in the browser preview (shaped like the owner's
 // real dry run, 2026-11-22).
-import type { Collection, Location, PlanStep, ProjectKind, ProjectPlan, Relationship } from "../../bindings/client";
+import type { Collection, Location, PlanStep, ProjectKind, ProjectPlan, Relationship, ReunitePlan } from "../../bindings/client";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 22);
@@ -272,3 +272,42 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
   }
   return out;
 }
+
+export const fixtureReunitePlans: ReunitePlan[] = [
+  {
+    collection_id: "photo-ipadcover",
+    collection_name: "ipadcover",
+    collection_kind: "photo_subject",
+    volume_id: "win-c",
+    target_dir: "C:\\Users\\Mac\\Pictures\\2026\\ipadcover",
+    items: [
+      {
+        file_id: "f-ip1",
+        from: "C:\\Users\\Mac\\Pictures\\2026\\2026-08\\ipadcover.jpg",
+        to: "C:\\Users\\Mac\\Pictures\\2026\\ipadcover\\ipadcover.jpg",
+        original_path: "C:\\Users\\Mac\\Downloads\\ipadcover.jpg",
+        split_batch_id: "01a203ee-4e70-71e2-a810-54a416e3ffde",
+        split_at: NOW - DAY,
+      },
+      {
+        file_id: "f-ip2",
+        from: "C:\\Users\\Mac\\Pictures\\2026\\2026-08\\ipadcover2.jpg",
+        to: "C:\\Users\\Mac\\Pictures\\2026\\ipadcover\\ipadcover2.jpg",
+        original_path: "C:\\Users\\Mac\\Downloads\\ipadcover2.jpg",
+        split_batch_id: "01a203ee-4e70-71e2-a810-54a416e3ffde",
+        split_at: NOW - DAY,
+      },
+    ],
+    split_batches: [
+      {
+        batch_id: "01a203ee-4e70-71e2-a810-54a416e3ffde",
+        origin: "filing:pc",
+        at: NOW - DAY,
+        files: 2,
+      },
+    ],
+    waits_for: null,
+    summary: "Puts 2 files back into C:\\Users\\Mac\\Pictures\\2026\\ipadcover.",
+    digest: "fixture-reunite",
+  },
+];

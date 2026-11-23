@@ -47,7 +47,7 @@ impl ProjectCandidate {
 }
 
 /// Names of folders that are parts of a project rather than projects of their own.
-const PART_NAMES: [&str; 52] = [
+pub(crate) const PART_NAMES: [&str; 52] = [
     "docs", "doc", "documentation", "documents", "images", "img", "imgs", "assets", "design", "designs", "src", "source",
     "lib", "app", "backup", "backups", "archive", "archives", "old", "set_files", "set files", "ui", "screens", "notes",
     "prompts", "prompt", "template", "templates", "resources", "res", "static", "public", "scripts", "test", "tests",

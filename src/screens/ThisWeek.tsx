@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, BellRing, CheckCheck, Download, HardDrive, ShieldCheck } from "lucide-react";
+import { Activity, BellRing, CheckCheck, Download, FolderGit2, HardDrive, ShieldCheck } from "lucide-react";
 import { aegis, errorMessage, type FindingAction, type Reminder, type Screen } from "../bindings/client";
 import type { EngineData } from "./useEngine";
 
@@ -32,10 +32,12 @@ export function ThisWeek({
   data,
   onOpen,
   onOpenRecentFiling,
+  onOpenProjects,
 }: {
   data: EngineData;
   onOpen: (s: Screen) => void;
   onOpenRecentFiling?: () => void;
+  onOpenProjects?: () => void;
 }) {
   const { note, status, preview, reload } = data;
   const [msg, setMsg] = useState<string | null>(null);
@@ -158,6 +160,21 @@ export function ThisWeek({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-slate-300">{note.tidy}</p>
             <button type="button" onClick={() => onOpen("simulator")} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800">
+              Review
+            </button>
+          </div>
+        </Section>
+      )}
+
+      {note.projects && (
+        <Section icon={FolderGit2} title="Projects">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-slate-300">{note.projects}</p>
+            <button
+              type="button"
+              onClick={() => (onOpenProjects ? onOpenProjects() : onOpen("filing"))}
+              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+            >
               Review
             </button>
           </div>

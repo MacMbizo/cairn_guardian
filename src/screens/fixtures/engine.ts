@@ -41,6 +41,7 @@ export const fixtureNote: WeeklyNote = {
   safety: "3.2 GB exist only on this PC. Backup drive last seen 9 days ago.",
   space: ["Local Disk (C:) fills up in about 11 weeks; Downloads is growing fastest."],
   tidy: "2.1 GB of old installers and repeat downloads, ready to review.",
+  projects: "6 projects have copies in 2\u20133 places.",
   about_aegis: ["I stopped reminding you about quarantine about to empty; it's here instead."],
   read: false,
 };

@@ -5,8 +5,8 @@
 use super::profile::{FolderProfile, profiles_for};
 use super::projects::{AREA_NAMES, LIFE_AREAS, PROJECT_THRESHOLD, ProjectCandidate, find_projects_with};
 use super::relate::{
-    ContentSummary, Identity, answered_same, choose_home, content_summaries, fingerprint, fingerprints_match, identity_of,
-    normalized_name, relate, version_series,
+    ContentSummary, Identity, answered_same, choose_home, content_summaries, fingerprint, fingerprints_match,
+    identity_of_with_aliases, learned_aliases, normalized_name, relate, version_series,
 };
 use super::sets::{find_sets, parse_learned_subjects};
 use super::store::{decisions, plan_runs, save_collections_with_members};
@@ -155,10 +155,15 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
         .collect();
 
     // Copies of one project, joined pairwise. Only pairs that share something worth checking (a
-    // name, a declared name, a file, or an answer from the owner) are compared.
+    // name, a learned alias, a declared name, a file, or an answer from the owner) are compared.
+    let aliases = learned_aliases(&answers);
     let mut index: HashMap<String, Vec<usize>> = HashMap::new();
     for &i in &keep {
-        let mut keys: Vec<String> = vec![format!("n:{}", normalized_name(cands[i].name()))];
+        let norm_name = normalized_name(cands[i].name());
+        let mut keys: Vec<String> = vec![format!("n:{norm_name}")];
+        if let Some(&g) = aliases.get(&norm_name) {
+            keys.push(format!("a:{g}"));
+        }
         keys.extend(cands[i].declared_names.iter().map(|d| format!("d:{}", d.to_lowercase())));
         for (rel, f) in &summaries[i].files {
             keys.push(format!("p:{rel}:{}", f.size));
@@ -229,7 +234,8 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
     let mut found: Vec<((usize, usize), Identity)> = pairs
         .into_iter()
         .filter_map(|(i, j)| {
-            identity_of(&ident[i], &ident[j], &distinct[i], &distinct[j], &fps[i], &fps[j], &answers).map(|id| ((i, j), id))
+            identity_of_with_aliases((&ident[i], &distinct[i], &fps[i]), (&ident[j], &distinct[j], &fps[j]), &answers, &aliases)
+                .map(|id| ((i, j), id))
         })
         .collect();
     found.sort_by_key(|(p, id)| (!id.confirmed, *p));

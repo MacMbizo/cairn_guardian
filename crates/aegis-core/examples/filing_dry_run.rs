@@ -168,6 +168,21 @@ projects in more than one place:");
     let kept: usize = plans.iter().map(|(_, _, p)| p.notes.len()).sum();
     println!("  copies left where they are by the rules: {kept}");
 
+    let reunites = aegis_core::context::reunite_plans(&store)?;
+    println!("\nput back together ({}):", reunites.len());
+    for rp in &reunites {
+        let batches: Vec<String> = rp.split_batches.iter().map(|b| format!("{} ({})", &b.batch_id[..8.min(b.batch_id.len())], b.files)).collect();
+        println!("  {} [{:?}]: {}  [batches: {}]", rp.collection_name, rp.collection_kind, rp.summary, batches.join(", "));
+        for it in rp.items.iter().take(5) {
+            println!("    {}  ->  {}   (was {})", it.from, it.to, it.original_path);
+        }
+        if rp.items.len() > 5 {
+            println!("    ... +{} more", rp.items.len() - 5);
+        }
+    }
+    let note_preview = aegis_core::engine::note::build(store.conn(), "2026-11-23", 0, "2026-11-23", aegis_core::now_ms())?;
+    println!("\nweekly note projects line: {:?}", note_preview.projects);
+
     let mut scopes = vec![(Scope::Pc, "This PC".to_string())];
     {
         let mut stmt = store.conn().prepare(

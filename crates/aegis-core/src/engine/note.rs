@@ -29,6 +29,8 @@ pub struct WeeklyNote {
     pub safety: Option<String>,
     pub space: Vec<String>,
     pub tidy: Option<String>,
+    #[serde(default)]
+    pub projects: Option<String>,
     pub about_aegis: Vec<String>,
     pub read: bool,
 }
@@ -197,6 +199,36 @@ pub fn build(conn: &Connection, week: &str, week_start_ms: i64, today: &str, now
 
     let tidy = open.iter().find(|r| r.kind == "janitor").map(|r| format!("{}, ready to review.", r.title));
 
+    let (multi_count, min_places, max_places): (i64, Option<i64>, Option<i64>) = conn.query_row(
+        "SELECT COUNT(*), MIN(n), MAX(n) FROM (
+            SELECT c.id, COUNT(l.id) AS n
+            FROM collections c
+            JOIN collection_locations l ON l.collection_id = c.id
+            WHERE c.kind = 'project' AND c.state NOT IN ('left_as_is', 'not_a_project')
+            GROUP BY c.id HAVING n >= 2
+        )",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    let reunite_count = crate::context::reunite_plans_conn(conn).map(|v| v.len()).unwrap_or(0);
+    let mut project_parts: Vec<String> = Vec::new();
+    if multi_count > 0 {
+        let min_p = min_places.unwrap_or(2);
+        let max_p = max_places.unwrap_or(min_p);
+        let range = if min_p == max_p { format!("{min_p}") } else { format!("{min_p}\u{2013}{max_p}") };
+        project_parts.push(format!(
+            "{} copies in {range} places.",
+            if multi_count == 1 { "1 project has".to_string() } else { format!("{multi_count} projects have") }
+        ));
+    }
+    if reunite_count > 0 {
+        project_parts.push(format!(
+            "{} files from earlier batches to put back together.",
+            if reunite_count == 1 { "1 group has".to_string() } else { format!("{reunite_count} groups have") }
+        ));
+    }
+    let projects = (!project_parts.is_empty()).then(|| project_parts.join(" "));
+
     let mut about_aegis: Vec<String> =
         open.iter().filter(|r| r.kind == "engine_health").map(|r| format!("{}.", r.title)).collect();
     for (kind, announced) in demoted_kinds(conn)? {
@@ -217,7 +249,7 @@ pub fn build(conn: &Connection, week: &str, week_start_ms: i64, today: &str, now
         format!("A quiet week. {} to look at when you have a minute.", plural(open_count as i64, "thing", "things"))
     };
 
-    Ok(WeeklyNote { week: week.to_string(), headline, needs_you, did, safety, space, tidy, about_aegis, read: false })
+    Ok(WeeklyNote { week: week.to_string(), headline, needs_you, did, safety, space, tidy, projects, about_aegis, read: false })
 }
 
 pub fn save(conn: &Connection, note: &WeeklyNote, now: i64) -> Result<()> {

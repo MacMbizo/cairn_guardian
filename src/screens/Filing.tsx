@@ -424,7 +424,9 @@ function RecentView({
             <span className="min-w-0">
               <span className="block font-medium text-slate-100">
                 {b.project
-                  ? `Project plan: ${b.project} (${b.files.toLocaleString()} folder${b.files === 1 ? "" : "s"})`
+                  ? b.project.startsWith("Put back together:")
+                    ? `${b.project} (${b.files.toLocaleString()} file${b.files === 1 ? "" : "s"})`
+                    : `Project plan: ${b.project} (${b.files.toLocaleString()} folder${b.files === 1 ? "" : "s"})`
                   : `${b.files.toLocaleString()} item${b.files === 1 ? "" : "s"} on ${label(b.scope)}`}
                 {b.automatic && (
                   <span className="ml-2 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 font-normal text-emerald-300">
@@ -509,9 +511,18 @@ function RulesView({ preview, onBack }: { preview: boolean; onBack: () => void }
 const scopeKey = (s: Scope) => (s.type === "pc" ? "pc" : s.volume_id);
 
 /** Filing (spec §14): structure per drive, batch review, to sort, learned rules. */
-export function FilingScreen({ data, startRecent = false }: { data: FilingData; startRecent?: boolean }) {
+export function FilingScreen({
+  data,
+  initialView = "overview",
+}: {
+  data: FilingData;
+  initialView?: "overview" | "recent" | "projects";
+}) {
   const { scopes, loading, error, preview, reload } = data;
-  const [view, setView] = useState<View>(startRecent ? { kind: "recent" } : { kind: "overview" });
+  const [view, setView] = useState<View>({ kind: initialView });
+  useEffect(() => {
+    if (initialView !== "overview") setView({ kind: initialView });
+  }, [initialView]);
   const [msg, setMsg] = useState<{ text: string; undo?: string; failed?: FailedItem[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 

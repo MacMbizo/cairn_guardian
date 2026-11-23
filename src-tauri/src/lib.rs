@@ -167,6 +167,8 @@ pub fn run() {
             commands::context::context_answer,
             commands::context::context_plans,
             commands::context::context_run_plan,
+            commands::context::context_reunite_plans,
+            commands::context::context_run_reunite,
             commands::filing::filing_scopes,
             commands::filing::filing_blueprints,
             commands::filing::filing_choose,

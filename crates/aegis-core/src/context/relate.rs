@@ -358,6 +358,82 @@ fn parent_of(root: &str) -> String {
     root.rsplit_once(SEP).map(|(p, _)| p.to_lowercase()).unwrap_or_default()
 }
 
+/// Normalized-name aliases learned from the owner's explicit "Same project" answers (spec §12),
+/// replayed chronologically so a later "Not the same" revokes an earlier link. Returns a map from
+/// normalized project name to its equivalence group id.
+pub fn learned_aliases(decisions: &[Decision]) -> HashMap<String, usize> {
+    fn alias_name(fp: &str) -> Option<String> {
+        let norm = normalized_name(fp.split('|').next()?);
+        if norm.chars().count() < 3 {
+            return None;
+        }
+        let blocked = super::projects::AREA_NAMES
+            .iter()
+            .chain(super::projects::LIFE_AREAS.iter())
+            .chain(super::projects::PART_NAMES.iter())
+            .any(|&w| w == norm || w.replace([' ', '_', '-'], "") == norm);
+        (!blocked).then_some(norm)
+    }
+
+    let mut ordered: Vec<&Decision> = decisions
+        .iter()
+        .filter(|d| matches!(d.kind, DecisionKind::SameAs | DecisionKind::NotSameAs))
+        .collect();
+    ordered.sort_by_key(|d| d.at);
+
+    let mut pairs: BTreeMap<(String, String), bool> = BTreeMap::new();
+    for d in ordered {
+        let Some(na) = alias_name(&d.fingerprint_a) else { continue };
+        let Some(nb) = d.fingerprint_b.as_deref().and_then(alias_name) else { continue };
+        if na == nb {
+            continue;
+        }
+        let key = if na <= nb { (na, nb) } else { (nb, na) };
+        pairs.insert(key, d.kind == DecisionKind::SameAs);
+    }
+
+    let active: Vec<(String, String)> = pairs.into_iter().filter_map(|(k, same)| same.then_some(k)).collect();
+    if active.is_empty() {
+        return HashMap::new();
+    }
+    let mut ids: HashMap<String, usize> = HashMap::new();
+    let mut names: Vec<String> = Vec::new();
+    let mut intern = |s: String| -> usize {
+        if let Some(&id) = ids.get(&s) {
+            return id;
+        }
+        let id = names.len();
+        names.push(s.clone());
+        ids.insert(s, id);
+        id
+    };
+    let edges: Vec<(usize, usize)> = active.into_iter().map(|(a, b)| (intern(a), intern(b))).collect();
+    let mut parent: Vec<usize> = (0..names.len()).collect();
+    let find = |p: &mut Vec<usize>, mut x: usize| -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    };
+    for (a, b) in edges {
+        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+        if ra != rb {
+            parent[rb] = ra;
+        }
+    }
+    names
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| (n, find(&mut parent, i)))
+        .collect()
+}
+
+/// Whether two normalized project names belong to the same learned alias group.
+pub fn aliases_match(na: &str, nb: &str, aliases: &HashMap<String, usize>) -> bool {
+    !na.is_empty() && !nb.is_empty() && aliases.get(na).is_some_and(|ga| aliases.get(nb) == Some(ga))
+}
+
 /// [`same_identity`] with the fingerprints already worked out.
 pub fn identity_of(
     a: &ProjectCandidate,
@@ -368,6 +444,18 @@ pub fn identity_of(
     fb: &str,
     decisions: &[Decision],
 ) -> Option<Identity> {
+    identity_of_with_aliases((a, sa, fa), (b, sb, fb), decisions, &HashMap::new())
+}
+
+/// [`identity_of`] using pre-computed learned normalized-name aliases from prior "same project" answers.
+pub fn identity_of_with_aliases(
+    left: (&ProjectCandidate, &ContentSummary, &str),
+    right: (&ProjectCandidate, &ContentSummary, &str),
+    decisions: &[Decision],
+    aliases: &HashMap<String, usize>,
+) -> Option<Identity> {
+    let (a, sa, fa) = left;
+    let (b, sb, fb) = right;
     match answered_same(fa, fb, decisions) {
         Some(true) => return Some(Identity { evidence: "you said these are the same project".into(), confirmed: true }),
         Some(false) => return None,
@@ -393,6 +481,20 @@ pub fn identity_of(
     let (ka, kb) = (name_key(a.name()), name_key(b.name()));
     if ka.chars().count() >= 3 && ka == kb && parent_of(&a.root) != parent_of(&b.root) {
         return Some(Identity { evidence: "same name, nothing in common yet".into(), confirmed: false });
+    }
+    if aliases_match(&na, &nb, aliases) {
+        if shared > 0 {
+            return Some(Identity {
+                evidence: format!("learned alias ({} / {}) and {shared} files in common", a.name(), b.name()),
+                confirmed: true,
+            });
+        }
+        if parent_of(&a.root) != parent_of(&b.root) {
+            return Some(Identity {
+                evidence: format!("learned alias ({} / {}), nothing in common yet", a.name(), b.name()),
+                confirmed: false,
+            });
+        }
     }
     None
 }

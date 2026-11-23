@@ -75,9 +75,11 @@ pub fn filing_approve(
 pub fn filing_undo(app: AppHandle, state: State<'_, AppState>, batch: String) -> Result<RollbackResult, IpcError> {
     let res = {
         let mut store = lock_store(&state)?;
-        // A project plan undoes as one: every folder back, quarantined copies restored.
+        // A project plan or reunite batch undoes through its dedicated context undo path.
         if map_err(aegis_core::context::plan::is_project_batch(store.conn(), &batch))? {
             map_err(aegis_core::context::plan::undo(&mut store, &batch))?
+        } else if map_err(aegis_core::context::reunite::is_reunite_batch(store.conn(), &batch))? {
+            map_err(aegis_core::context::reunite::undo_reunite(&mut store, &batch))?
         } else {
             let res = rollback_batch(&mut store, &batch);
             // Whatever did go back is recorded, even if the undo stopped part-way.

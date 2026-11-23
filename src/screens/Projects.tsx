@@ -5,14 +5,16 @@ import {
   errorMessage,
   type Answer,
   type Collection,
+  type CollectionKind,
   type Location,
   type PlanOutcome,
   type PlanStep,
   type ProjectKind,
   type ProjectPlan,
   type Relationship,
+  type ReunitePlan,
 } from "../bindings/client";
-import { fixturePlans, fixtureProjects } from "./fixtures/projects";
+import { fixturePlans, fixtureProjects, fixtureReunitePlans } from "./fixtures/projects";
 
 const card = "rounded-xl border border-slate-800 bg-slate-900/50";
 const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
@@ -345,9 +347,21 @@ function PlanFooter({ c, plan, pl, ans, choosing, setChoosing }: {
   );
 }
 
-function ProjectCard({ c, ans, pl }: { c: Collection; ans: Answering; pl: Planning }) {
+function ProjectCard({
+  c,
+  otherProjects,
+  ans,
+  pl,
+}: {
+  c: Collection;
+  otherProjects: Collection[];
+  ans: Answering;
+  pl: Planning;
+}) {
   const [renaming, setRenaming] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [pickingSame, setPickingSame] = useState(false);
+  const [sameTarget, setSameTarget] = useState("");
   const [name, setName] = useState(c.name);
   const home = c.kind === "design_set" ? undefined : (c.locations.find((l) => l.relationship === "home") ?? c.locations[0]);
   const others = home ? c.locations.filter((l) => l !== home) : c.locations;
@@ -411,6 +425,48 @@ function ProjectCard({ c, ans, pl }: { c: Collection; ans: Answering; pl: Planni
               Not a project
             </button>
           </div>
+          {c.kind === "project" && otherProjects.length > 0 && (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                className={`${btn} w-full`}
+                disabled={ans.busy}
+                onClick={() => {
+                  setPickingSame((v) => !v);
+                  setSameTarget((prev) => prev || otherProjects[0].id);
+                }}
+              >
+                {pickingSame ? "Cancel" : "Same project…"}
+              </button>
+              {pickingSame && (
+                <form
+                  className="flex gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!sameTarget) return;
+                    void ans.send(c, { kind: "same_as", other_collection_id: sameTarget }).then(() => setPickingSame(false));
+                  }}
+                >
+                  <select
+                    aria-label={`Merge ${c.name} with another project`}
+                    value={sameTarget}
+                    disabled={ans.busy}
+                    onChange={(e) => setSameTarget(e.target.value)}
+                    className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
+                  >
+                    {otherProjects.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className={primary} disabled={ans.busy || !sameTarget}>
+                    Merge
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex flex-col gap-2 p-4">
@@ -475,6 +531,17 @@ function previewAnswer(list: Collection[], c: Collection, a: Answer, locationId?
       return list.map((x) => (x.id === c.id ? { ...x, name: a.name } : x));
     case "set_kind":
       return list.map((x) => (x.id === c.id ? { ...x, project_kind: a.project_kind } : x));
+    case "same_as": {
+      const other = list.find((x) => x.id === a.other_collection_id);
+      if (!other || other.id === c.id) return list;
+      const mergedLocs = [
+        ...c.locations,
+        ...other.locations.map((l) => ({ ...l, collection_id: c.id, relationship: l.relationship === "home" ? ("diverged" as const) : l.relationship })),
+      ];
+      return list
+        .filter((x) => x.id !== other.id)
+        .map((x) => (x.id === c.id ? { ...x, state: "confirmed", locations: mergedLocs } : x));
+    }
     case "not_same_as": {
       const l = c.locations.find((x) => x.id === locationId);
       if (!l) return list;
@@ -499,12 +566,138 @@ function previewAnswer(list: Collection[], c: Collection, a: Answer, locationId?
   }
 }
 
+const REUNITE_KIND_LABEL: Record<CollectionKind, string> = {
+  project: "Project",
+  design_set: "Design set",
+  photo_subject: "Photo subject",
+};
+
+type ReuniteEntry = { plan: ReunitePlan; out?: Outcome };
+
+function ReuniteSection({
+  plans,
+  settled,
+  running,
+  busy,
+  onRun,
+  onUndo,
+}: {
+  plans: ReunitePlan[];
+  settled: Record<string, ReuniteEntry>;
+  running: string | null;
+  busy: boolean;
+  onRun: (p: ReunitePlan) => void;
+  onUndo: (key: string, batch: string) => void;
+}) {
+  const keyOf = (p: ReunitePlan) => `${p.collection_id}:${p.volume_id}`;
+  const openKeys = new Set(plans.map(keyOf));
+  const items: ReuniteEntry[] = [
+    ...plans.map((plan) => ({ plan, out: settled[keyOf(plan)]?.out })),
+    ...Object.entries(settled)
+      .filter(([k, e]) => !openKeys.has(k) && e.out !== undefined)
+      .map(([, e]) => e),
+  ];
+  if (items.length === 0) return null;
+  return (
+    <section aria-label="Put back together" className={`${card} border-l-2 border-l-emerald-500/70 p-4`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-xs font-semibold text-emerald-300">
+          Put back together ({items.length})
+        </h2>
+        <p className="text-xs text-slate-400">
+          Files an earlier filing batch moved away from a project or set.
+        </p>
+      </div>
+      <ul className="mt-2 divide-y divide-slate-800">
+        {items.map(({ plan: p, out }) => {
+          const k = keyOf(p);
+          const isRunning = running === `reunite:${k}`;
+          return (
+            <li key={k} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-2 last:pb-0">
+              <div className="min-w-0 flex-1 space-y-1 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Chip tone="bg-emerald-500/15 text-emerald-300">{REUNITE_KIND_LABEL[p.collection_kind]}</Chip>
+                  <span className="font-semibold text-slate-100">{p.collection_name}</span>
+                  <span className="text-slate-300">· {p.summary}</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {p.split_batches
+                    .map(
+                      (b) =>
+                        `Split in batch ${b.batch_id.slice(0, 8)} (${new Date(b.at).toLocaleDateString()}) · ${b.files} ${b.files === 1 ? "file" : "files"}`,
+                    )
+                    .join(" · ")}
+                </p>
+                {!out?.done && (
+                  <ul className="space-y-0.5 text-[11px] text-slate-400">
+                    {p.items.slice(0, 3).map((it) => (
+                      <li key={it.file_id} className="flex flex-wrap items-center gap-1">
+                        <span title={it.from}>{shortPath(it.from, 3)}</span>
+                        <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />
+                        <span className="text-slate-200" title={it.to}>
+                          {shortPath(it.to, 3)}
+                        </span>
+                      </li>
+                    ))}
+                    {p.items.length > 3 && (
+                      <li className="text-slate-500">+{p.items.length - 3} more files into {shortPath(p.target_dir, 3)}</li>
+                    )}
+                  </ul>
+                )}
+                {p.waits_for && <p className="text-[11px] text-amber-300">The plan waits: {p.waits_for}</p>}
+                {out?.done && (
+                  <p role="status" className="flex items-center gap-1 text-[11px] text-emerald-200">
+                    <CircleCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    Put {out.moved_files.toLocaleString()} {out.moved_files === 1 ? "file" : "files"} back in {p.target_dir}.
+                  </p>
+                )}
+                {out && !out.done && (
+                  out.undone ? (
+                    <p className="text-[11px] text-slate-300">Undone: files are back where they were.</p>
+                  ) : (
+                    <p className="text-[11px] text-rose-300">{out.reason}</p>
+                  )
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {!p.waits_for && !out?.done && (
+                  <button
+                    type="button"
+                    className={primary}
+                    disabled={running !== null || busy}
+                    onClick={() => onRun(p)}
+                  >
+                    {isRunning ? (
+                      <>
+                        <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Moving…
+                      </>
+                    ) : (
+                      "Put back together"
+                    )}
+                  </button>
+                )}
+                {out?.done && (
+                  <button type="button" className={btn} disabled={running !== null} onClick={() => onUndo(k, out.batch_id)}>
+                    Undo
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: () => void }) {
   const [list, setList] = useState<Collection[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [realPlans, setRealPlans] = useState<ProjectPlan[]>([]);
+  const [realReunites, setRealReunites] = useState<ReunitePlan[]>([]);
+  const [settledReunites, setSettledReunites] = useState<Record<string, ReuniteEntry>>({});
   const [running, setRunning] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [kindFilter, setKindFilter] = useState<ProjectKind | "all">("all");
@@ -522,13 +715,67 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
     }
     // Plans come after the list: the cards show at once and gain their plan lines a moment later.
     try {
-      setRealPlans(await aegis.context.plans());
+      const [plans, reunites] = await Promise.all([aegis.context.plans(), aegis.context.reunitePlans()]);
+      setRealPlans(plans);
+      setRealReunites(reunites);
     } catch (e) {
       setErr(errorMessage(e));
     }
   }, [preview]);
 
   const plans = useMemo(() => (preview ? fixturePlans(list ?? []) : realPlans), [preview, list, realPlans]);
+  const reunites = useMemo(
+    () =>
+      preview
+        ? fixtureReunitePlans.filter((p) => !settledReunites[`${p.collection_id}:${p.volume_id}`]?.out?.done)
+        : realReunites,
+    [preview, realReunites, settledReunites],
+  );
+
+  const runReunite = (p: ReunitePlan) => {
+    const k = `${p.collection_id}:${p.volume_id}`;
+    if (running) return;
+    setRunning(`reunite:${k}`);
+    setErr(null);
+    void (async () => {
+      try {
+        const out: PlanOutcome = preview
+          ? await new Promise((r) =>
+              window.setTimeout(
+                () => r({ batch_id: `preview-reunite-${k}`, done: true, reason: null, moved_files: p.items.length, freed_bytes: 0 }),
+                600,
+              ),
+            )
+          : await aegis.context.runReunite(p.collection_id, p.volume_id, p.digest);
+        setSettledReunites((s) => ({ ...s, [k]: { plan: p, out } }));
+        if (!preview && out.done) await load();
+      } catch (e) {
+        setErr(errorMessage(e));
+      } finally {
+        setRunning(null);
+      }
+    })();
+  };
+
+  const undoReunite = (k: string, batch: string) => {
+    if (running) return;
+    setRunning(`reunite:${k}`);
+    void (async () => {
+      try {
+        if (!preview) {
+          await aegis.filing.undo(batch);
+          await load();
+        }
+        setSettledReunites((s) =>
+          s[k]?.out ? { ...s, [k]: { ...s[k], out: { ...s[k].out!, done: false, undone: true } } } : s,
+        );
+      } catch (e) {
+        setErr(errorMessage(e));
+      } finally {
+        setRunning(null);
+      }
+    })();
+  };
 
   const pl: Planning = {
     plans,
@@ -731,9 +978,23 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
           No projects found yet. Aegis looks for them by itself while your PC is quiet, or press Look again now.
         </p>
       )}
+      <ReuniteSection
+        plans={reunites}
+        settled={settledReunites}
+        running={running}
+        busy={busy}
+        onRun={runReunite}
+        onUndo={undoReunite}
+      />
       <ConfirmList items={groups.confirm} ans={ans} />
       {groups.multi.map((c) => (
-        <ProjectCard key={c.id} c={c} ans={ans} pl={pl} />
+        <ProjectCard
+          key={c.id}
+          c={c}
+          otherProjects={(list ?? []).filter((x) => x.kind === "project" && x.id !== c.id)}
+          ans={ans}
+          pl={pl}
+        />
       ))}
       {groups.single.length > 0 && (
         <section aria-label="Projects in one place" className={`${card} p-4`}>

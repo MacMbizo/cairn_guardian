@@ -3,6 +3,7 @@
 
 use super::{AppState, map_err};
 use aegis_core::context::plan::{PlanOutcome, Planner, ProjectPlan, propose, run};
+use aegis_core::context::reunite::{ReunitePlan, propose_reunite, reunite_plans, run_reunite};
 use aegis_core::context::store::list_collections_in;
 use aegis_core::context::{Answer, Collection, CollectionKind, RecogniseReport, answer, recognise};
 use aegis_core::db::SqliteStore;
@@ -121,4 +122,38 @@ pub fn context_run_plan(
     }
     let batch = map_err(propose(&mut store, &c, &plan))?;
     map_err(run(&mut store, &batch))
+}
+
+/// "Put back together" plans: files moved away from a project or set by an earlier filing batch.
+#[tauri::command(async)]
+pub fn context_reunite_plans(state: State<'_, AppState>) -> Result<Vec<ReunitePlan>, IpcError> {
+    let store = own_store(&state)?;
+    map_err(reunite_plans(&store))
+}
+
+/// Runs one "Put back together" plan on one drive after verifying its digest: every file or none.
+#[tauri::command(async)]
+pub fn context_run_reunite(
+    state: State<'_, AppState>,
+    collection_id: String,
+    volume_id: String,
+    expected_digest: String,
+) -> Result<PlanOutcome, IpcError> {
+    let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
+    let mut store = own_store(&state)?;
+    let stale = || IpcError {
+        code: "not_found".into(),
+        message: "This group changed since it was shown. Refresh and check again.".into(),
+        retryable: false,
+        remediation: None,
+    };
+    let plan = map_err(reunite_plans(&store))?
+        .into_iter()
+        .find(|p| p.collection_id == collection_id && p.volume_id == volume_id)
+        .ok_or_else(stale)?;
+    if plan.digest != expected_digest {
+        return Err(stale());
+    }
+    let batch = map_err(propose_reunite(&mut store, &plan))?;
+    map_err(run_reunite(&mut store, &batch))
 }

@@ -92,11 +92,11 @@ function formatBytes(bytes: number): string {
 export default function App() {
   const desktop = useMemo(() => isTauriRuntime(), []);
   const [tab, setTab] = useState<TabId>("dashboard");
-  // The weekly note's "Filed N files by itself" opens Filing on its Recent batches list.
-  const [filingRecent, setFilingRecent] = useState(false);
+  // Deep-links from This Week open Filing directly on Recent batches or Projects.
+  const [filingView, setFilingView] = useState<"overview" | "recent" | "projects">("overview");
   const [narrowing, setNarrowing] = useState<SearchNarrowing>(NO_NARROWING);
   useEffect(() => {
-    if (tab !== "filing") setFilingRecent(false);
+    if (tab !== "filing") setFilingView("overview");
   }, [tab]);
   const drivesData = useDrives();
   const engineData = useEngine();
@@ -585,13 +585,17 @@ export default function App() {
               data={engineData}
               onOpen={goTo}
               onOpenRecentFiling={() => {
-                setFilingRecent(true);
+                setFilingView("recent");
+                setTab("filing");
+              }}
+              onOpenProjects={() => {
+                setFilingView("projects");
                 setTab("filing");
               }}
             />
           )}
           {tab === "settings" && <EngineSettings data={engineData} />}
-          {tab === "filing" && <FilingScreen data={filingData} startRecent={filingRecent} />}
+          {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}
