@@ -20,7 +20,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | Vision | Aegis today | Gap / decision |
 |---|---|---|
 | Open files stay the owner's; metadata in an embedded database | Files stay where the owner keeps them; SQLite store | Fits as is |
-| Metadata encrypted at rest | Not encrypted | **Owner decision D1** (§4): before the embeddings work, which is the first feature that stores the content of documents |
+| Metadata encrypted at rest | Not encrypted yet | **Owner decision D1 approved (2026-11-23)** (§4): SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted store + DPAPI/TPM engine key (`R2`) + offline 24-word/hex recovery key; lands before embeddings/search |
 | Key held by the OS security hardware, opened by biometrics | n/a | Reshaped (rule R2): the engine's key is sealed to the PC; biometrics only open sensitive views |
 | Fast file tracking | USN journal read without admin, live index, catalog | Fits. Direct MFT parsing is avoided (R1) |
 | Background content parsing | Content reader | Fits |
@@ -33,7 +33,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 
 | # | Capability (vision §) | Builds on | Order |
 |---|---|---|---|
-| 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **now**: Plan 2 (project plans), then sets, putting back together, learning, other modules |
+| 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **in progress**: Plan 2 (project plans) merged; Plan 3 (sets & photo subjects) built on `feature/sets-and-photo-subjects`; next: putting back together, learning/weekly note, other modules |
 | 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **next after the context layer**: hybrid search |
 | 3 | Local RAG engine (3.1) | hybrid search | after 2 |
 | 4 | Dead file detection (4.2) | janitor, duplicates, Project 4 System care | with Project 4 |
@@ -87,12 +87,11 @@ The vision's four phases are kept as a direction, but the order above is driven 
 
 ## 4. Decisions for the owner
 
-- **D1. Encryption at rest** *(Owner architectural decision D1; distinct from the parked UI deliverable `canonical/D1_Design_System_v1.0.md`).* Decide before the embeddings and search work.
-  - Recommended package (awaiting owner sign-off):
-    - **Store & vectors:** SQLCipher for the whole store, plus **`sqlite-vec`** inside the encrypted SQLite store so vectors are encrypted at rest within the 350 MB background RAM budget (K5).
-    - **Key handling:** Engine key sealed to the PC via Windows DPAPI/TPM (R2), with Windows Hello gating only sensitive views.
-    - **Offline recovery:** Mandatory offline 24-word or hex recovery key so Backup drive mirrors remain recoverable without the original PC.
-  - Options & migration: Encrypting only sensitive tables leaves metadata/vector surfaces harder to reason about; converting the existing SQLite database is a one-time migration.
+- **D1. Encryption at rest** *(Owner architectural decision D1; distinct from the parked UI deliverable `canonical/D1_Design_System_v1.0.md`).* **Approved by owner (2026-11-23)** — lands before embeddings and hybrid search work, alongside owner confirmation keeping all exclusions and reshapings (`R1–R11`, explicitly including `R2` key sealing and `R6` AI Folderless Mode):
+  - **Store & vectors:** SQLCipher for the whole store, plus **`sqlite-vec`** inside the encrypted SQLite store so vectors are encrypted at rest within the 350 MB background RAM budget (K5).
+  - **Key handling:** Engine key sealed to the PC via Windows DPAPI/TPM (R2), with Windows Hello gating only sensitive views.
+  - **Offline recovery:** Mandatory offline 24-word or hex recovery key so Backup drive mirrors remain recoverable without the original PC.
+  - **Migration note:** Converting the existing SQLite database is a one-time migration before embeddings/vector indexing lands.
 - **D2. Model sizes.** Which local models are acceptable on this PC: RAM and disk to spare, CPU only or GPU. Decide in the embeddings design.
 - **D3. Trustees** for estate management: who, and with what. Decide when that capability's turn comes.
 

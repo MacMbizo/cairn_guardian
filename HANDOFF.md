@@ -1,26 +1,43 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-23 (Plan 2 + post-Plan-2 stabilization merged to `master`). Read this first in a new chat.
+Updated 2026-11-23 (Plan 3 built and verified on `feature/sets-and-photo-subjects`; D1 approved). Read this first in a new chat.
 
 **The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
 `docs/PROGRESS.md`. Keep it current at the end of each plan.
 
-Current state: `feature/project-plans` (including stabilization commits `c63e967`, `b9899b2`, `6a4afde`, and doc reconciliation) is fast-forward merged into `master` (not pushed). Rollback tag `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`) preserves the pre-stabilization baseline plus the parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`). Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
+Current state:
+- `master` (`76708b8`): Projects 1–3, Context-aware filing Plans 1–2, and post-Plan-2 stabilization pass (not pushed).
+- `feature/sets-and-photo-subjects`: **Plan 3 (Sets and photo subjects, spec §10)** implemented and verified (not yet merged to `master`, not pushed).
+- `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`): rollback tag preserving pre-stabilization baseline plus parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`).
+- Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
 
 ## NEXT CHAT: do this first
 
-**Plan 1, Plan 2 (project plans), and the 4-issue stabilization pass are merged into `master`** (2026-11-23). Not pushed.
-- Plan: `docs/superpowers/plans/2026-11-23-project-plans.md`. Every task has an "as built" note, including the rulings from real data.
-- Ledger: `.superpowers/sdd/2026-11-23-project-plans/ledger.md`.
-- Stabilization completed (`c63e967`, `b9899b2`, `6a4afde`): (1) 6 Plan 2 correctness/safety fixes, (2) background RAM/CPU fix (16 MB/conn SQLite cache, `shrink_memory()`, excluded-path & dir-modify FS event filtering, 2,000-event drain, Windows case-only rename fix without per-file `canonicalize`), (3) 4 Project 1 fixes (`path_hash` volume scoping, extended `rebase_volume_paths`, `.aegis-partial` on-disk BLAKE3 re-hash, duplicate `keeper_index` wiring) plus `C:\.aegis-quarantine` test-leak fix, (4) north-star D1 disambiguation and `sqlite-vec` / K1 Link Healing alignment.
-- Verification gate: `cargo test --workspace` **476 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), `0` new folders leaked into `C:\.aegis-quarantine` (`57` before / `57` after); `cargo clippy --workspace --all-targets -- -D warnings` clean; `pnpm build` clean.
+**Plan 3 (sets and photo subjects) is built on `feature/sets-and-photo-subjects`** (2026-11-23). Not merged or pushed.
+- Plan: `docs/superpowers/plans/2026-11-23-sets-and-photo-subjects.md` (with mandatory North-star rules section and dry-run tuning rulings).
+- **Owner Decision D1 approved (2026-11-23):** SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted store (350 MB K5 budget), DPAPI/TPM-sealed engine key (`R2`, Windows Hello for sensitive views only), and mandatory offline 24-word/hex recovery key; owner also confirmed keeping `R1–R11` as written (including `R2` and `R6`).
+- **Orphaned quarantine cleaned:** Deleted all `57` pre-existing orphaned synthetic test folders from `C:\.aegis-quarantine` (`quarantine_entries = 0` in live DB).
+- **Verification gate on `feature/sets-and-photo-subjects`:**
+  - `cargo test --workspace`: **486 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all 10 tests in `crates/aegis-core/tests/sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
+  - Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `254` projects (`87` multi-location), **`3` design sets** (`SmoothLite` 31 -> `C:\Prj\SmoothLite`, `Back Cement` 8 -> `C:\Prj\Back Cement`, `MBIZO 1edited` 3 on `D:`), **`5` photo subjects** (`ipadcover` 12, `Mcgs Splash` 12, `Copilot` 7, `Designer` 4, `fragrances` 5), named album `Pictures\Undated\mugs` preserved intact (`Photo album: 15`), `53` total project/set plans (`4.6s`).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `pnpm build`: clean.
 
-1. **Owner decisions still open:**
+1. **Owner items still open:**
    - app rename choice (another "eagis" / Aegis app exists);
-   - **Owner Decision D1** (encryption at rest & key handling — distinct from parked UI deliverable `canonical/D1_Design_System_v1.0.md`) before embeddings start. Recommended package: SQLCipher whole-store + `sqlite-vec` inside the encrypted store (350 MB K5 budget), DPAPI/TPM-sealed engine key (R2), Windows Hello only for sensitive views, and mandatory offline 24-word/hex recovery key;
-   - whether to delete 53 pre-existing orphaned test folders in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database; current folder count `57` is stable with 0 new leaks);
-   - whether to try the Projects screen on the PC (suggest starting with forexTrader, then one move-in from the compact list, then Undo once).
-2. **Then:** Plan 3 = sets and photo subjects (spec §10), or Embeddings + hybrid search (once D1 is signed off), keeping `canonical/D1_Design_System_v1.0.md` parked until core features finish.
+   - confirm merging `feature/sets-and-photo-subjects` → `master` and try the Projects screen (`forexTrader` or `SmoothLite`);
+   - choose next track: Plan 4 ("Put back together", spec §11) or D1 SQLCipher migration + Embeddings/hybrid search.
+2. **Note on `src/bindings/` and `node:sqlite`:**
+   - Keep `canonical/D1_Design_System_v1.0.md` parked until core features finish.
+   - `cargo test` writes LF line endings into `src/bindings/*.ts`; run `git checkout -f --` on unchanged bindings so only real binding diffs are committed.
+
+**What Plan 3 built:**
+- **Schema & Store:** Migration `0008_sets.sql` (`collections.fingerprint`, `collection_members`), `store::save_collections_with_members` (keeping set members out of `collection_locations`), `synthesize_set_locations`, live-path `list_members_with_collection`, `drives::registry::rebase_volume_paths` rebasing `collection_members.path`.
+- **Recogniser (`context::sets`):** Multi-format artwork matching, false-positive filters (software/SDK subtrees, `.9.png`, `<digits>x<digits>`, audio/movie companion folders, boilerplate stopwords, standalone positional filter, distinct filename minimum, concise multi-format stem cohesion), `ASSET_EXTS` expanded to 9 formats, `RecogniseReport::{design_sets, photo_subjects}`.
+- **Plans & Filing:** `StepKind::GatherFiles` in `context::plan` (`plan_design_set`, collision suffixing, TOCTOU digest, immediate destination folder protection in `follow_moves`, clean restore in `unfollow_moves` + `after_undo`), `db/actions.rs` `file_history` for exact-dest `TargetKind::File` moves, `blueprint::plan_files` cross-root hoisted `protected_files`/`photo_subjects` + `mtime` year fallback for unclassified `.png`s, `filing/batches.rs` `collection_members.path` sync & `DecisionKind::LearnedSubject` recording, `recheck_open_batch` retiring waiting `DesignSet` moves, and `answer_set`.
+- **UI & IPC:** `src-tauri/src/commands/context.rs` includes `DesignSet` in `context_projects`, `context_plans`, `context_run_plan`; `src/screens/Projects.tsx` + `src/screens/fixtures/projects.ts` support `set_files`, `gather_files`, inline Move/Undo, and `SmoothLite` fixture.
+
+**Earlier baseline (merged to `master` at `76708b8`):**
+- Plan 1, Plan 2 (project plans), and post-Plan-2 stabilization (`c63e967`, `b9899b2`, `6a4afde`, doc reconciliation): `docs/superpowers/plans/2026-11-23-project-plans.md`.
 
 **What Plan 2 built:**
 - **Planner** (`context::plan`):

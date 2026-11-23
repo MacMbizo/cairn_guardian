@@ -6,12 +6,14 @@ Updated 2026-11-23. This is the whole-project view. `HANDOFF.md` covers the work
 
 | Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3, Context-aware filing Plans 1–2, and post-Plan-2 stabilization pass (fast-forward merged 2026-11-23). Not pushed. |
-| `feature/project-plans` | Tip matching `master` after stabilization (`c63e967`, `b9899b2`, `6a4afde` + doc reconciliation). Not pushed. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–2, and post-Plan-2 stabilization pass (`76708b8`, merged 2026-11-23). Not pushed. |
+| `feature/sets-and-photo-subjects` | Plan 3 (sets and photo subjects, spec §10) implemented and verified (branched from `master` at `76708b8`). Ready for review/merge; not pushed. |
+| `feature/project-plans` | Tip matching `master` after stabilization (`76708b8`). Not pushed. |
 | `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification after the stabilization pass:
-- `cargo test --workspace`: **476 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including both timing tests (`recognise_is_fast_on_a_big_catalog`, `migration_speed_and_fts_sync`); **0** new folders created in `C:\.aegis-quarantine` (`57` before and `57` after).
+Verification on `feature/sets-and-photo-subjects`:
+- `cargo test --workspace`: **486 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all 10 integration tests in `crates/aegis-core/tests/sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases` (`[1..=8]`); **0** folders in `C:\.aegis-quarantine` before and **0** after.
+- Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **254** projects (`87` multi-location), **3** design sets (`SmoothLite` 31 -> `C:\Prj\SmoothLite`, `Back Cement` 8 -> `C:\Prj\Back Cement`, `MBIZO 1edited` 3 on `D:`), **5** photo subjects (`ipadcover` 12, `Mcgs Splash` 12, `Copilot` 7, `Designer` 4, `fragrances` 5), named album `Pictures\Undated\mugs` preserved (`Photo album: 15`), **53** project/set plans (`4.6s`).
 - `cargo clippy --workspace --all-targets -- -D warnings`: clean (0 warnings).
 - `pnpm build` (`tsc --noEmit && vite build`): clean.
 
@@ -26,8 +28,13 @@ Verification after the stabilization pass:
 | 3 | Auto-filing: blueprints (Tidy/Fresh), learn-then-take-over, naming, batches with undo | Done, merged 2026-11-22 |
 | 3a | Context-aware filing, Plan 1: project recognition, filing never splits a project, Projects screen | Done, merged 2026-11-23 |
 | 3b | Context-aware filing, Plan 2: project plans (move into `C:\Prj`, quarantine/versions/material, one batch per project with undo) | Done, merged 2026-11-23 (with stabilization pass) |
+| 3c | Context-aware filing, Plan 3: sets and photo subjects (`DesignSet` cards/gather plans, `PhotoSubject` Fresh routing, learned subjects) | Done on `feature/sets-and-photo-subjects` (2026-11-23), awaiting merge |
 | 4 | System care | Not started |
 | 5 | Visual app (grows alongside the others) | Ongoing |
+
+### Plan 3 in one paragraph
+
+Loose design and print files across formats and folders (`SmoothLite`, `Back Cement`) are recognised as `DesignSet` design projects in `collection_members` (migration `0008_sets.sql`, kept separate from `collection_locations`), protected in both `Fresh` and `Tidy` Filing (and retired from stale batches), and gathered into `C:\Prj\<Name>` via `StepKind::GatherFiles` with collision suffixing, TOCTOU digest checks, immediate destination protection, and one-click undo. Loose photo subjects (`ipadcover`, `fragrances`) route under `Fresh` to `Photos\<year>\<subject>` while keeping named photo albums (`Pictures\Undated\mugs`) intact, and approved subjects (`DecisionKind::LearnedSubject`) catch single future arrivals. Software/SDK bundles, audio/video companion folders, `.9.png`/sprite assets, boilerplate names, duplicate filenames, and unrelated long ebook titles are filtered out.
 
 ### Plan 2 in one paragraph
 
@@ -51,13 +58,16 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 - Plans: `docs/superpowers/plans/`. Plan 2 has "as built" notes and rulings per task.
 - North star and binding rules for every future design: `docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md`.
 
-## 3. Waiting on the owner
+## 3. Waiting on the owner & recent decisions
 
+**Decided 2026-11-23:**
+- **Owner Decision D1 approved:** SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted SQLite store (keeping vectors encrypted at rest within the 350 MB K5 budget) + DPAPI/TPM-sealed engine key (`R2`, Windows Hello only for sensitive views) + mandatory offline 24-word/hex recovery key; lands before embeddings and hybrid search. Owner also confirmed keeping all north-star exclusions and reshapings (`R1–R11`, explicitly including `R2` key sealing and `R6` AI Folderless Mode).
+- **Orphaned quarantine folders removed:** Deleted all `57` pre-existing orphaned synthetic test folders from `C:\.aegis-quarantine` after confirming `quarantine_entries = 0` in the live database (`0` remaining).
+
+**Still waiting on the owner:**
 1. Choose a new app name (another "eagis" / Aegis app already exists).
-2. Try the Projects screen on the PC: forexTrader's card first, then one Move from the compact list, then Undo once.
-3. **Owner Decision D1, encryption at rest and key handling** *(distinct from the parked UI deliverable `canonical/D1_Design_System_v1.0.md` saved at `084e3d5` until core features finish)*. Needed before the embeddings/search work. Recommended package awaiting sign-off: SQLCipher whole-store + `sqlite-vec` inside the encrypted SQLite store (keeping vectors encrypted at rest within the 350 MB K5 budget), engine key sealed to the PC (DPAPI/TPM), Windows Hello only for sensitive views, and a mandatory offline 24-word/hex recovery key.
-4. Delete 53 pre-existing orphaned test folders recorded in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database; current folder count is `57` before/after tests, with 0 new leaks)?
-5. Which track comes next: Plan 3 (sets and photo subjects) or Embeddings + hybrid search (once D1 is signed off).
+2. Try the Projects screen on the PC: forexTrader's card or `SmoothLite`, then one Move/Gather from the card or compact list, then Undo once.
+3. Confirm Plan 3 merge from `feature/sets-and-photo-subjects` → `master` and choose the next track: Plan 4 (Put back together, spec §11) or D1 SQLCipher migration + Embeddings/hybrid search.
 
 ## 4. What remains
 
@@ -67,9 +77,9 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 |---|---|---|
 | 1–2 | Protection, Projects list | Done (Plan 1) |
 | 3 | Project plans | Done (Plan 2) |
-| 4 | Sets and photo subjects: SmoothLite artwork as a design project; photos grouped by subject inside a year | Next candidate (Plan 3) |
-| 5 | Put back together: undo earlier batches' scattering of project/set files, via `file_history` | To do |
-| 6 | Learning wired through (aliases from "same project", learned set subjects) and the weekly-note line ("6 projects have copies in 2–3 places") | To do |
+| 4 | Sets and photo subjects: SmoothLite & Back Cement artwork as design projects; photos grouped by subject inside a year | Done on `feature/sets-and-photo-subjects` (Plan 3) |
+| 5 | Put back together: undo earlier batches' scattering of project/set files, via `file_history` | Next candidate (Plan 4) |
+| 6 | Learning wired through (aliases from "same project", weekly-note line "6 projects have copies in 2–3 places") | Set subject learning done in Plan 3; remaining aliases & weekly-note line to do |
 | 7 | Other modules, each with a short design: Software packages, Owner's folders, Old copies (drive D: plans belong here), Resources, Series | To do |
 
 ### Programme
