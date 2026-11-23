@@ -3,7 +3,7 @@
 
 use super::{AppState, map_err};
 use aegis_core::context::plan::{PlanOutcome, Planner, ProjectPlan, propose, run};
-use aegis_core::context::store::list_collections;
+use aegis_core::context::store::list_collections_in;
 use aegis_core::context::{Answer, Collection, CollectionKind, RecogniseReport, answer, recognise};
 use aegis_core::db::SqliteStore;
 use aegis_core::error::IpcError;
@@ -41,11 +41,11 @@ impl Drop for Running {
     }
 }
 
-/// Every recognised project, those found in more than one place first.
+/// Every recognised project and design set, those found in more than one place first.
 #[tauri::command(async)]
 pub fn context_projects(state: State<'_, AppState>) -> Result<Vec<Collection>, IpcError> {
     let store = own_store(&state)?;
-    map_err(list_collections(store.conn(), CollectionKind::Project))
+    map_err(list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet]))
 }
 
 /// Whether a recognition pass is running now (so a reopened screen shows it).
@@ -75,11 +75,12 @@ pub fn context_answer(
     map_err(answer(&mut store, &collection_id, location_id.as_deref(), answer_given))
 }
 
-/// Every project's plans (one per drive it lives on), worked out now from the saved projects.
+/// Every project's and design set's plans (one per drive it lives on), worked out now from the
+/// saved collections.
 #[tauri::command(async)]
 pub fn context_plans(state: State<'_, AppState>) -> Result<Vec<ProjectPlan>, IpcError> {
     let store = own_store(&state)?;
-    let projects = map_err(list_collections(store.conn(), CollectionKind::Project))?;
+    let projects = map_err(list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet]))?;
     let planner = map_err(Planner::new(&store))?;
     let mut out = Vec::new();
     for c in &projects {
@@ -103,7 +104,7 @@ pub fn context_run_plan(
 ) -> Result<PlanOutcome, IpcError> {
     let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
     let mut store = own_store(&state)?;
-    let projects = map_err(list_collections(store.conn(), CollectionKind::Project))?;
+    let projects = map_err(list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet]))?;
     let stale = || IpcError {
         code: "not_found".into(),
         message: "This project changed since the card was shown. Look again and check its plan.".into(),

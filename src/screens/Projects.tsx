@@ -62,6 +62,12 @@ function relation(l: Location): { label: string; detail: string; icon: ReactNode
       tone: "text-sky-300",
     },
     version: { label: "Another version", detail: `${shared} files in common with the main copy`, icon: <History className="h-4 w-4" aria-hidden="true" />, tone: "text-sky-300" },
+    set_files: {
+      label: "Loose set files",
+      detail: `${l.files.toLocaleString()} matching files in this folder`,
+      icon: <Layers className="h-4 w-4" aria-hidden="true" />,
+      tone: "text-sky-300",
+    },
     unrelated: { label: "Not the same project", detail: "", icon: <Layers className="h-4 w-4" aria-hidden="true" />, tone: "text-slate-400" },
     unknown: {
       label: "Possibly the same project",
@@ -104,6 +110,8 @@ function lineOf(s: PlanStep): string {
       return `kept whole as a version in ${shortPath(s.to, 3)}`;
     case "to_material":
       return `brought into ${shortPath(s.to, 3)}`;
+    case "gather_files":
+      return `moves matching files into ${shortPath(s.to, 3)}`;
     default:
       return s.reason;
   }
@@ -267,7 +275,7 @@ function PlanFooter({ c, plan, pl, ans, choosing, setChoosing }: {
             "Approve plan"
           )}
         </button>
-        {c.locations.length > 1 && (
+        {c.locations.length > 1 && c.kind !== "design_set" && (
           <button type="button" className={btn} disabled={pl.running !== null || ans.busy} onClick={() => setChoosing(!choosing)}>
             {choosing ? "Cancel" : "Change main copy"}
           </button>
@@ -282,8 +290,8 @@ function ProjectCard({ c, ans, pl }: { c: Collection; ans: Answering; pl: Planni
   const [renaming, setRenaming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [name, setName] = useState(c.name);
-  const home = c.locations.find((l) => l.relationship === "home") ?? c.locations[0];
-  const others = c.locations.filter((l) => l !== home);
+  const home = c.kind === "design_set" ? undefined : (c.locations.find((l) => l.relationship === "home") ?? c.locations[0]);
+  const others = home ? c.locations.filter((l) => l !== home) : c.locations;
   return (
     <section aria-label={c.name} className={`${card} grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]`}>
       <div className="flex flex-col gap-3 border-b border-slate-800 p-4 md:border-b-0 md:border-r">
@@ -554,7 +562,10 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
         return;
       }
       const rep = await aegis.context.recogniseNow();
-      setNote(`Found ${rep.projects.toLocaleString()} projects in ${(rep.took_ms / 1000).toFixed(0)} s.`);
+      const parts = [`${rep.projects.toLocaleString()} projects`];
+      if (rep.design_sets > 0) parts.push(`${rep.design_sets.toLocaleString()} design sets`);
+      if (rep.photo_subjects > 0) parts.push(`${rep.photo_subjects.toLocaleString()} photo subjects`);
+      setNote(`Found ${parts.join(", ")} in ${(rep.took_ms / 1000).toFixed(0)} s.`);
     });
 
   const groups = useMemo(() => {
@@ -619,7 +630,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
           <ul className="mt-2">
             {groups.single.map((c) => {
               const p = planOf(plans, c);
-              const move = p && !p.waits_for && c.state !== "left_as_is" ? p.steps.find((s) => s.kind === "move_home") : undefined;
+              const move = p && !p.waits_for && c.state !== "left_as_is" ? p.steps.find((s) => s.kind === "move_home" || s.kind === "gather_files") : undefined;
               const out = outcomes[c.id];
               return (
                 <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
@@ -631,7 +642,8 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                     <SureChip c={c} />
                     {move && !out?.done && (
                       <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-200" title={move.reason}>
-                        <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" /> moves whole to {move.to}
+                        <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />{" "}
+                        {move.kind === "gather_files" ? `moves matching files into ${move.to}` : `moves whole to ${move.to}`}
                       </span>
                     )}
                     {out?.done && (

@@ -3,4 +3,4 @@
 /**
  * How one location of a collection relates to its home (spec §6).
  */
-export type Relationship = "home" | "identical" | "older_subset" | "diverged" | "different_material" | "version" | "unrelated" | "unknown";
+export type Relationship = "home" | "identical" | "older_subset" | "diverged" | "different_material" | "version" | "set_files" | "unrelated" | "unknown";

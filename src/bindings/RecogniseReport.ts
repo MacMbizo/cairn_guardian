@@ -7,4 +7,4 @@ export type RecogniseReport = { projects: number,
 /**
  * Projects found in more than one place.
  */
-multi_location: number, took_ms: number, };
+multi_location: number, design_sets: number, photo_subjects: number, took_ms: number, };

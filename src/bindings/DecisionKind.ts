@@ -3,4 +3,4 @@
 /**
  * Which question the owner answered.
  */
-export type DecisionKind = "is_project" | "same_as" | "not_same_as" | "leave_as_is" | "name" | "home" | "keep_here";
+export type DecisionKind = "is_project" | "same_as" | "not_same_as" | "leave_as_is" | "name" | "home" | "keep_here" | "learned_subject";

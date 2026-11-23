@@ -3,4 +3,4 @@
 /**
  * What one step does with one folder.
  */
-export type StepKind = "move_aside" | "move_home" | "quarantine" | "to_versions" | "to_material";
+export type StepKind = "move_aside" | "move_home" | "quarantine" | "to_versions" | "to_material" | "gather_files";

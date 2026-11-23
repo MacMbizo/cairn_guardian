@@ -3,4 +3,4 @@
 /**
  * Which module recognised a collection. Further modules add variants later.
  */
-export type CollectionKind = "project";
+export type CollectionKind = "project" | "design_set" | "photo_subject";

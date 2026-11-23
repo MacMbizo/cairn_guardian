@@ -29,7 +29,7 @@ fn versions(conn: &Connection) -> Vec<i64> {
 fn migration_0002_applies_on_fresh_and_v1_databases() {
     // Fresh database.
     let store = SqliteStore::open_in_memory().unwrap();
-    assert_eq!(versions(store.conn()), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(store.conn()), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     let vol_cols = columns(store.conn(), "volumes");
     for c in ["passport_id", "role", "guid_path", "label", "usn_journal_id", "last_catalog_complete_at"] {
         assert!(vol_cols.contains(&c.to_string()), "volumes.{c} missing");
@@ -66,7 +66,7 @@ fn migration_0002_applies_on_fresh_and_v1_databases() {
         .unwrap();
     }
     let store = SqliteStore::open(&db).unwrap();
-    assert_eq!(versions(store.conn()), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(store.conn()), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     let role: String = store
         .conn()
         .query_row("SELECT role FROM volumes WHERE id = 'win-1'", [], |r| r.get(0))

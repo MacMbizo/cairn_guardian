@@ -135,6 +135,26 @@ export const fixtureProjects: Collection[] = [
     (c) => [loc(c, String.raw`C:\Users\Mac\Downloads\DDU v18.1.5.7`, "home", 41, 30)],
     "left_as_is",
   ),
+  {
+    id: "c-smoothlite",
+    kind: "design_set",
+    name: "SmoothLite",
+    project_kind: "design",
+    confidence: 0.95,
+    state: "candidate",
+    evidence: [
+      '31 loose design & print files sharing "SmoothLite" across 3 folders',
+      "same artwork across image, design or print formats",
+      "includes 2 layered design file(s)",
+    ],
+    locations: [
+      loc("c-smoothlite", String.raw`C:\Users\Mac\Pictures`, "set_files", 27, 27),
+      loc("c-smoothlite", String.raw`C:\Users\Mac\Downloads`, "set_files", 3, 3),
+      loc("c-smoothlite", String.raw`C:\Users\Mac\Pictures\2026\2026-10`, "set_files", 1, 1),
+    ],
+    sub_projects: [],
+    plan_state: null,
+  },
 ];
 
 const PRJ = String.raw`C:\Prj`;
@@ -147,6 +167,33 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
   const out: ProjectPlan[] = [];
   for (const c of list) {
     if (c.state === "left_as_is") continue;
+    if (c.kind === "design_set") {
+      const target = `${PRJ}\\${leafOf(c.name)}`;
+      const active = c.locations.filter((l) => !l.keep_here);
+      const steps: PlanStep[] = active.map((l, idx) => ({
+        step: idx + 1,
+        kind: "gather_files",
+        location_id: l.id,
+        from: l.root_path,
+        to: target,
+        fallback: null,
+        reason: `Brings ${l.files} ${c.name} files into ${target}.`,
+        warnings: [],
+      }));
+      const total = active.reduce((n, l) => n + l.files, 0);
+      out.push({
+        collection_id: c.id,
+        volume_id: c.locations[0]?.volume_id ?? "win-c",
+        home_after: target,
+        steps,
+        waits_for: null,
+        notes: c.locations.filter((l) => l.keep_here).map((l) => `${l.root_path} stays where it is: you chose Keep here.`),
+        rank: steps.length ? 2 : 9,
+        summary: steps.length ? `Brings ${total} files from ${active.length} folders into ${target}.` : "Nothing to do: these files stay where they are.",
+        digest: "fixture",
+      });
+      continue;
+    }
     const home = c.locations.find((l) => l.relationship === "home") ?? c.locations[0];
     const onPc = c.locations.filter((l) => l.volume_id === home.volume_id);
     const away = c.locations.filter((l) => l.volume_id !== home.volume_id);
