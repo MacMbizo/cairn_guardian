@@ -104,6 +104,17 @@ fn rebase_children(tx: &Connection, from: &str, to: &str, case_sensitive: bool, 
             )?;
         }
     }
+    // Cache folders inside it (`node_modules`, `.venv`) are recorded whole: they follow too.
+    let caches: Vec<(String, String)> = {
+        let mut stmt = tx.prepare("SELECT id, path FROM cache_dirs WHERE lower(substr(path, 1, ?2)) = lower(?1)")?;
+        stmt.query_map(params![prefix, n], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (id, old) in caches {
+        let rest: String = old.chars().skip(n as usize).collect();
+        let new = format!("{}{}{rest}", to.trim_end_matches(['\\', '/']), std::path::MAIN_SEPARATOR);
+        let (disp, ph) = normalize_path(Path::new(&new), case_sensitive);
+        tx.execute("UPDATE cache_dirs SET path = ?1, path_hash = ?2 WHERE id = ?3", params![disp, ph.as_slice(), id])?;
+    }
     // Build units (a repo, a package) inside the folder keep protecting it at its new place.
     let from_key = from.trim_end_matches(['\\', '/']).to_lowercase();
     let units: Vec<(String, String)> = {

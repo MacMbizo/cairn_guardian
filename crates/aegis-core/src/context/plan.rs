@@ -295,7 +295,13 @@ impl Planner {
             let mut stmt =
                 store.conn().prepare("SELECT volume_id, path FROM files WHERE deleted_at IS NULL AND name = 'pyvenv.cfg' COLLATE NOCASE")?;
             let rows: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-            rows.into_iter().map(|(v, p)| (v, parent(&p).to_string())).collect()
+            let mut v: Vec<(String, String)> = rows.into_iter().map(|(v, p)| (v, parent(&p).to_string())).collect();
+            // `.venv` and `venv` folders aren't catalogued file by file: the scanner records them
+            // whole as cache folders.
+            let mut stmt =
+                store.conn().prepare("SELECT volume_id, path FROM cache_dirs WHERE cache_kind = 'python_venv' AND state = 'active'")?;
+            v.extend(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<(String, String)>>>()?);
+            v
         };
         Ok(Self { roots: store.list_roots()?, locations, venvs })
     }
@@ -308,16 +314,14 @@ impl Planner {
         self.venvs.iter().any(|(v, d)| *v == l.volume_id && path_is_within(d, &l.root_path, false))
     }
 
-    /// Warnings for moving a git repository: a virtual environment to recreate, recent changes.
+    /// Warnings for moving a folder: a Python virtual environment inside it (any folder) will
+    /// need recreating; a git repository that changed lately may be open in an editor.
     fn repo_warnings(&self, l: &Location) -> Vec<String> {
-        if !l.is_repo {
-            return Vec::new();
-        }
         let mut out = Vec::new();
         if self.holds_venv(l) {
             out.push("It holds a Python virtual environment, which will need recreating after the move.".into());
         }
-        if l.newest_mtime >= crate::now_ms() - 30 * 86_400_000 {
+        if l.is_repo && l.newest_mtime >= crate::now_ms() - 30 * 86_400_000 {
             out.push("It changed in the last 30 days: close any editor or terminal using it first.".into());
         }
         out

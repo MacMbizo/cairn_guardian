@@ -611,6 +611,18 @@ fn a_lone_home_moves_in_only_from_a_projects_folder() {
 }
 
 #[test]
+fn moving_a_folder_that_holds_a_venv_warns() {
+    let (_t, mut s, home, _prj) = pc();
+    let dev = home.join("Documents/Projectsv2/Dev Set/forexTrader");
+    fixtures_context::put(&dev, "engine/.venv/pyvenv.cfg");
+    aegis_core::scanner::scan_root(&mut s, &home.join("Documents"), &[1]).unwrap();
+    recognise(&mut s).unwrap();
+    let p = only_plan(&s, &named(&s, "forexTrader"));
+    let mv = p.steps.iter().find(|st| st.kind == StepKind::MoveHome).unwrap();
+    assert!(mv.warnings.iter().any(|w| w.contains("Python virtual environment")), "{mv:?}");
+}
+
+#[test]
 fn a_recently_changed_copy_is_left_alone() {
     let (_t, mut s, home, prj) = pc();
     recognise(&mut s).unwrap();
