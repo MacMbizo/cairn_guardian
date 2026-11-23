@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, Copy, GitBranch, HardDrive, History, House, Layers, Loader2, RefreshCw, SearchCheck } from "lucide-react";
-import { aegis, errorMessage, type Answer, type Collection, type Location, type Relationship } from "../bindings/client";
-import { fixtureProjects } from "./fixtures/projects";
+import { ArrowLeft, ArrowRight, CircleCheck, Copy, GitBranch, HardDrive, History, House, Layers, Loader2, RefreshCw, SearchCheck } from "lucide-react";
+import {
+  aegis,
+  errorMessage,
+  type Answer,
+  type Collection,
+  type Location,
+  type PlanOutcome,
+  type PlanStep,
+  type ProjectPlan,
+  type Relationship,
+} from "../bindings/client";
+import { fixturePlans, fixtureProjects } from "./fixtures/projects";
 
 const card = "rounded-xl border border-slate-800 bg-slate-900/50";
 const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
@@ -66,6 +76,60 @@ function relation(l: Location): { label: string; detail: string; icon: ReactNode
 /** Evidence the card shows under "Why Aegis thinks so" (links to other copies are shown in the table). */
 const whyOf = (c: Collection) => c.evidence.filter((e) => !e.startsWith("also at ")).slice(0, 4);
 
+function formatBytes(b: number): string {
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  if (b >= 1e6) return `${(b / 1e6).toFixed(0)} MB`;
+  return `${Math.max(1, Math.round(b / 1e3))} KB`;
+}
+
+/** A project's plan on one drive. */
+const planOn = (plans: ProjectPlan[], c: Collection, volumeId: string) => plans.find((p) => p.collection_id === c.id && p.volume_id === volumeId);
+
+/** The plan on the main copy's drive: the one the card approves. */
+function planOf(plans: ProjectPlan[], c: Collection): ProjectPlan | undefined {
+  const home = c.locations.find((l) => l.relationship === "home") ?? c.locations[0];
+  return home ? planOn(plans, c, home.volume_id) : undefined;
+}
+
+/** The step that decides where a place ends up (a copy moved aside first has two). */
+const stepFor = (p: ProjectPlan | undefined, l: Location) => p?.steps.filter((s) => s.location_id === l.id).pop();
+
+function lineOf(s: PlanStep): string {
+  switch (s.kind) {
+    case "move_home":
+      return `moves whole to ${s.to} (your projects home)`;
+    case "quarantine":
+      return "to quarantine for 30 days: all of it is in the main copy";
+    case "to_versions":
+      return `kept whole as a version in ${shortPath(s.to, 3)}`;
+    case "to_material":
+      return `brought into ${shortPath(s.to, 3)}`;
+    default:
+      return s.reason;
+  }
+}
+
+/** What the card says about a place the plan leaves alone, if anything. */
+function keptNote(plan: ProjectPlan | undefined, l: Location): string | null {
+  if (l.keep_here && l.relationship !== "home") return "stays here, as you asked";
+  const note = plan?.notes.find((n) => n.toLowerCase().startsWith(l.root_path.toLowerCase()));
+  if (note) return note.slice(l.root_path.length).replace(/^\s*/, "");
+  if (plan && plan.steps.length === 0 && plan.summary.includes("later")) return "stays where it is for now: plans for other drives come later";
+  return null;
+}
+
+/** A plan run that finished on this screen, or was undone from it. */
+type Outcome = PlanOutcome & { undone?: boolean };
+
+interface Planning {
+  plans: ProjectPlan[];
+  /** The project whose plan is running now. */
+  running: string | null;
+  outcomes: Record<string, Outcome>;
+  approve: (c: Collection, p: ProjectPlan) => void;
+  undo: (c: Collection, batch: string) => void;
+}
+
 function Chip({ children, tone }: { children: ReactNode; tone: string }) {
   return <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>{children}</span>;
 }
@@ -81,9 +145,12 @@ interface Answering {
   send: (c: Collection, a: Answer, locationId?: string) => Promise<void>;
 }
 
-function PlaceRow({ c, l, ans }: { c: Collection; l: Location; ans: Answering }) {
+function PlaceRow({ c, l, ans, plan, choosing, onPicked }: { c: Collection; l: Location; ans: Answering; plan?: ProjectPlan; choosing: boolean; onPicked: () => void }) {
   const r = relation(l);
   const home = l.relationship === "home";
+  const step = stepFor(plan, l);
+  const kept = step ? null : keptNote(plan, l);
+  const settled = c.state === "left_as_is";
   return (
     <li
       className={
@@ -108,19 +175,112 @@ function PlaceRow({ c, l, ans }: { c: Collection; l: Location; ans: Answering })
               <HardDrive className="h-3 w-3" aria-hidden="true" /> On a drive that is unplugged
             </span>
           )}
+          {step && !settled && (
+            <span
+              className="mt-0.5 flex items-start gap-1 text-[11px] text-slate-200"
+              title={step.fallback ? `${step.reason} If anything in it isn't in the main copy, it is kept as a version instead.` : step.reason}
+            >
+              <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />
+              <span className="min-w-0 break-words">{lineOf(step)}</span>
+            </span>
+          )}
+          {step && !settled && step.warnings.map((w) => (
+            <span key={w} className="mt-0.5 block text-[11px] text-amber-300">
+              {w}
+            </span>
+          ))}
+          {kept && !settled && <span className="mt-0.5 block text-[11px] text-slate-400">→ {kept}</span>}
         </span>
       </span>
-      {!home && c.state !== "left_as_is" && (
-        <button type="button" className={`${btn} shrink-0`} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "not_same_as" }, l.id)}>
-          Not this project
-        </button>
+      {!home && !settled && (
+        <span className="flex shrink-0 flex-wrap gap-1.5">
+          {choosing && l.online ? (
+            <button type="button" className={btn} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "change_home" }, l.id).then(onPicked)}>
+              Make main copy
+            </button>
+          ) : (
+            <>
+              {step && !l.keep_here && (
+                <button type="button" className={btn} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "keep_here", keep: true }, l.id)}>
+                  Keep here
+                </button>
+              )}
+              {l.keep_here && (
+                <button type="button" className={btn} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "keep_here", keep: false }, l.id)}>
+                  Include in plan
+                </button>
+              )}
+              <button type="button" className={btn} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "not_same_as" }, l.id)}>
+                Not this project
+              </button>
+            </>
+          )}
+        </span>
       )}
     </li>
   );
 }
 
-function ProjectCard({ c, ans }: { c: Collection; ans: Answering }) {
+/** Under the places: what the plan does in one line, and Approve; or how it ended. */
+function PlanFooter({ c, plan, pl, ans, choosing, setChoosing }: {
+  c: Collection;
+  plan?: ProjectPlan;
+  pl: Planning;
+  ans: Answering;
+  choosing: boolean;
+  setChoosing: (v: boolean) => void;
+}) {
+  const out = pl.outcomes[c.id];
+  if (out?.undone) return <p className="mt-auto pt-2 text-xs text-slate-300">Undone: everything is back where it was.</p>;
+  if (out?.done) {
+    return (
+      <div role="status" className="mt-auto flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2">
+        <span className="flex items-center gap-1.5 text-xs text-emerald-200">
+          <CircleCheck className="h-4 w-4" aria-hidden="true" />
+          Done: {out.moved_files.toLocaleString()} files moved
+          {out.freed_bytes > 0 && ` · ${formatBytes(out.freed_bytes)} to free in 30 days`}
+        </span>
+        <button type="button" className={btn} disabled={pl.running !== null} onClick={() => pl.undo(c, out.batch_id)}>
+          Undo
+        </button>
+      </div>
+    );
+  }
+  if (c.state === "left_as_is" || !plan) return null;
+  const failed = out && !out.done ? <p className="text-xs text-rose-300">{out.reason}</p> : null;
+  if (plan.waits_for) return <p className="mt-auto pt-2 text-xs text-slate-400">The plan waits: {plan.waits_for}</p>;
+  if (plan.steps.length === 0) {
+    return c.locations.length > 1 ? <p className="mt-auto pt-2 text-xs text-slate-400">{plan.summary}</p> : null;
+  }
+  const running = pl.running === c.id;
+  return (
+    <div className="mt-auto space-y-2 border-t border-slate-800 pt-3">
+      {failed}
+      <p className="text-xs text-slate-300">{plan.summary} One undo puts all of it back.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={primary} disabled={pl.running !== null || ans.busy || choosing} onClick={() => pl.approve(c, plan)}>
+          {running ? (
+            <>
+              <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Moving…
+            </>
+          ) : (
+            "Approve plan"
+          )}
+        </button>
+        {c.locations.length > 1 && (
+          <button type="button" className={btn} disabled={pl.running !== null || ans.busy} onClick={() => setChoosing(!choosing)}>
+            {choosing ? "Cancel" : "Change main copy"}
+          </button>
+        )}
+      </div>
+      {choosing && <p className="text-[11px] text-slate-400">Pick the folder that should be the main copy.</p>}
+    </div>
+  );
+}
+
+function ProjectCard({ c, ans, pl }: { c: Collection; ans: Answering; pl: Planning }) {
   const [renaming, setRenaming] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [name, setName] = useState(c.name);
   const home = c.locations.find((l) => l.relationship === "home") ?? c.locations[0];
   const others = c.locations.filter((l) => l !== home);
@@ -170,7 +330,7 @@ function ProjectCard({ c, ans }: { c: Collection; ans: Answering }) {
         </div>
         <div className="mt-auto flex flex-col gap-2">
           {c.state !== "left_as_is" && (
-            <button type="button" className={primary} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "leave_as_is" })}>
+            <button type="button" className={planOf(pl.plans, c)?.steps.length ? btn : primary} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "leave_as_is" })}>
               Leave as is
             </button>
           )}
@@ -187,12 +347,12 @@ function ProjectCard({ c, ans }: { c: Collection; ans: Answering }) {
       <div className="flex flex-col gap-2 p-4">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Where it lives</p>
         <ul className="flex flex-col gap-1">
-          {home && <PlaceRow c={c} l={home} ans={ans} />}
+          {home && <PlaceRow c={c} l={home} ans={ans} plan={pl.outcomes[c.id]?.done ? undefined : planOn(pl.plans, c, home.volume_id)} choosing={choosing} onPicked={() => setChoosing(false)} />}
           {others.map((l) => (
-            <PlaceRow key={l.id} c={c} l={l} ans={ans} />
+            <PlaceRow key={l.id} c={c} l={l} ans={ans} plan={pl.outcomes[c.id]?.done ? undefined : planOn(pl.plans, c, l.volume_id)} choosing={choosing} onPicked={() => setChoosing(false)} />
           ))}
         </ul>
-        {others.length > 0 && <p className="mt-auto pt-2 text-xs text-slate-400">Plans to bring these together come next.</p>}
+        <PlanFooter c={c} plan={planOf(pl.plans, c)} pl={pl} ans={ans} choosing={choosing} setChoosing={(v) => setChoosing(v)} />
       </div>
     </section>
   );
@@ -249,6 +409,19 @@ function previewAnswer(list: Collection[], c: Collection, a: Answer, locationId?
       const rest = list.map((x) => (x.id === c.id ? { ...x, locations: x.locations.filter((y) => y.id !== l.id) } : x));
       return [...rest, { ...c, id: `${c.id}-${l.id}`, name: nameOf(l.root_path), state: "candidate", locations: [{ ...l, relationship: "home" }] }];
     }
+    case "keep_here":
+      return list.map((x) => (x.id === c.id ? { ...x, locations: x.locations.map((y) => (y.id === locationId ? { ...y, keep_here: a.keep } : y)) } : x));
+    case "change_home":
+      return list.map((x) =>
+        x.id === c.id
+          ? {
+              ...x,
+              locations: x.locations.map((y) =>
+                y.id === locationId ? { ...y, relationship: "home" } : y.relationship === "home" ? { ...y, relationship: "diverged" } : y,
+              ),
+            }
+          : x,
+      );
     default:
       return list;
   }
@@ -259,6 +432,9 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [realPlans, setRealPlans] = useState<ProjectPlan[]>([]);
+  const [running, setRunning] = useState<string | null>(null);
+  const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
 
   const load = useCallback(async () => {
     if (preview) {
@@ -271,7 +447,61 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
     } catch (e) {
       setErr(errorMessage(e));
     }
+    // Plans come after the list: the cards show at once and gain their plan lines a moment later.
+    try {
+      setRealPlans(await aegis.context.plans());
+    } catch (e) {
+      setErr(errorMessage(e));
+    }
   }, [preview]);
+
+  const plans = useMemo(() => (preview ? fixturePlans(list ?? []) : realPlans), [preview, list, realPlans]);
+
+  const pl: Planning = {
+    plans,
+    running,
+    outcomes,
+    approve: (c, p) => {
+      if (running) return;
+      setRunning(c.id);
+      setErr(null);
+      void (async () => {
+        try {
+          const out: PlanOutcome = preview
+            ? await new Promise((r) =>
+                window.setTimeout(
+                  () => r({ batch_id: `preview-${c.id}`, done: true, reason: null, moved_files: c.locations.reduce((n, l) => n + l.files, 0), freed_bytes: 25_000_000 }),
+                  900,
+                ),
+              )
+            : await aegis.context.runPlan(c.id, p.volume_id);
+          setOutcomes((o) => ({ ...o, [c.id]: out }));
+          if (!preview && out.done) await load();
+        } catch (e) {
+          setErr(errorMessage(e));
+        } finally {
+          setRunning(null);
+        }
+      })();
+    },
+    undo: (c, batch) => {
+      if (running) return;
+      setRunning(c.id);
+      void (async () => {
+        try {
+          if (!preview) {
+            await aegis.filing.undo(batch);
+            await load();
+          }
+          setOutcomes((o) => ({ ...o, [c.id]: { ...o[c.id], done: false, undone: true } }));
+        } catch (e) {
+          setErr(errorMessage(e));
+        } finally {
+          setRunning(null);
+        }
+      })();
+    },
+  };
 
   useEffect(() => {
     void load();
@@ -307,7 +537,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
   };
 
   const ans: Answering = {
-    busy,
+    busy: busy || running !== null,
     send: async (c, a, locationId) => {
       if (preview) {
         setList((l) => previewAnswer(l ?? [], c, a, locationId));
@@ -330,12 +560,15 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
   const groups = useMemo(() => {
     const all = list ?? [];
     const asks = (c: Collection) => c.state === "candidate" && c.confidence < SURE && c.locations.length === 1;
+    // Simplest and safest plans first (spec §8.5), then the rest.
+    const rank = (c: Collection) => planOf(plans, c)?.rank ?? 9;
+    const byRank = (a: Collection, b: Collection) => rank(a) - rank(b);
     return {
-      multi: all.filter((c) => c.locations.length > 1),
+      multi: all.filter((c) => c.locations.length > 1).sort(byRank),
       confirm: all.filter(asks),
-      single: all.filter((c) => c.locations.length === 1 && !asks(c)),
+      single: all.filter((c) => c.locations.length === 1 && !asks(c)).sort(byRank),
     };
-  }, [list]);
+  }, [list, plans]);
 
   return (
     <div className="space-y-4">
@@ -378,26 +611,60 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
       )}
       <ConfirmList items={groups.confirm} ans={ans} />
       {groups.multi.map((c) => (
-        <ProjectCard key={c.id} c={c} ans={ans} />
+        <ProjectCard key={c.id} c={c} ans={ans} pl={pl} />
       ))}
       {groups.single.length > 0 && (
         <section aria-label="Projects in one place" className={`${card} p-4`}>
           <h2 className="text-xs font-semibold text-slate-300">In one place ({groups.single.length})</h2>
           <ul className="mt-2">
-            {groups.single.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
-                <span className="min-w-0 text-xs">
-                  <span className="font-medium text-slate-100">{c.name}</span>{" "}
-                  <span className="text-slate-400" title={c.locations[0].root_path}>
-                    · {shortPath(c.locations[0].root_path, 3)} · {KIND_TEXT[c.project_kind ?? "other"]}
-                  </span>{" "}
-                  <SureChip c={c} />
-                </span>
-                <button type="button" className={btn} disabled={busy} onClick={() => void ans.send(c, { kind: "is_project", yes: false })}>
-                  Not a project
-                </button>
-              </li>
-            ))}
+            {groups.single.map((c) => {
+              const p = planOf(plans, c);
+              const move = p && !p.waits_for && c.state !== "left_as_is" ? p.steps.find((s) => s.kind === "move_home") : undefined;
+              const out = outcomes[c.id];
+              return (
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
+                  <span className="min-w-0 text-xs">
+                    <span className="font-medium text-slate-100">{c.name}</span>{" "}
+                    <span className="text-slate-400" title={c.locations[0].root_path}>
+                      · {shortPath(c.locations[0].root_path, 3)} · {KIND_TEXT[c.project_kind ?? "other"]}
+                    </span>{" "}
+                    <SureChip c={c} />
+                    {move && !out?.done && (
+                      <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-200" title={move.reason}>
+                        <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" /> moves whole to {move.to}
+                      </span>
+                    )}
+                    {out?.done && (
+                      <span role="status" className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-200">
+                        <CircleCheck className="h-3 w-3" aria-hidden="true" /> Moved to {p?.home_after ?? "your projects home"}
+                      </span>
+                    )}
+                    {out && !out.done && (out.undone ? <span className="mt-0.5 block text-[11px] text-slate-300">Undone: it is back where it was.</span> : <span className="mt-0.5 block text-[11px] text-rose-300">{out.reason}</span>)}
+                  </span>
+                  <span className="flex gap-2">
+                    {move && p && !out?.done && (
+                      <button type="button" className={primary} disabled={running !== null || busy} onClick={() => pl.approve(c, p)}>
+                        {running === c.id ? (
+                          <>
+                            <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Moving…
+                          </>
+                        ) : (
+                          "Move"
+                        )}
+                      </button>
+                    )}
+                    {out?.done && (
+                      <button type="button" className={btn} disabled={running !== null} onClick={() => pl.undo(c, out.batch_id)}>
+                        Undo
+                      </button>
+                    )}
+                    <button type="button" className={btn} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "is_project", yes: false })}>
+                      Not a project
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

@@ -423,7 +423,9 @@ function RecentView({
           <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs">
             <span className="min-w-0">
               <span className="block font-medium text-slate-100">
-                {b.files.toLocaleString()} item{b.files === 1 ? "" : "s"} on {label(b.scope)}
+                {b.project
+                  ? `Project plan: ${b.project} (${b.files.toLocaleString()} folder${b.files === 1 ? "" : "s"})`
+                  : `${b.files.toLocaleString()} item${b.files === 1 ? "" : "s"} on ${label(b.scope)}`}
                 {b.automatic && (
                   <span className="ml-2 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 font-normal text-emerald-300">
                     <Sparkles className="h-3 w-3" aria-hidden="true" /> Filed by itself

@@ -2,6 +2,7 @@
 //! so these commands use their own database connection instead of holding the UI's.
 
 use super::{AppState, map_err};
+use aegis_core::context::plan::{PlanOutcome, Planner, ProjectPlan, propose, run};
 use aegis_core::context::store::list_collections;
 use aegis_core::context::{Answer, Collection, CollectionKind, RecogniseReport, answer, recognise};
 use aegis_core::db::SqliteStore;
@@ -9,28 +10,28 @@ use aegis_core::error::IpcError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::State;
 
-/// One recognition pass at a time: a second "Look again now" while one runs is refused.
+/// One piece of project work at a time (a recognition pass, an answer, or a plan run): a
+/// second request while one runs is refused, so a plan never moves folders mid-recognition.
 static RECOGNISING: AtomicBool = AtomicBool::new(false);
 
 fn own_store(state: &State<'_, AppState>) -> Result<SqliteStore, IpcError> {
     map_err(SqliteStore::open(&state.db_path))
 }
 
-fn busy() -> IpcError {
-    IpcError {
-        code: "busy".into(),
-        message: "Aegis is already looking for projects. It will be done in a moment.".into(),
-        retryable: true,
-        remediation: None,
-    }
+fn busy(message: &str) -> IpcError {
+    IpcError { code: "busy".into(), message: message.into(), retryable: true, remediation: None }
 }
 
-/// Clears the single-flight flag however the pass ends.
+/// Clears the single-flight flag however the work ends.
 struct Running;
 
 impl Running {
     fn start() -> Result<Self, IpcError> {
-        RECOGNISING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).map(|_| Running).map_err(|_| busy())
+        Self::start_with("Aegis is already looking for projects. It will be done in a moment.")
+    }
+
+    fn start_with(message: &str) -> Result<Self, IpcError> {
+        RECOGNISING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).map(|_| Running).map_err(|_| busy(message))
     }
 }
 
@@ -72,4 +73,42 @@ pub fn context_answer(
     let _running = Running::start()?;
     let mut store = own_store(&state)?;
     map_err(answer(&mut store, &collection_id, location_id.as_deref(), answer_given))
+}
+
+/// Every project's plans (one per drive it lives on), worked out now from the saved projects.
+#[tauri::command(async)]
+pub fn context_plans(state: State<'_, AppState>) -> Result<Vec<ProjectPlan>, IpcError> {
+    let store = own_store(&state)?;
+    let projects = map_err(list_collections(store.conn(), CollectionKind::Project))?;
+    let planner = map_err(Planner::new(&store))?;
+    let mut out = Vec::new();
+    for c in &projects {
+        // One project's plan that can't be made never hides the others'.
+        if let Ok(ps) = planner.plan_for(&store, c) {
+            out.extend(ps);
+        }
+    }
+    Ok(out)
+}
+
+/// Runs one project's plan on one drive: re-planned from the disk as it is now, then every
+/// step or none. Undo goes through Recent batches (or the card's Undo) like any batch.
+#[tauri::command(async)]
+pub fn context_run_plan(state: State<'_, AppState>, collection_id: String, volume_id: String) -> Result<PlanOutcome, IpcError> {
+    let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
+    let mut store = own_store(&state)?;
+    let projects = map_err(list_collections(store.conn(), CollectionKind::Project))?;
+    let stale = || IpcError {
+        code: "not_found".into(),
+        message: "This project changed since the card was shown. Look again and check its plan.".into(),
+        retryable: false,
+        remediation: None,
+    };
+    let c = projects.into_iter().find(|c| c.id == collection_id).ok_or_else(stale)?;
+    let plan = map_err(Planner::new(&store).and_then(|p| p.plan_for(&store, &c)))?
+        .into_iter()
+        .find(|p| p.volume_id == volume_id)
+        .ok_or_else(stale)?;
+    let batch = map_err(propose(&mut store, &c, &plan))?;
+    map_err(run(&mut store, &batch))
 }

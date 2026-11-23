@@ -16,6 +16,8 @@ import type {
   EngineStatus,
   FilingRule,
   Placement,
+  PlanOutcome,
+  ProjectPlan,
   RecentBatch,
   RunReport,
   Scope,
@@ -260,6 +262,10 @@ export const aegis = {
     /** One of the owner's answers about a card, or about one of its folders. */
     answer: (collectionId: string, answer: Answer, locationId?: string) =>
       call<void>("context_answer", { collectionId, locationId, answerGiven: answer }),
+    /** Every project's plans (one per drive it lives on). */
+    plans: () => call<ProjectPlan[]>("context_plans"),
+    /** Runs one project's plan on one drive: every step or none. Undo with filing.undo. */
+    runPlan: (collectionId: string, volumeId: string) => call<PlanOutcome>("context_run_plan", { collectionId, volumeId }),
   },
   engine: {
     remindersOpen: () => call<Reminder[]>("reminders_open"),

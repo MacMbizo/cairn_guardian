@@ -85,6 +85,8 @@ pub struct ProjectPlan {
     pub waits_for: Option<String>,
     /// Copies the plan leaves where they are, and why, in plain words.
     pub notes: Vec<String>,
+    /// Where its card comes in the order of offers (see [`offer_rank`]); 9 with nothing to do.
+    pub rank: u8,
     /// One line for the card.
     pub summary: String,
 }
@@ -365,6 +367,7 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         steps: Vec::new(),
         waits_for: waits_for.clone(),
         notes: Vec::new(),
+        rank: 9,
         summary: summary.to_string(),
     };
     // Rulings from the dry run on the owner's database (2026-11-23):
@@ -562,7 +565,19 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         return Err(AegisError::InvalidInput(format!("A plan step would leave its drive ({} → {}).", bad.from, bad.to)));
     }
     let summary = summarise(&steps, &home_after);
-    Ok(ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, notes, summary })
+    let mut plan = ProjectPlan { collection_id: c.id.clone(), volume_id: volume_id.to_string(), home_after, steps, waits_for, notes, summary, rank: 9 };
+    if !plan.steps.is_empty() {
+        plan.rank = offer_rank(c, &plan);
+    }
+    Ok(plan)
+}
+
+/// Whether `batch_id` is a project plan's batch (undone with [`undo`], not as a filing batch).
+pub fn is_project_batch(conn: &rusqlite::Connection, batch_id: &str) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT origin LIKE 'project:%' FROM action_batches WHERE id = ?1", [batch_id], |r| r.get(0))
+        .optional()?
+        .unwrap_or(false))
 }
 
 /// The order cards are offered in (spec §8.5), simplest and safest first: 0 identical copies

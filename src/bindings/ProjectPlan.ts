@@ -18,6 +18,10 @@ waits_for: string | null,
  */
 notes: Array<string>, 
 /**
+ * Where its card comes in the order of offers (see [`offer_rank`]); 9 with nothing to do.
+ */
+rank: number, 
+/**
  * One line for the card.
  */
 summary: string, };

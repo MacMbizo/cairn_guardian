@@ -165,6 +165,8 @@ pub fn run() {
             commands::context::context_recognising,
             commands::context::context_recognise_now,
             commands::context::context_answer,
+            commands::context::context_plans,
+            commands::context::context_run_plan,
             commands::filing::filing_scopes,
             commands::filing::filing_blueprints,
             commands::filing::filing_choose,
