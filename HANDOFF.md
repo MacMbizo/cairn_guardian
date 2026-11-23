@@ -2,6 +2,12 @@
 
 Updated 2026-11-23 (Plan 2 of context-aware filing done). Read this first in a new chat.
 
+**The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
+`docs/PROGRESS.md`. Keep it current at the end of each plan.
+
+Current state: on branch `feature/project-plans` (last commit before this handoff: `b502703`). The working tree has the
+owner's own uncommitted `canonical/` and `design-system/` changes: leave them alone.
+
 ## NEXT CHAT: do this first
 
 **Plan 1 is merged into `master`** (fast-forward to `72cbe11`, 2026-11-23, owner approved). Not pushed.
