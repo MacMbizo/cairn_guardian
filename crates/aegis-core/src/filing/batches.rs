@@ -317,6 +317,11 @@ pub fn propose_placements(store: &mut SqliteStore, scope: &Scope, origin: &str, 
                 Target::File { file_id } => (TargetKind::File, Some(file_id.clone())),
                 Target::Group { .. } => (TargetKind::Dir, None),
             };
+            let photo_subject = p
+                .rule_key
+                .as_deref()
+                .filter(|k| k.starts_with("photo_subject|"))
+                .and_then(|_| p.reason.strip_prefix("Photo subject: "));
             ProposedActionInput {
                 agent: Some(AGENT.into()),
                 action_type: ActionType::Move,
@@ -332,6 +337,7 @@ pub fn propose_placements(store: &mut SqliteStore, scope: &Scope, origin: &str, 
                     "new_name": p.new_name,
                     "dest_template": dest_template,
                     "scope": scope.key(),
+                    "photo_subject": photo_subject,
                 })
                 .to_string(),
             }
@@ -472,6 +478,7 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     let mut moved_from = Vec::new();
     let mut moved_files = 0i64;
     let mut lessons = Lessons::default();
+    let mut learned_subjects: HashSet<String> = HashSet::new();
     for a in &rows {
         match a.status.as_str() {
             "executed" => {
@@ -495,8 +502,12 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                     }
                 } else if let Some(fid) = &a.file_id {
                     let new: String = store.conn().query_row("SELECT path FROM files WHERE id = ?1", [fid], |r| r.get(0))?;
+                    store.conn().execute("UPDATE collection_members SET path = ?2 WHERE file_id = ?1", params![fid, new])?;
                     history(store.conn(), Some(fid), &a.from, &new, batch_id, now)?;
                     moved_files += 1;
+                }
+                if let Some(subj) = a.evidence.get("photo_subject").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                    learned_subjects.insert(subj.to_string());
                 }
                 moved_from.push(a.from.clone());
                 lessons.note(store.conn(), a, batch_id, Outcome::Approved, now)?;
@@ -510,6 +521,17 @@ pub fn after_execute(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
         }
     }
     lessons.apply(store.conn(), &scope_key, Outcome::Rejected, now)?;
+    for subj in learned_subjects {
+        let d = crate::context::Decision {
+            id: new_id(),
+            kind: crate::context::DecisionKind::LearnedSubject,
+            fingerprint_a: crate::context::sets::set_fingerprint(&subj.to_lowercase()),
+            fingerprint_b: None,
+            value: format!("photo:{subj}"),
+            at: now,
+        };
+        crate::context::store::record_decision(store.conn(), &d)?;
+    }
     remove_emptied(&roots, &moved_from);
     if let Some((remaining, to_sort)) = super::cached_counts(store.conn(), &scope)? {
         super::set_counts(store.conn(), &scope, remaining - moved_files, to_sort)?;
@@ -525,13 +547,18 @@ pub fn after_rollback(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     let now = now_ms();
     let mut lessons = Lessons::default();
     for a in rows.iter().filter(|a| a.status == "rolled_back") {
-        if a.target_kind == "dir"
-            && let Some(to) = &a.to
-        {
-            let children = files_under(store.conn(), to)?;
-            if let Some((_, _, vol)) = children.first().cloned() {
-                reindex_moved_dir(store, &vol, to, &a.from)?;
+        if a.target_kind == "dir" {
+            if let Some(to) = &a.to {
+                let children = files_under(store.conn(), to)?;
+                if let Some((_, _, vol)) = children.first().cloned() {
+                    reindex_moved_dir(store, &vol, to, &a.from)?;
+                }
             }
+        } else if let Some(fid) = &a.file_id {
+            store.conn().execute(
+                "UPDATE collection_members SET path = COALESCE((SELECT path FROM files WHERE id = ?1), path) WHERE file_id = ?1",
+                [fid],
+            )?;
         }
         lessons.note(store.conn(), a, batch_id, Outcome::Undone, now)?;
     }
@@ -574,7 +601,8 @@ pub fn recheck_open_batch(store: &mut SqliteStore, scope: &Scope) -> Result<usiz
     let Some(open) = open_filing_batch(store.conn(), scope)? else { return Ok(0) };
     let roots: Vec<String> = scope_roots(store, scope)?.into_iter().map(|(p, _)| p).collect();
     let projects = crate::context::protected_roots(store, &roots)?;
-    if projects.is_empty() {
+    let design_files = crate::context::protected_files(store, &roots)?;
+    if projects.is_empty() && design_files.is_empty() {
         return Ok(0);
     }
     let waiting: Vec<(String, String)> = {
@@ -588,7 +616,12 @@ pub fn recheck_open_batch(store: &mut SqliteStore, scope: &Scope) -> Result<usiz
             projects
                 .iter()
                 .find(|(p, _)| path_is_within(&from, p, false) || path_is_within(p, &from, false))
-                .map(|(_, name)| (id, format!("Part of project {name}: it stays together")))
+                .map(|(_, name)| (id.clone(), format!("Part of project {name}: it stays together")))
+                .or_else(|| {
+                    design_files
+                        .get(&from.to_lowercase())
+                        .map(|name| (id, format!("Part of design project {name}: it stays together")))
+                })
         })
         .collect();
     if retire.is_empty() {

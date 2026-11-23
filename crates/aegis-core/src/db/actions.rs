@@ -1118,6 +1118,13 @@ fn record_executed_in_tx(
                     "UPDATE files SET path = ?1, path_hash = ?2, name = ?3, updated_at = ?4 WHERE id = ?5",
                     params![disp, ph.as_slice(), name, now, fid],
                 )?;
+                if plan_evidence(&row.evidence_json).exact_dest {
+                    tx.execute(
+                        "INSERT INTO file_history (id, file_id, old_path, new_path, batch_id, changed_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![new_id(), fid, row.from_path, disp, rec.batch_id, now],
+                    )?;
+                }
                 if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&row.evidence_json) {
                     crate::backup::record_backup_copy_in_tx(tx, &ev, dest, Some(fid), rec.post_blake3.as_deref())?;
                 }

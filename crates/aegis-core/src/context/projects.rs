@@ -56,13 +56,13 @@ const PART_NAMES: [&str; 52] = [
 ];
 
 /// Windows' own folders and the fresh structure's areas: never projects.
-const AREA_NAMES: [&str; 18] = [
+pub(crate) const AREA_NAMES: [&str; 18] = [
     "documents", "my documents", "pictures", "my pictures", "music", "my music", "videos", "my videos", "downloads",
     "desktop", "photos", "screenshots", "audio", "software", "archives", "to sort", "projects", "courses",
 ];
 
 /// Life areas inside the fresh structure's Documents.
-const LIFE_AREAS: [&str; 6] = ["finance", "personal", "study", "work", "other documents", "to sort"];
+pub(crate) const LIFE_AREAS: [&str; 6] = ["finance", "personal", "study", "work", "other documents", "to sort"];
 
 /// A folder name without version and copy suffixes: `set_files_v2(backup)` → `set_files`.
 fn base_name(name: &str) -> String {

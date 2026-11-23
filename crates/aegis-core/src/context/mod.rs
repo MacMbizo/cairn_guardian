@@ -1,9 +1,10 @@
 //! Context layer (spec 2026-11-22-context-aware-filing-design §1A): before filing moves any single
 //! file, Aegis asks "what does this belong to?". The answer is a collection: a group of files that
-//! belong together, recognised by a module. Projects are the first module.
+//! belong together, recognised by a module. Projects are the first module; sets and photo subjects
+//! build alongside them.
 //!
 //! - `profile`: per-folder statistics from the catalog
-//! - `store`: persistence of collections, locations and the owner's answers
+//! - `store`: persistence of collections, locations, loose set members and the owner's answers
 
 pub mod answers;
 pub mod plan;
@@ -11,6 +12,7 @@ pub mod profile;
 pub mod projects;
 pub mod recognise;
 pub mod relate;
+pub mod sets;
 pub mod store;
 pub mod watch;
 
@@ -18,6 +20,7 @@ pub use answers::{Answer, answer};
 pub use recognise::{RecogniseReport, recognise};
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use ts_rs::TS;
 
 /// Which module recognised a collection. Further modules add variants later.
@@ -26,18 +29,24 @@ use ts_rs::TS;
 #[ts(export)]
 pub enum CollectionKind {
     Project,
+    DesignSet,
+    PhotoSubject,
 }
 
 impl CollectionKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Project => "project",
+            Self::DesignSet => "design_set",
+            Self::PhotoSubject => "photo_subject",
         }
     }
 
     pub fn from_db(s: &str) -> Option<Self> {
         match s {
             "project" => Some(Self::Project),
+            "design_set" => Some(Self::DesignSet),
+            "photo_subject" => Some(Self::PhotoSubject),
             _ => None,
         }
     }
@@ -88,6 +97,7 @@ pub enum Relationship {
     Diverged,
     DifferentMaterial,
     Version,
+    SetFiles,
     Unrelated,
     Unknown,
 }
@@ -101,6 +111,7 @@ impl Relationship {
             Self::Diverged => "diverged",
             Self::DifferentMaterial => "different_material",
             Self::Version => "version",
+            Self::SetFiles => "set_files",
             Self::Unrelated => "unrelated",
             Self::Unknown => "unknown",
         }
@@ -114,6 +125,7 @@ impl Relationship {
             "diverged" => Self::Diverged,
             "different_material" => Self::DifferentMaterial,
             "version" => Self::Version,
+            "set_files" => Self::SetFiles,
             "unrelated" => Self::Unrelated,
             _ => Self::Unknown,
         }
@@ -150,6 +162,17 @@ pub struct Location {
     pub keep_here: bool,
 }
 
+/// One loose file belonging to a design set or photo subject collection.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SetMember {
+    pub collection_id: String,
+    pub file_id: String,
+    pub volume_id: String,
+    pub path: String,
+    pub size: i64,
+    pub mtime: i64,
+}
+
 /// A group of files that belong together, with every place it lives.
 #[derive(TS, Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[ts(export)]
@@ -183,6 +206,8 @@ pub enum DecisionKind {
     Home,
     /// The owner wants this location left where it is (`yes`), or no longer (`no`).
     KeepHere,
+    /// Approved set subject remembered for future single-file arrivals (`design:<Name>` or `photo:<Name>`).
+    LearnedSubject,
 }
 
 impl DecisionKind {
@@ -195,6 +220,7 @@ impl DecisionKind {
             Self::Name => "name",
             Self::Home => "home",
             Self::KeepHere => "keep_here",
+            Self::LearnedSubject => "learned_subject",
         }
     }
 
@@ -207,6 +233,7 @@ impl DecisionKind {
             "name" => Self::Name,
             "home" => Self::Home,
             "keep_here" => Self::KeepHere,
+            "learned_subject" => Self::LearnedSubject,
             _ => return None,
         })
     }
@@ -246,4 +273,53 @@ pub fn protected_roots(store: &crate::db::SqliteStore, roots: &[String]) -> crat
             .collect()
     };
     Ok(found.into_iter().filter(|(p, _)| roots.iter().any(|r| path_is_within(p, r, false))).collect())
+}
+
+/// Loose files belonging to a design project (`CollectionKind::DesignSet`), keyed by lowercase
+/// file path → design project name, within `roots`. Filing keeps every member where it is until
+/// the design project plan runs. Before the first recognition pass has run, sets are recognised
+/// on the spot without saving.
+pub fn protected_files(store: &crate::db::SqliteStore, roots: &[String]) -> crate::error::Result<HashMap<String, String>> {
+    set_member_map(store, roots, CollectionKind::DesignSet, sets::SET_THRESHOLD)
+}
+
+/// Loose photos belonging to a photo subject (`CollectionKind::PhotoSubject`), keyed by
+/// lowercase file path → subject display name, within `roots`. Fresh files them into
+/// `Photos\<year>\<subject>` instead of `<year-month>`.
+pub fn photo_subjects(store: &crate::db::SqliteStore, roots: &[String]) -> crate::error::Result<HashMap<String, String>> {
+    set_member_map(store, roots, CollectionKind::PhotoSubject, sets::SET_THRESHOLD)
+}
+
+fn set_member_map(
+    store: &crate::db::SqliteStore,
+    roots: &[String],
+    want_kind: CollectionKind,
+    min_confidence: f64,
+) -> crate::error::Result<HashMap<String, String>> {
+    use crate::db::files::path_is_within;
+    let mut out = HashMap::new();
+    let never_ran = store.get_setting(recognise::RECOGNISED_AT, "context")?.is_none();
+    if never_ran {
+        let (cols, members) = sets::find_sets_for_roots(store, roots)?;
+        let eligible: HashMap<String, String> = cols
+            .into_iter()
+            .filter(|(c, _)| c.kind == want_kind && c.confidence >= min_confidence && c.state != "not_a_project")
+            .map(|(c, _)| (c.id, c.name))
+            .collect();
+        for m in members {
+            if let Some(name) = eligible.get(&m.collection_id)
+                && roots.iter().any(|r| path_is_within(&m.path, r, false))
+            {
+                out.insert(m.path.to_lowercase(), name.clone());
+            }
+        }
+        return Ok(out);
+    }
+    let rows = store::list_members_with_collection(store.conn(), want_kind)?;
+    for (_, name, conf, state, m) in rows {
+        if conf >= min_confidence && state != "not_a_project" && roots.iter().any(|r| path_is_within(&m.path, r, false)) {
+            out.insert(m.path.to_lowercase(), name);
+        }
+    }
+    Ok(out)
 }

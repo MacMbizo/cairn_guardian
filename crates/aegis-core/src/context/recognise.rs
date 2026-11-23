@@ -2,15 +2,15 @@
 //! Backup drive excepted), copies of one project grouped into one collection, each copy related
 //! to the project's home, the owner's answers applied, and the result saved.
 
-use super::profile::profiles_for;
-use super::projects::{PROJECT_THRESHOLD, ProjectCandidate, find_projects_with};
+use super::profile::{FolderProfile, profiles_for};
+use super::projects::{AREA_NAMES, LIFE_AREAS, PROJECT_THRESHOLD, ProjectCandidate, find_projects_with};
 use super::relate::{
     ContentSummary, Identity, answered_same, choose_home, content_summaries, fingerprint, fingerprints_match, identity_of,
-    normalized_name, relate,
-    version_series,
+    normalized_name, relate, version_series,
 };
-use super::store::{decisions, save_collections};
-use super::{Collection, CollectionKind, Decision, DecisionKind, Location, Relationship};
+use super::sets::{find_sets, parse_learned_subjects};
+use super::store::{decisions, plan_runs, save_collections_with_members};
+use super::{Collection, CollectionKind, Decision, DecisionKind, Location, ProjectKind, Relationship};
 use crate::db::SqliteStore;
 use crate::db::files::path_is_within;
 use crate::error::Result;
@@ -38,6 +38,8 @@ pub struct RecogniseReport {
     pub projects: usize,
     /// Projects found in more than one place.
     pub multi_location: usize,
+    pub design_sets: usize,
+    pub photo_subjects: usize,
     #[ts(type = "number")]
     pub took_ms: u64,
 }
@@ -89,14 +91,55 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
     let t = Instant::now();
     let roots = recognition_roots(store)?;
     let mut cands: Vec<ProjectCandidate> = Vec::new();
+    let mut all_profiles: Vec<FolderProfile> = Vec::new();
     for (root, volume) in &roots {
         let ps = profiles_for(store, &[(root.clone(), volume.clone())])?;
         // A drive's top level is a general place, like Documents: it lends no project status.
         let general: Vec<String> = volume.iter().map(|_| root.clone()).collect();
         cands.extend(find_projects_with(&ps, std::slice::from_ref(root), &general));
+        all_profiles.extend(ps);
     }
     let answers = decisions(store.conn())?;
-    let runs = super::store::plan_runs(store.conn())?;
+    let learned = parse_learned_subjects(&answers);
+    let learned_design_norms: HashMap<String, String> = learned
+        .iter()
+        .filter(|(_, (tag, _, _))| tag == "design")
+        .map(|(k, (_, display, _))| (normalized_name(k), display.clone()))
+        .collect();
+    if !learned_design_norms.is_empty() {
+        for p in &all_profiles {
+            let nlow = p.name().to_lowercase();
+            if p.depth < 1
+                || p.files == 0
+                || AREA_NAMES.contains(&nlow.as_str())
+                || LIFE_AREAS.contains(&nlow.as_str())
+                || !learned_design_norms.contains_key(&normalized_name(p.name()))
+            {
+                continue;
+            }
+            let overlaps = cands.iter().any(|c| {
+                c.volume_id == p.volume_id
+                    && (path_is_within(&c.root, &p.path, false) || path_is_within(&p.path, &c.root, false))
+            });
+            if !overlaps {
+                cands.push(ProjectCandidate {
+                    root: p.path.clone(),
+                    volume_id: p.volume_id.clone(),
+                    confidence: 0.90,
+                    evidence: vec!["confirmed design project".into()],
+                    project_kind: ProjectKind::Design,
+                    sub_projects: Vec::new(),
+                    is_repo: p.has_git,
+                    declared_names: Vec::new(),
+                    files: p.files,
+                    bytes: p.bytes,
+                    newest_mtime: p.newest_mtime,
+                });
+            }
+        }
+        cands.sort_by_key(|a| a.root.to_lowercase());
+    }
+    let runs = plan_runs(store.conn())?;
     let online: HashMap<String, bool> = {
         let mut stmt = store.conn().prepare("SELECT id, status = 'online' FROM volumes")?;
         stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
@@ -271,19 +314,30 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
             evidence.push(format!("also at {}: {why}", cands[m].root));
         }
         let any = |kind: DecisionKind| members.iter().find_map(|&i| answer_for(&answers, kind, &fps[i]));
-        let state = if any(DecisionKind::LeaveAsIs).is_some() {
+        let mut project_kind = cands[home].project_kind;
+        let mut state = if any(DecisionKind::LeaveAsIs).is_some() {
             "left_as_is"
         } else if any(DecisionKind::IsProject).is_some_and(|d| d.value == "yes") {
             "confirmed"
         } else {
             "candidate"
         };
-        let confidence = members.iter().map(|&i| cands[i].confidence).fold(PROJECT_THRESHOLD, f64::max);
+        let mut confidence = members.iter().map(|&i| cands[i].confidence).fold(PROJECT_THRESHOLD, f64::max);
+        let cname = any(DecisionKind::Name).map_or_else(|| cands[home].name().to_string(), |d| d.value.clone());
+        if learned_design_norms.contains_key(&normalized_name(&cname))
+            || learned_design_norms.contains_key(&normalized_name(cands[home].name()))
+        {
+            project_kind = ProjectKind::Design;
+            confidence = confidence.max(0.85);
+            if state == "candidate" {
+                state = "confirmed";
+            }
+        }
         collections.push(Collection {
             id: collection_id,
             kind: CollectionKind::Project,
-            name: any(DecisionKind::Name).map_or_else(|| cands[home].name().to_string(), |d| d.value.clone()),
-            project_kind: Some(cands[home].project_kind),
+            name: cname,
+            project_kind: Some(project_kind),
             confidence,
             state: state.into(),
             evidence,
@@ -297,11 +351,43 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
         });
     }
     collections.sort_by_key(|c| (std::cmp::Reverse(c.locations.len().min(2)), c.name.to_lowercase()));
-    save_collections(store.conn(), &collections)?;
+    let project_roots: Vec<(Option<String>, String)> = collections
+        .iter()
+        .flat_map(|c| c.locations.iter().map(|l| (Some(l.volume_id.clone()), l.root_path.clone())))
+        .collect();
+    let mut existing_design: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for c in collections.iter().filter(|c| c.project_kind == Some(ProjectKind::Design)) {
+        let cname_norm = normalized_name(&c.name);
+        for l in &c.locations {
+            let entry = existing_design.entry(l.volume_id.clone()).or_default();
+            entry.push((cname_norm.clone(), l.root_path.clone()));
+            let leaf_norm = normalized_name(std::path::Path::new(&l.root_path).file_name().and_then(|n| n.to_str()).unwrap_or(""));
+            if !leaf_norm.is_empty() && leaf_norm != cname_norm {
+                entry.push((leaf_norm, l.root_path.clone()));
+            }
+        }
+    }
+    let (mut set_collections, set_members) =
+        find_sets(store, &roots, &project_roots, &existing_design, &answers, &online, &runs)?;
+    set_collections.sort_by_key(|(c, _)| {
+        let k = if c.kind == CollectionKind::DesignSet { 0u8 } else { 1u8 };
+        (k, std::cmp::Reverse(c.locations.len().min(2)), c.name.to_lowercase())
+    });
+
+    let project_count = collections.len();
+    let multi_location = collections.iter().filter(|c| c.locations.len() > 1).count();
+    let design_sets = set_collections.iter().filter(|(c, _)| c.kind == CollectionKind::DesignSet).count();
+    let photo_subjects = set_collections.iter().filter(|(c, _)| c.kind == CollectionKind::PhotoSubject).count();
+
+    let mut combined: Vec<(Collection, Option<String>)> = collections.into_iter().map(|c| (c, None)).collect();
+    combined.extend(set_collections);
+    save_collections_with_members(store.conn(), &combined, &set_members)?;
     store.set_setting(RECOGNISED_AT, "context", &now_ms().to_string())?;
     Ok(RecogniseReport {
-        projects: collections.len(),
-        multi_location: collections.iter().filter(|c| c.locations.len() > 1).count(),
+        projects: project_count,
+        multi_location,
+        design_sets,
+        photo_subjects,
         took_ms: t.elapsed().as_millis() as u64,
     })
 }

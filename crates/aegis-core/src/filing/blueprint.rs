@@ -290,9 +290,18 @@ impl Bases {
 const FINANCE_BY_YEAR: [&str; 3] = ["Finance/Invoices & receipts", "Finance/Banking", "Finance/Payslips"];
 
 /// `(area, sub-folders)` in the fresh structure, or `None` when the file stays put.
-fn fresh_area(row: &Row) -> Option<(&'static str, Vec<String>)> {
+fn fresh_area(row: &Row, photo_subject: Option<&str>) -> Option<(&'static str, Vec<String>)> {
     let m = &row.meta;
     let year = || year_of(m).unwrap_or_else(|| "Undated".into());
+    let subject_year = || {
+        year_of(m)
+            .or_else(|| {
+                (row.mtime > 0).then(|| {
+                    crate::engine::note::date_of(super::local_ms(row.mtime).div_euclid(86_400_000))[..4].to_string()
+                })
+            })
+            .unwrap_or_else(|| "Undated".into())
+    };
     match m.kind {
         Kind::Document => {
             let cat = m.category.as_deref()?;
@@ -310,8 +319,14 @@ fn fresh_area(row: &Row) -> Option<(&'static str, Vec<String>)> {
             }
             Some(("Documents", sub))
         }
-        Kind::Photo => Some(("Photos", vec![year(), month_of(m).unwrap_or_else(|| "Undated".into())])),
-        Kind::Screenshot => Some(("Screenshots", vec![year()])),
+        Kind::Photo => match photo_subject.map(sanitize).filter(|s| !s.is_empty()) {
+            Some(sub) => Some(("Photos", vec![subject_year(), sub])),
+            None => Some(("Photos", vec![year(), month_of(m).unwrap_or_else(|| "Undated".into())])),
+        },
+        Kind::Screenshot => match photo_subject.map(sanitize).filter(|s| !s.is_empty()) {
+            Some(sub) => Some(("Photos", vec![subject_year(), sub])),
+            None => Some(("Screenshots", vec![year()])),
+        },
         Kind::Video => {
             let n = row.name.to_uppercase();
             if ["VID_", "IMG_", "PXL_", "DSC", "MOV_"].iter().any(|p| n.starts_with(p)) {
@@ -394,7 +409,7 @@ fn is_course_name(name: &str) -> bool {
         || ["lesson", "lecture", "module", "part ", "chapter", "episode", "section"].iter().any(|w| n.contains(w))
 }
 
-fn generic_photo_folder(name: &str) -> bool {
+pub(crate) fn generic_photo_folder(name: &str) -> bool {
     let n = name.to_lowercase();
     n.chars().all(|c| c.is_ascii_digit() || c == '-' || c == '_' || c == ' ' || c == '.')
         || ["dcim", "camera", "camera roll", "pictures", "photos", "images", "100andro", "whatsapp images"]
@@ -631,6 +646,13 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
         volume_root: matches!(scope, Scope::Volume { .. }).then(|| PathBuf::from(&roots[0].0)),
         known: roots.iter().filter_map(|(p, k)| k.map(|k| (k, PathBuf::from(p)))).collect(),
     };
+    let all_roots: Vec<String> = roots.iter().map(|(r, _)| r.clone()).collect();
+    let design_files = crate::context::protected_files(store, &all_roots)?;
+    let subjects = if choice == BlueprintChoice::Fresh {
+        crate::context::photo_subjects(store, &all_roots)?
+    } else {
+        HashMap::new()
+    };
     let mut out = Vec::new();
     for (root, _) in &roots {
         let root_rows: Vec<&Row> = rows.iter().filter(|r| path_is_within(&r.path, root, false)).collect();
@@ -729,15 +751,21 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                 out.push(stays(r, "In your projects folder: left for project plans"));
                 continue;
             }
+            if let Some(name) = design_files.get(&r.path.to_lowercase()) {
+                out.push(stays(r, &format!("Part of design project {name}: it stays together")));
+                continue;
+            }
+            let photo_subj = subjects.get(&r.path.to_lowercase()).map(String::as_str);
+            let subject_routed = photo_subj.is_some() && matches!(r.meta.kind, Kind::Photo | Kind::Screenshot);
             let c = classification_of(&r.meta);
             let stem = Path::new(&r.name).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let new_name = proposed_name(&c, &stem, &r.ext, r.mtime);
-            let low = r.meta.confidence < PROPOSE_AT;
+            let new_name = if subject_routed { None } else { proposed_name(&c, &stem, &r.ext, r.mtime) };
+            let low = !subject_routed && r.meta.confidence < PROPOSE_AT;
             let is_doc = r.meta.kind == Kind::Document;
             let rel = Path::new(&r.path).strip_prefix(&root_p).map(Path::to_path_buf).unwrap_or_default();
             let loose = rel.components().count() == 1;
-            let p = match choice {
-                BlueprintChoice::Fresh => match fresh_area(r) {
+            let mut p = match choice {
+                BlueprintChoice::Fresh => match fresh_area(r, if subject_routed { photo_subj } else { None }) {
                     _ if low && is_doc => file_placement(r, None, None, true),
                     _ if low => stays(r, "Left where it is: Aegis isn't sure what this is"),
                     Some((area, sub)) => match bases.of(area) {
@@ -757,7 +785,7 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                         let dir = root_p.join(keep).join(rest.parent().unwrap_or(Path::new("")));
                         file_placement(r, Some(dir), new_name, false)
                     } else if loose {
-                        match fresh_area(r) {
+                        match fresh_area(r, None) {
                             _ if low && is_doc => file_placement(r, None, None, true),
                             _ if low => stays(r, "Left where it is: Aegis isn't sure what this is"),
                             Some((area, _)) => {
@@ -774,6 +802,11 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                     }
                 }
             };
+            if subject_routed && let Some(s) = photo_subj {
+                p.confidence = p.confidence.max(0.85);
+                p.reason = format!("Photo subject: {s}");
+                p.rule_key = Some(format!("photo_subject|{}", s.to_lowercase()));
+            }
             out.push(p);
         }
     }

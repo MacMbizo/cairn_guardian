@@ -23,7 +23,7 @@ pub const DOC_WORDS: [&str; 13] =
 pub const ASSET_WORDS: [&str; 9] = ["logo", "favicon", "icon", "mockup", "wireframe", "banner", "sleeve", "cmyk", "dpi"];
 
 /// Extensions that are design files on their own.
-pub const ASSET_EXTS: [&str; 4] = ["fig", "psd", "ai", "svg"];
+pub const ASSET_EXTS: [&str; 9] = ["fig", "psd", "ai", "svg", "xcf", "eps", "indd", "cdr", "sketch"];
 
 /// Files that declare a project (spec §7.1, strong signal).
 pub const MANIFESTS: [&str; 10] = [

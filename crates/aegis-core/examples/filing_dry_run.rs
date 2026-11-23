@@ -50,9 +50,17 @@ fn main() -> aegis_core::error::Result<()> {
 
     // Projects (context layer): what filing keeps whole, and where each project lives.
     let rep = aegis_core::context::recognise(&mut store)?;
-    println!("
-projects: {} ({} in more than one place) in {:.1}s", rep.projects, rep.multi_location, rep.took_ms as f64 / 1000.0);
+    println!(
+        "\nprojects: {} ({} in more than one place), design sets: {}, photo subjects: {} in {:.1}s",
+        rep.projects,
+        rep.multi_location,
+        rep.design_sets,
+        rep.photo_subjects,
+        rep.took_ms as f64 / 1000.0
+    );
     let projects = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::Project)?;
+    let design_sets = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::DesignSet)?;
+    let photo_subjects = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::PhotoSubject)?;
     let mut by_container: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for c in &projects {
         for l in &c.locations {
@@ -93,12 +101,28 @@ projects in more than one place:");
     let protected: i64 = projects.iter().flat_map(|c| &c.locations).map(|l| l.files).sum();
     println!("files kept whole inside projects (build output not counted): {protected}");
 
-    // Project plans, in the order the cards would be offered. Planning only; nothing runs.
+    println!("\ndesign sets ({}):", design_sets.len());
+    for c in &design_sets {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        println!("  {} [{:.2} {}] {} files: {}", c.name, c.confidence, c.state, total, c.evidence.first().map(String::as_str).unwrap_or(""));
+        for l in &c.locations {
+            println!("    {:>4} files  {}", l.files, l.root_path);
+        }
+    }
+    println!("\nphoto subjects ({}):", photo_subjects.len());
+    for c in &photo_subjects {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        let ms = aegis_core::context::store::list_members(store.conn(), &c.id)?;
+        let sample: Vec<&str> = ms.iter().take(4).filter_map(|m| std::path::Path::new(&m.path).file_name()?.to_str()).collect();
+        println!("  {} [{:.2}] {} photos  [{}]", c.name, c.confidence, total, sample.join(", "));
+    }
+
+    // Project & design-set plans, in the order the cards would be offered. Planning only; nothing runs.
     use aegis_core::context::plan::{Planner, StepKind, offer_rank};
     let t = Instant::now();
     let planner = Planner::new(&store)?;
     let mut plans = Vec::new();
-    for c in &projects {
+    for c in projects.iter().chain(design_sets.iter()) {
         match planner.plan_for(&store, c) {
             Ok(ps) => plans.extend(ps.into_iter().filter(|p| !p.steps.is_empty()).map(|p| (offer_rank(c, &p), c, p))),
             Err(e) => println!("  plan for {} failed: {e}", c.name),

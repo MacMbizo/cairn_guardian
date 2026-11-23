@@ -15,13 +15,15 @@
 //!   home has moved in.
 
 use super::profile::live_under_root_sql;
-use super::relate::choose_home;
-use super::{Collection, Location, ProjectKind, Relationship};
+use super::relate::{choose_home, normalized_name};
+use super::{Collection, CollectionKind, DecisionKind, Location, ProjectKind, Relationship};
 use crate::db::SqliteStore;
 use crate::db::files::path_is_within;
 use crate::error::{AegisError, Result};
+use crate::{new_id, now_ms};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use ts_rs::TS;
 
@@ -51,6 +53,8 @@ pub enum StepKind {
     ToVersions,
     /// The copy's material is brought into the home.
     ToMaterial,
+    /// Loose files of a design set are gathered into one design project folder.
+    GatherFiles,
 }
 
 /// One whole-folder step of a plan.
@@ -94,8 +98,15 @@ pub struct ProjectPlan {
 }
 
 /// Deterministic digest of what a plan will actually change on disk (`collection_id`,
-/// `volume_id`, `home_after`, and every step's order, kind, target and destination).
-pub fn plan_digest(collection_id: &str, volume_id: &str, home_after: &str, steps: &[PlanStep]) -> String {
+/// `volume_id`, `home_after`, every step's order/kind/target/destination, and any explicit
+/// set member `(file_id, path)` pairs).
+pub fn plan_digest_with_members(
+    collection_id: &str,
+    volume_id: &str,
+    home_after: &str,
+    steps: &[PlanStep],
+    member_paths: &[(String, String)],
+) -> String {
     let mut h = blake3::Hasher::new();
     let feed = |h: &mut blake3::Hasher, s: &str| {
         h.update(&(s.len() as u64).to_le_bytes());
@@ -113,7 +124,21 @@ pub fn plan_digest(collection_id: &str, volume_id: &str, home_after: &str, steps
         feed(&mut h, &s.to);
         feed(&mut h, s.fallback.as_deref().unwrap_or(""));
     }
+    if !member_paths.is_empty() {
+        let mut sorted: Vec<(&str, &str)> = member_paths.iter().map(|(id, p)| (id.as_str(), p.as_str())).collect();
+        sorted.sort_unstable();
+        h.update(&(sorted.len() as u64).to_le_bytes());
+        for (id, path) in sorted {
+            feed(&mut h, id);
+            feed(&mut h, path);
+        }
+    }
     h.finalize().to_hex().to_string()
+}
+
+/// Deterministic digest of what a folder project plan will actually change on disk.
+pub fn plan_digest(collection_id: &str, volume_id: &str, home_after: &str, steps: &[PlanStep]) -> String {
+    plan_digest_with_members(collection_id, volume_id, home_after, steps, &[])
 }
 
 fn is_build_name(name: &str) -> bool {
@@ -300,12 +325,14 @@ fn material_folder(store: &SqliteStore, l: &Location) -> Result<&'static str> {
 }
 
 /// What every plan needs to know about the PC, read once: the roots, every saved project
-/// location, and every Python virtual environment (a folder holding `pyvenv.cfg`). Planning
-/// many projects with one `Planner` costs one pass over the catalog, not one per project.
+/// location, project metadata, and every Python virtual environment (a folder holding `pyvenv.cfg`).
+/// Planning many projects with one `Planner` costs one pass over the catalog, not one per project.
 pub struct Planner {
     roots: Vec<crate::contracts::RootConfig>,
     /// (collection id, volume id, root path) of every saved location.
     locations: Vec<(String, String, String)>,
+    /// collection id -> (name, project_kind, is_repo) of saved folder projects.
+    project_info: HashMap<String, (String, Option<ProjectKind>, bool)>,
     /// (volume id, folder) of every virtual environment.
     venvs: Vec<(String, String)>,
 }
@@ -315,6 +342,18 @@ impl Planner {
         let locations = {
             let mut stmt = store.conn().prepare("SELECT collection_id, volume_id, root_path FROM collection_locations")?;
             stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
+        };
+        let project_info = {
+            let mut stmt = store.conn().prepare(
+                "SELECT c.id, c.name, c.project_kind,
+                        EXISTS(SELECT 1 FROM collection_locations l WHERE l.collection_id = c.id AND l.is_repo != 0)
+                 FROM collections c WHERE c.kind = 'project'",
+            )?;
+            stmt.query_map([], |r| {
+                let pk: Option<String> = r.get(2)?;
+                Ok((r.get::<_, String>(0)?, (r.get::<_, String>(1)?, pk.map(|s| ProjectKind::from_db(&s)), r.get::<_, i64>(3)? != 0)))
+            })?
+            .collect::<rusqlite::Result<_>>()?
         };
         let venvs = {
             let mut stmt =
@@ -328,7 +367,7 @@ impl Planner {
             v.extend(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<(String, String)>>>()?);
             v
         };
-        Ok(Self { roots: store.list_roots()?, locations, venvs })
+        Ok(Self { roots: store.list_roots()?, locations, project_info, venvs })
     }
 
     fn is_venv(&self, l: &Location) -> bool {
@@ -352,10 +391,13 @@ impl Planner {
         out
     }
 
-    /// The plans for one project: one per drive it lives on. None for projects the owner left
-    /// as they are or said aren't projects.
+    /// The plans for one project or design set: one per drive it lives on. None for items the
+    /// owner left as they are, said aren't projects, or photo subjects (which Fresh files by year).
     pub fn plan_for(&self, store: &SqliteStore, c: &Collection) -> Result<Vec<ProjectPlan>> {
-        if matches!(c.state.as_str(), "left_as_is" | "not_a_project") || c.locations.is_empty() {
+        if matches!(c.state.as_str(), "left_as_is" | "not_a_project")
+            || c.kind == CollectionKind::PhotoSubject
+            || c.locations.is_empty()
+        {
             return Ok(Vec::new());
         }
         let mut volumes: Vec<&str> = Vec::new();
@@ -363,6 +405,9 @@ impl Planner {
             if !volumes.contains(&l.volume_id.as_str()) {
                 volumes.push(&l.volume_id);
             }
+        }
+        if c.kind == CollectionKind::DesignSet {
+            return volumes.iter().map(|v| plan_design_set(self, store, c, v)).collect();
         }
         volumes.iter().map(|v| plan_on(self, store, c, v)).collect()
     }
@@ -608,6 +653,142 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
     Ok(plan)
 }
 
+fn design_projects_home(ctx: &Planner, store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
+    if let Some(ph) = projects_home(store, volume_id)? {
+        return Ok(Some(ph));
+    }
+    Ok(ctx
+        .roots
+        .iter()
+        .find(|r| r.enabled && r.volume_id == volume_id && matches!(leaf(&r.path).to_lowercase().as_str(), "prj" | "projects"))
+        .map(|r| r.path.clone()))
+}
+
+fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<ProjectPlan> {
+    let mut here: Vec<&Location> = c.locations.iter().filter(|l| l.volume_id == volume_id).collect();
+    here.sort_by_key(|l| (std::cmp::Reverse(l.files), l.root_path.to_lowercase()));
+    let home_dir = here.first().map(|l| l.root_path.clone()).unwrap_or_default();
+    let info = volume_info(store, volume_id)?;
+    let waits_for = match &info {
+        Some((_, label, false)) => Some(format!("{label} is unplugged.")),
+        None => Some("That drive isn't known any more.".into()),
+        _ if here.iter().any(|l| !l.online) => Some("One of its drives is unplugged.".into()),
+        _ => None,
+    };
+    let nothing = |summary: &str| ProjectPlan {
+        collection_id: c.id.clone(),
+        volume_id: volume_id.to_string(),
+        home_after: home_dir.clone(),
+        steps: Vec::new(),
+        waits_for: waits_for.clone(),
+        notes: Vec::new(),
+        rank: 9,
+        summary: summary.to_string(),
+        digest: plan_digest_with_members(&c.id, volume_id, &home_dir, &[], &[]),
+    };
+    let on_pc = here.iter().any(|l| ctx.roots.iter().any(|r| r.enabled && path_is_within(&l.root_path, &r.path, false)));
+    if !on_pc {
+        return Ok(nothing("Copies on this drive are listed. Plans for other drives come later."));
+    }
+    let Some(ph) = design_projects_home(ctx, store, volume_id)? else {
+        return Ok(nothing("No projects home is set on this drive yet."));
+    };
+    let base_name = safe_name(&c.name);
+    let mut target = join(&ph, &base_name);
+    let matches_existing_design = |dir: &str| {
+        ctx.locations.iter().any(|(cid, v, r)| {
+            v == volume_id
+                && same_path(r, dir)
+                && ctx.project_info.get(cid).is_some_and(|(pname, pk, is_repo)| {
+                    !*is_repo && (*pk == Some(ProjectKind::Design) || normalized_name(pname) == normalized_name(&c.name))
+                })
+        })
+    };
+    let conflicts = |dir: &str| {
+        (Path::new(dir).exists() || ctx.locations.iter().any(|(_, v, r)| v == volume_id && same_path(r, dir)))
+            && !matches_existing_design(dir)
+    };
+    if conflicts(&target) {
+        let newest = here.iter().map(|l| l.newest_mtime).max().unwrap_or_else(now_ms);
+        let year = &date_of(newest)[..4];
+        target = join(&ph, &format!("{base_name} (design {year})"));
+        if conflicts(&target) {
+            return Ok(nothing("A folder with that name is already in your projects home."));
+        }
+    }
+
+    let members: Vec<_> = super::store::list_members(store.conn(), &c.id)?
+        .into_iter()
+        .filter(|m| m.volume_id == volume_id)
+        .collect();
+    let mut steps: Vec<PlanStep> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    let mut digest_members: Vec<(String, String)> = Vec::new();
+    let mut moved_files = 0usize;
+    let mut moved_dirs = 0usize;
+    for l in &here {
+        let dir_members: Vec<_> = members.iter().filter(|m| same_path(parent(&m.path), &l.root_path)).collect();
+        if dir_members.is_empty() {
+            continue;
+        }
+        if l.keep_here {
+            notes.push(format!("{} stays where it is: you chose Keep here.", l.root_path));
+            continue;
+        }
+        if same_path(&l.root_path, &target) {
+            notes.push(format!("{} is already in {target}.", l.root_path));
+            continue;
+        }
+        moved_dirs += 1;
+        moved_files += dir_members.len();
+        for m in &dir_members {
+            digest_members.push((m.file_id.clone(), m.path.clone()));
+        }
+        steps.push(PlanStep {
+            step: steps.len() as u32 + 1,
+            kind: StepKind::GatherFiles,
+            location_id: l.id.clone(),
+            from: l.root_path.clone(),
+            to: target.clone(),
+            fallback: None,
+            reason: format!(
+                "Brings {} {} {} into {target}.",
+                dir_members.len(),
+                c.name,
+                if dir_members.len() == 1 { "file" } else { "files" }
+            ),
+            warnings: Vec::new(),
+        });
+    }
+    if let Some((mount, _, _)) = &info
+        && let Some(bad) = steps.iter().find(|s| !path_is_within(&s.from, mount, false) || !path_is_within(&s.to, mount, false))
+    {
+        return Err(AegisError::InvalidInput(format!("A plan step would leave its drive ({} → {}).", bad.from, bad.to)));
+    }
+    let summary = if steps.is_empty() {
+        "Nothing to do: these files stay where they are.".into()
+    } else {
+        format!(
+            "Brings {moved_files} {} from {moved_dirs} {} into {target}.",
+            if moved_files == 1 { "file" } else { "files" },
+            if moved_dirs == 1 { "folder" } else { "folders" },
+        )
+    };
+    let digest = plan_digest_with_members(&c.id, volume_id, &target, &steps, &digest_members);
+    let rank = if steps.is_empty() { 9 } else { 2 };
+    Ok(ProjectPlan {
+        collection_id: c.id.clone(),
+        volume_id: volume_id.to_string(),
+        home_after: target,
+        steps,
+        waits_for,
+        notes,
+        summary,
+        rank,
+        digest,
+    })
+}
+
 /// Whether `batch_id` is a project plan's batch (undone with [`undo`], not as a filing batch).
 pub fn is_project_batch(conn: &rusqlite::Connection, batch_id: &str) -> Result<bool> {
     Ok(conn
@@ -662,9 +843,25 @@ fn origin_of(store: &SqliteStore, c: &Collection, plan: &ProjectPlan) -> Result<
     Ok(format!("project:{key}:{}", c.name))
 }
 
-/// Proposes `plan` (for collection `c`) as one batch of folder steps, replacing any plan for
-/// the same project that is still waiting. Each step records the folder as it is now, so it
-/// stops if the folder changes before it runs.
+fn unique_file_in_dir(dir: &str, name: &str, taken: &mut HashSet<String>) -> String {
+    let base = join(dir, name);
+    if !Path::new(&base).exists() && taken.insert(base.to_lowercase()) {
+        return base;
+    }
+    let p = Path::new(name);
+    let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| name.to_string());
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    for n in 2.. {
+        let cand = join(dir, &format!("{stem} ({n}){ext}"));
+        if !Path::new(&cand).exists() && taken.insert(cand.to_lowercase()) {
+            return cand;
+        }
+    }
+    unreachable!()
+}
+
+/// Proposes `plan` (for collection `c`) as one batch of folder steps (or file moves for a
+/// design set), replacing any plan for the same project that is still waiting.
 pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> Result<String> {
     use crate::contracts::{ActionType, ProposedActionInput, RefilePlan, TargetKind};
     if let Some(w) = &plan.waits_for {
@@ -680,6 +877,60 @@ pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> R
            AND batch_id IN (SELECT id FROM action_batches WHERE origin = ?1 AND status IN ('draft', 'approved'))",
         [&origin],
     )?;
+    if c.kind == CollectionKind::DesignSet {
+        let set_fp = super::store::collection_fingerprint(store.conn(), &c.id)?
+            .unwrap_or_else(|| super::sets::set_fingerprint(&c.name));
+        let members: Vec<_> = super::store::list_members(store.conn(), &c.id)?
+            .into_iter()
+            .filter(|m| m.volume_id == plan.volume_id)
+            .collect();
+        let mut taken: HashSet<String> = HashSet::new();
+        let mut actions = Vec::new();
+        for st in &plan.steps {
+            if st.kind != StepKind::GatherFiles {
+                continue;
+            }
+            let mut matching: Vec<_> = members.iter().filter(|m| same_path(parent(&m.path), &st.from)).collect();
+            matching.sort_by_key(|m| m.path.to_lowercase());
+            for m in matching {
+                if !Path::new(&m.path).is_file() {
+                    return Err(AegisError::NotFound(format!(
+                        "{} is no longer there. Aegis will make a fresh plan.",
+                        m.path
+                    )));
+                }
+                let dest = unique_file_in_dir(&st.to, leaf(&m.path), &mut taken);
+                let ev = serde_json::json!({
+                    "step": st.step,
+                    "exact_dest": true,
+                    "project": c.name,
+                    "kind": StepKind::GatherFiles,
+                    "collection_id": c.id,
+                    "location_id": st.location_id,
+                    "set_fingerprint": set_fp,
+                    "dest_dir": st.to,
+                });
+                actions.push(ProposedActionInput {
+                    agent: Some("context.plan".into()),
+                    action_type: ActionType::Move,
+                    target_kind: TargetKind::File,
+                    file_id: Some(m.file_id.clone()),
+                    atomic_unit_id: None,
+                    from_path: m.path.clone(),
+                    to_path: Some(dest),
+                    reason: st.reason.clone(),
+                    confidence: c.confidence,
+                    evidence_json: ev.to_string(),
+                });
+            }
+        }
+        if actions.is_empty() {
+            return Err(AegisError::NotFound("The files in this set have moved. Aegis will look again.".into()));
+        }
+        let id = crate::db::actions::propose_batch(store, &RefilePlan { origin, actions })?;
+        super::store::record_plan_run(store.conn(), &id, &plan.volume_id, &[set_fp], "proposed")?;
+        return Ok(id);
+    }
     let mut actions = Vec::new();
     for st in &plan.steps {
         let loc = c
@@ -808,29 +1059,44 @@ pub fn undo(store: &mut SqliteStore, batch_id: &str) -> Result<crate::contracts:
     Ok(r)
 }
 
-/// Restores `collection_locations` immediately after a batch (or part of one) is undone, so the
-/// Projects card reflects restored paths without waiting for the next background recognition pass.
+/// Restores `collection_locations` (or `collection_members` for design sets) immediately after a
+/// batch (or part of one) is undone, so the Projects card reflects restored paths without waiting
+/// for the next background recognition pass.
 fn unfollow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
-    let evs: Vec<String> = {
+    let rows: Vec<(String, Option<String>, String)> = {
         let mut stmt = store.conn().prepare(
-            "SELECT evidence_json FROM actions WHERE batch_id = ?1 AND status = 'rolled_back' ORDER BY step DESC",
+            "SELECT evidence_json, file_id, from_path FROM actions
+             WHERE batch_id = ?1 AND status = 'rolled_back' ORDER BY step DESC",
         )?;
-        stmt.query_map([batch_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        stmt.query_map([batch_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?
     };
-    let parsed: Vec<(String, Location)> = evs
-        .into_iter()
-        .filter_map(|ev| {
-            let v: serde_json::Value = serde_json::from_str(&ev).ok()?;
-            let kind = v.get("kind")?.as_str()?.to_string();
-            let loc: Location = serde_json::from_value(v.get("location")?.clone()).ok()?;
-            Some((kind, loc))
-        })
-        .collect();
+    let mut dir_locs: Vec<(String, Location)> = Vec::new();
+    let mut restored_members: Vec<(String, String, String)> = Vec::new();
+    let mut restored_cids: HashSet<String> = HashSet::new();
+    let mut dest_dirs: HashSet<String> = HashSet::new();
+    for (ev, file_id, from_path) in rows {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&ev) else { continue };
+        let Some(kind) = v.get("kind").and_then(|x| x.as_str()).map(str::to_string) else { continue };
+        if kind == "gather_files" {
+            if let Some(d) = v.get("dest_dir").and_then(|x| x.as_str()) {
+                dest_dirs.insert(d.to_string());
+            }
+            if let (Some(cid), Some(fid)) = (v.get("collection_id").and_then(|x| x.as_str()), file_id) {
+                restored_cids.insert(cid.to_string());
+                restored_members.push((cid.to_string(), fid, from_path));
+            }
+            continue;
+        }
+        if let Some(loc) = v.get("location").and_then(|x| serde_json::from_value::<Location>(x.clone()).ok()) {
+            dir_locs.push((kind, loc));
+        }
+    }
     let tx = store.conn().unchecked_transaction()?;
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
     // Reverse `move_home` first so the original destination path is freed before reinserting any
     // copy that had occupied it.
-    for (kind, loc) in &parsed {
+    for (kind, loc) in &dir_locs {
         if kind != "move_home" || !seen.insert(loc.id.clone()) {
             continue;
         }
@@ -845,7 +1111,7 @@ fn unfollow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
             )?;
         }
     }
-    for (kind, loc) in &parsed {
+    for (kind, loc) in &dir_locs {
         if kind == "move_home" || !seen.insert(loc.id.clone()) {
             continue;
         }
@@ -878,49 +1144,240 @@ fn unfollow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
             )?;
         }
     }
+    for d in dest_dirs {
+        if !Path::new(&d).exists() {
+            let cids: Vec<String> = {
+                let mut stmt =
+                    tx.prepare("SELECT DISTINCT collection_id FROM collection_locations WHERE lower(root_path) = lower(?1)")?;
+                stmt.query_map([&d], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+            };
+            tx.execute("DELETE FROM collection_locations WHERE lower(root_path) = lower(?1)", [&d])?;
+            for cid in cids {
+                let left: i64 =
+                    tx.query_row("SELECT COUNT(*) FROM collection_locations WHERE collection_id = ?1", [&cid], |r| r.get(0))?;
+                if left == 0 {
+                    if restored_cids.contains(&cid) {
+                        tx.execute("UPDATE collections SET kind = 'design_set' WHERE id = ?1", [&cid])?;
+                    } else {
+                        tx.execute("DELETE FROM collections WHERE id = ?1 AND kind = 'project'", [&cid])?;
+                    }
+                }
+            }
+        }
+    }
+    for (cid, fid, from_path) in restored_members {
+        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM collections WHERE id = ?1)", [&cid], |r| r.get(0))?;
+        if !exists {
+            continue;
+        }
+        if let Some((vol, size, mtime)) = tx
+            .query_row("SELECT volume_id, size, mtime FROM files WHERE id = ?1", [&fid], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            })
+            .optional()?
+        {
+            tx.execute(
+                "INSERT INTO collection_members (collection_id, file_id, volume_id, path, size, mtime)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(collection_id, file_id) DO UPDATE SET path = excluded.path",
+                params![cid, fid, vol, from_path, size, mtime],
+            )?;
+        }
+    }
     tx.commit()?;
     Ok(())
 }
 
-/// Forgets the "was here" records of files that really are back where they were.
+/// Forgets the "was here" records of files that really are back where they were, and removes any
+/// newly-created destination folder left empty after undoing a design set plan.
 fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     store.conn().execute(
         "DELETE FROM file_history WHERE batch_id = ?1 AND EXISTS (
             SELECT 1 FROM files f WHERE f.id = file_history.file_id AND lower(f.path) = lower(file_history.old_path))",
         [batch_id],
     )?;
+    let dest_dirs: HashSet<String> = {
+        let mut stmt = store.conn().prepare(
+            "SELECT evidence_json FROM actions WHERE batch_id = ?1 AND status = 'rolled_back'",
+        )?;
+        let rows: Vec<String> = stmt.query_map([batch_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        rows.into_iter()
+            .filter_map(|ev| {
+                let v: serde_json::Value = serde_json::from_str(&ev).ok()?;
+                if v.get("kind")?.as_str()? == "gather_files" {
+                    v.get("dest_dir")?.as_str().map(str::to_string)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+    if !dest_dirs.is_empty() {
+        let roots: Vec<String> = store.list_roots()?.into_iter().map(|r| r.path).collect();
+        for d in dest_dirs {
+            let strictly_inside = roots.iter().any(|r| !same_path(&d, r) && path_is_within(&d, r, false));
+            if strictly_inside && Path::new(&d).is_dir() {
+                let _ = std::fs::remove_dir(&d);
+            }
+        }
+    }
     Ok(())
 }
 
-/// The (collection id, location id, step kind, destination) of each executed step of a batch.
-fn executed_steps(store: &SqliteStore, batch_id: &str) -> Result<Vec<(String, String, String, String)>> {
-    let mut stmt = store
-        .conn()
-        .prepare("SELECT evidence_json, COALESCE(to_path, '') FROM actions WHERE batch_id = ?1 AND status = 'executed' ORDER BY step")?;
-    let rows: Vec<(String, String)> = stmt.query_map([batch_id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+struct ExecutedStep {
+    collection_id: String,
+    location_id: String,
+    kind: String,
+    to: String,
+    file_id: Option<String>,
+    set_fingerprint: Option<String>,
+    project: Option<String>,
+    dest_dir: Option<String>,
+}
+
+/// Metadata of each executed step of a batch.
+fn executed_steps(store: &SqliteStore, batch_id: &str) -> Result<Vec<ExecutedStep>> {
+    let mut stmt = store.conn().prepare(
+        "SELECT evidence_json, COALESCE(to_path, ''), file_id FROM actions
+         WHERE batch_id = ?1 AND status = 'executed' ORDER BY step",
+    )?;
+    let rows: Vec<(String, String, Option<String>)> =
+        stmt.query_map([batch_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
     Ok(rows
         .into_iter()
-        .filter_map(|(ev, to)| {
+        .filter_map(|(ev, to, file_id)| {
             let v: serde_json::Value = serde_json::from_str(&ev).ok()?;
             let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
-            Some((s("collection_id")?, s("location_id")?, s("kind")?, to))
+            Some(ExecutedStep {
+                collection_id: s("collection_id")?,
+                location_id: s("location_id")?,
+                kind: s("kind")?,
+                to,
+                file_id,
+                set_fingerprint: s("set_fingerprint"),
+                project: s("project"),
+                dest_dir: s("dest_dir"),
+            })
         })
         .collect())
 }
 
+#[derive(Default)]
+struct GatheredDest {
+    project_name: String,
+    set_fingerprint: String,
+    volume_id: String,
+    files: i64,
+    bytes: i64,
+    newest_mtime: i64,
+}
+
 /// The saved project follows the plan at once, before the next recognition pass: the home's
-/// location moves with it, and copies that went to quarantine, versions or material stop being
-/// separate locations (they are inside the home now, or gone). The next pass confirms it: the
-/// moves changed the catalog, so the context watch re-recognises.
+/// location moves with it, copies that went to quarantine/versions/material stop being separate
+/// locations, and gathered design-set members leave `collection_members`, register the destination
+/// folder as a protected design project, and learn their subject so new arrivals stay recognised.
 fn follow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     let steps = executed_steps(store, batch_id)?;
+    let run_volume_id: Option<String> = store
+        .conn()
+        .query_row("SELECT volume_id FROM project_plan_runs WHERE batch_id = ?1", [batch_id], |r| r.get(0))
+        .optional()?;
+    let mut learned: HashSet<(String, String)> = HashSet::new();
+    let mut gathered: BTreeMap<(String, String), GatheredDest> = BTreeMap::new();
     let tx = store.conn().unchecked_transaction()?;
-    // A copy moved aside and then handled has two steps; deleting it twice is harmless.
-    for (_, loc, _, _) in steps.iter().filter(|s| s.2 != "move_home") {
-        tx.execute("DELETE FROM collection_locations WHERE id = ?1", [loc])?;
+    for st in &steps {
+        if st.kind == "gather_files" {
+            if let Some(fid) = &st.file_id {
+                let file_meta: Option<(String, i64, i64)> = tx
+                    .query_row("SELECT volume_id, size, mtime FROM files WHERE id = ?1", [fid], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })
+                    .optional()?;
+                tx.execute(
+                    "DELETE FROM collection_members WHERE collection_id = ?1 AND file_id = ?2",
+                    params![st.collection_id, fid],
+                )?;
+                if let Some(dest) = &st.dest_dir {
+                    let e = gathered.entry((st.collection_id.clone(), dest.clone())).or_default();
+                    if e.project_name.is_empty() {
+                        e.project_name = st.project.clone().unwrap_or_else(|| leaf(dest).to_string());
+                        e.set_fingerprint = st
+                            .set_fingerprint
+                            .clone()
+                            .unwrap_or_else(|| super::sets::set_fingerprint(&e.project_name));
+                    }
+                    if let Some((vol, size, mtime)) = file_meta {
+                        if e.volume_id.is_empty() {
+                            e.volume_id = vol;
+                        }
+                        e.files += 1;
+                        e.bytes += size;
+                        e.newest_mtime = e.newest_mtime.max(mtime);
+                    } else {
+                        if e.volume_id.is_empty()
+                            && let Some(rv) = &run_volume_id
+                        {
+                            e.volume_id = rv.clone();
+                        }
+                        e.files += 1;
+                    }
+                }
+            }
+            if let (Some(fp), Some(proj)) = (&st.set_fingerprint, &st.project) {
+                learned.insert((fp.clone(), proj.clone()));
+            }
+        } else if st.kind != "move_home" {
+            tx.execute("DELETE FROM collection_locations WHERE id = ?1", [&st.location_id])?;
+        }
     }
-    for (_, loc, _, to) in steps.iter().filter(|s| s.2 == "move_home") {
-        tx.execute("UPDATE collection_locations SET root_path = ?1 WHERE id = ?2", params![to, loc])?;
+    let at = now_ms();
+    for ((cid, dest_dir), g) in gathered {
+        if g.volume_id.is_empty() {
+            continue;
+        }
+        let already_protected: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM collection_locations WHERE volume_id = ?1 AND lower(root_path) = lower(?2))",
+            params![g.volume_id, dest_dir],
+            |r| r.get(0),
+        )?;
+        if already_protected {
+            continue;
+        }
+        let remaining: i64 =
+            tx.query_row("SELECT COUNT(*) FROM collection_members WHERE collection_id = ?1", [&cid], |r| r.get(0))?;
+        let target_cid = if remaining == 0 {
+            tx.execute(
+                "UPDATE collections SET kind = 'project', project_kind = 'design', state = 'confirmed', confidence = MAX(confidence, 0.90)
+                 WHERE id = ?1",
+                [&cid],
+            )?;
+            cid
+        } else {
+            let new_cid = new_id();
+            tx.execute(
+                "INSERT INTO collections (id, kind, name, project_kind, confidence, state, evidence_json, sub_projects_json, computed_at, plan_state, fingerprint)
+                 VALUES (?1, 'project', ?2, 'design', 0.90, 'confirmed', '[\"confirmed design project\"]', '[]', ?3, NULL, NULL)",
+                params![new_cid, g.project_name, at],
+            )?;
+            new_cid
+        };
+        tx.execute(
+            "INSERT INTO collection_locations (id, collection_id, volume_id, root_path, relationship, files, bytes,
+                                               newest_mtime, shared_files, compared_by, is_repo, fingerprint, keep_here)
+             VALUES (?1, ?2, ?3, ?4, 'home', ?5, ?6, ?7, ?5, 'name', 0, ?8, 0)
+             ON CONFLICT(volume_id, root_path) DO NOTHING",
+            params![new_id(), target_cid, g.volume_id, dest_dir, g.files, g.bytes, g.newest_mtime, g.set_fingerprint],
+        )?;
+    }
+    for st in steps.iter().filter(|s| s.kind == "move_home") {
+        tx.execute("UPDATE collection_locations SET root_path = ?1 WHERE id = ?2", params![st.to, st.location_id])?;
+    }
+    for (fp, proj) in learned {
+        tx.execute(
+            "INSERT INTO context_decisions (id, kind, fingerprint_a, fingerprint_b, value, at)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5)",
+            params![new_id(), DecisionKind::LearnedSubject.as_str(), fp, format!("design:{proj}"), at],
+        )?;
     }
     tx.commit()?;
     Ok(())
@@ -963,6 +1420,9 @@ fn summarise(steps: &[PlanStep], home_after: &str) -> String {
     }
     if n(StepKind::ToMaterial) > 0 {
         parts.push(format!("{} brought in", plural(n(StepKind::ToMaterial), "folder of material", "folders of material")));
+    }
+    if n(StepKind::GatherFiles) > 0 {
+        parts.push(format!("brings matching files into {home_after}"));
     }
     let mut s = parts.join(", ");
     if let Some(first) = s.get_mut(0..1) {

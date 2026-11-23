@@ -398,6 +398,19 @@ pub fn rebase_volume_paths(
             tx.execute("UPDATE collection_locations SET root_path = ?2 WHERE id = ?1", params![id, nr])?;
         }
     }
+    let members: Vec<(String, String, String)> = {
+        let mut stmt = tx.prepare("SELECT collection_id, file_id, path FROM collection_members WHERE volume_id = ?1")?;
+        let rows = stmt.query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (cid, fid, path) in members {
+        if let Some(np) = rebased(&path, old_mount, new_mount, case_sensitive) {
+            tx.execute(
+                "UPDATE collection_members SET path = ?3 WHERE collection_id = ?1 AND file_id = ?2",
+                params![cid, fid, np],
+            )?;
+        }
+    }
     let hist: Vec<(String, String, String)> = {
         let mut stmt = tx.prepare(
             "SELECT id, old_path, new_path FROM file_history
