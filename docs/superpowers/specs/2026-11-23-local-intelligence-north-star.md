@@ -20,12 +20,12 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | Vision | Aegis today | Gap / decision |
 |---|---|---|
 | Open files stay the owner's; metadata in an embedded database | Files stay where the owner keeps them; SQLite store | Fits as is |
-| Metadata encrypted at rest | Not encrypted yet | **Owner decision D1 approved (2026-11-23)** (§4): SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted store + DPAPI/TPM engine key (`R2`) + offline 24-word/hex recovery key; lands before embeddings/search |
+| Metadata encrypted at rest | SQLCipher AES-256 (`libtomcrypt`) + DPAPI key sealing (`R2`) + 24-word/64-hex recovery (`merged 2026-11-24`) | **Owner decision D1 approved (2026-11-23)** (§4) and landed in Plan 6A (`feature/d1-encryption-and-vec`, merged 2026-11-24) before embeddings/search |
 | Key held by the OS security hardware, opened by biometrics | n/a | Reshaped (rule R2): the engine's key is sealed to the PC; biometrics only open sensitive views |
 | Fast file tracking | USN journal read without admin, live index, catalog | Fits. Direct MFT parsing is avoided (R1) |
 | Background content parsing | Content reader | Fits |
 | Local models, NPU/GPU/CPU | `aegis-embed` crate (not wired in) | On demand only (R4); CPU must work, NPU/GPU are a bonus |
-| Vector index | None | Comes with the embeddings work (sqlite-vec or similar; decided in that design) |
+| Vector index | `sqlite-vec` 0.1.9 registered inside encrypted store (`chunk_embeddings_meta` ready; virtual tables land in Plan 6B) | Comes with the embeddings work (Plan 6B wires local embeddings + FTS5/vector hybrid search inside encrypted `aegis.db`) |
 | Low-priority worker queue, idle- and power-gated | Scheduler thread below normal priority, idle-gated watches, single-flight jobs | Fits. Extend with "on AC power" gating for heavy jobs |
 | Revert buffer for every automatic change | Batches, `file_history`, rollback, 30-day quarantine | Fits. Already the core of Aegis |
 
@@ -34,7 +34,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | # | Capability (vision §) | Builds on | Order |
 |---|---|---|---|
 | 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **done** (Plans 1–5 merged 2026-11-24: projects, plans, sets/photo subjects, put back together, §16 step 7 modules & external drive plans) |
-| 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **next active**: D1 encryption + embeddings & hybrid search |
+| 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **in progress**: Plan 6A (D1 encryption & `sqlite-vec` 0.1.9) merged 2026-11-24; Plan 6B (local embeddings & hybrid search) next |
 | 3 | Local RAG engine (3.1) | hybrid search | after 2 |
 | 4 | Dead file detection (4.2) | janitor, duplicates, Project 4 System care | with Project 4 |
 | 5 | Workspace health score (4.4) | space recorder, duplicates, self-check | with Project 4; storage and integrity first, taxonomy later |

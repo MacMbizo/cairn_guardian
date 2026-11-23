@@ -168,8 +168,7 @@ fn deliver(app: &AppHandle, r: &Reminder) {
 pub fn backup_now(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
-        let db_path = app.state::<AppState>().db_path.clone();
-        let Ok(mut store) = SqliteStore::open(&db_path) else { return };
+        let Ok(mut store) = app.state::<AppState>().open_store() else { return };
         if let Ok(Some((id, _, true))) = aegis_core::backup::backup_volume(store.conn()) {
             crate::watch::run_topup_job(&app, &mut store, &id, aegis_core::backup::topup::TopUpAuthority::UserApproved);
         }
@@ -280,7 +279,7 @@ fn push_fs_event(ev: notify::Event, batcher: &mut ChangeBatcher, tripwire: &mut 
 /// Live index and tripwire. Light work only.
 fn event_loop(app: AppHandle, rx: Receiver<EngineMsg>, sched: Sender<()>) {
     let state = app.state::<AppState>();
-    let Ok(mut store) = SqliteStore::open(&state.db_path) else { return };
+    let Ok(mut store) = state.open_store() else { return };
     let mut roots = enabled_roots(&store);
     let mut watcher = start_watcher(&app, &roots);
     let mut watch_error: Option<String> = None;
@@ -387,7 +386,7 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
         lower_priority();
         let state = app.state::<AppState>();
         let db_path = state.db_path.clone();
-        let mut store = match SqliteStore::open(&db_path) {
+        let mut store = match state.open_store() {
             Ok(s) => s,
             Err(e) => {
                 let _ = app.emit(AEGIS_EVENT, AegisEvent::JobFailed { v: 1, job: "engine".into(), message: e.to_string() });

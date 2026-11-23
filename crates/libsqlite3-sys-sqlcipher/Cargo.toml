@@ -1,0 +1,36 @@
+[package]
+name = "libsqlite3-sys"
+version = "0.40.0"
+edition = "2024"
+rust-version = "1.88.0"
+links = "sqlite3"
+license = "MIT"
+build = "build.rs"
+description = "Bundled SQLCipher (LibTomCrypt) replacement for libsqlite3-sys on Windows/Unix without OpenSSL"
+
+[lib]
+name = "libsqlite3_sys"
+path = "src/lib.rs"
+
+[features]
+default = ["min_sqlite_version_3_45_3"]
+buildtime_bindgen = []
+bundled = ["bundled_bindings"]
+bundled-sqlcipher = ["bundled"]
+bundled-sqlcipher-vendored-openssl = ["bundled-sqlcipher"]
+bundled-windows = ["bundled"]
+bundled_bindings = []
+column_metadata = []
+in_gecko = []
+loadable_extension = []
+min_sqlite_version_3_45_3 = []
+preupdate_hook = []
+session = ["preupdate_hook"]
+sqlcipher = []
+unlock_notify = []
+wasm32-wasi-vfs = []
+with-asan = []
+
+[build-dependencies]
+cc = "1.0"
+sqlcipher-src = "=420.0.0"

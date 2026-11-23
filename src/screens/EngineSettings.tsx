@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Keyboard, MoonStar, Power, Undo2 } from "lucide-react";
-import { aegis, errorMessage } from "../bindings/client";
+import { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Copy, Eye, EyeOff, KeyRound, Keyboard, Lock, MoonStar, Power, ShieldAlert, ShieldCheck, Undo2, Unlock } from "lucide-react";
+import { aegis, errorMessage, type RecoveryKeyBundle, type VaultStatus } from "../bindings/client";
 import { DAY_NAMES } from "./ThisWeek";
 import type { EngineData } from "./useEngine";
 
@@ -17,15 +17,160 @@ function shortcutText(accel: string): string {
   return accel.replace("CommandOrControl", "Ctrl").replaceAll("+", " + ");
 }
 
+function pickSpotIndices(): [number, number] {
+  const first = 1 + Math.floor(Math.random() * 12);
+  const second = 13 + Math.floor(Math.random() * 12);
+  return [first, second];
+}
+
 /** Settings for the always-on engine (spec §10). */
-export function EngineSettings({ data }: { data: EngineData }) {
+export function EngineSettings({
+  data,
+  vaultStatus: externalVault,
+  onVaultChange,
+}: {
+  data: EngineData;
+  vaultStatus?: VaultStatus | null;
+  onVaultChange?: () => Promise<unknown> | unknown;
+}) {
   const { status, preview, reload } = data;
   const [msg, setMsg] = useState<string | null>(null);
   const [shortcut, setShortcut] = useState("");
+  const [localVault, setLocalVault] = useState<VaultStatus | null>(externalVault ?? null);
+  const [bundle, setBundle] = useState<RecoveryKeyBundle | null>(null);
+  const [showHex, setShowHex] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [spotIndices, setSpotIndices] = useState<[number, number]>(() => pickSpotIndices());
+  const [spotWordA, setSpotWordA] = useState("");
+  const [spotWordB, setSpotWordB] = useState("");
+  const [vaultBusy, setVaultBusy] = useState(false);
 
   useEffect(() => {
     if (status) setShortcut(status.shortcut);
   }, [status]);
+
+  useEffect(() => {
+    if (externalVault !== undefined) {
+      setLocalVault(externalVault);
+    }
+  }, [externalVault]);
+
+  const refreshLocalVault = useCallback(async () => {
+    if (preview) return;
+    try {
+      const next = await aegis.vault.status();
+      setLocalVault(next);
+    } catch (e) {
+      setMsg(errorMessage(e));
+    }
+  }, [preview]);
+
+  useEffect(() => {
+    if (externalVault === undefined && !preview) {
+      void refreshLocalVault();
+    }
+  }, [externalVault, preview, refreshLocalVault]);
+
+  useEffect(() => {
+    if (preview || !localVault || localVault.locked || localVault.recovery_confirmed || bundle) {
+      return;
+    }
+    let cancelled = false;
+    void aegis.vault
+      .getInitialRecoveryKey()
+      .then((res) => {
+        if (!cancelled) {
+          setBundle(res);
+          setSpotIndices(pickSpotIndices());
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [preview, localVault, bundle]);
+
+  const syncVault = async (next: VaultStatus, feedback?: string) => {
+    setLocalVault(next);
+    if (feedback) setMsg(feedback);
+    await onVaultChange?.();
+  };
+
+  const handleCopyBundle = async () => {
+    if (!bundle) return;
+    const text = `Aegis Guardian Recovery Key (${bundle.fingerprint})\n${bundle.words.map((w, i) => `${i + 1}. ${w}`).join(" ")}\nHex: ${bundle.hex}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setMsg("Clipboard copy failed; record the 24 words manually.");
+    }
+  };
+
+  const handleConfirmBackup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (preview) {
+      setMsg("Preview only: run the desktop app to make changes.");
+      return;
+    }
+    setVaultBusy(true);
+    try {
+      const updated = await aegis.vault.confirmRecoveryBackup([
+        [spotIndices[0], spotWordA.trim()],
+        [spotIndices[1], spotWordB.trim()],
+      ]);
+      setBundle(null);
+      setSpotWordA("");
+      setSpotWordB("");
+      setShowHex(false);
+      await syncVault(updated, "Offline recovery key backup verified and confirmed.");
+    } catch (e2) {
+      setMsg(errorMessage(e2));
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const handleRevealKey = async () => {
+    if (preview) {
+      setMsg("Preview only: run the desktop app to reveal recovery keys.");
+      return;
+    }
+    setVaultBusy(true);
+    try {
+      const res = await aegis.vault.revealRecoveryKey();
+      setBundle(res);
+      setMsg("Recovery key revealed after Windows Security verification. Hide it once recorded.");
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const handleToggleSensitive = async (unlock: boolean) => {
+    if (preview) {
+      setMsg("Preview only: run the desktop app to unlock sensitive previews.");
+      return;
+    }
+    setVaultBusy(true);
+    try {
+      const updated = unlock
+        ? await aegis.vault.unlockSensitive()
+        : await aegis.vault.lockSensitive();
+      await syncVault(
+        updated,
+        unlock
+          ? "Sensitive file previews unlocked for 15 minutes."
+          : "Sensitive file previews hidden."
+      );
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setVaultBusy(false);
+    }
+  };
 
   const run = async (fn: () => Promise<string | void>) => {
     if (preview) {
@@ -152,6 +297,256 @@ export function EngineSettings({ data }: { data: EngineData }) {
             </>
           )}
         </div>
+      </section>
+
+      <section aria-label="Security & Encryption" className={card}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Security &amp; Encryption
+          </h2>
+          {localVault && (
+            <span
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${
+                localVault.recovery_confirmed
+                  ? "bg-emerald-950/70 text-emerald-300 border border-emerald-800/60"
+                  : "bg-amber-950/70 text-amber-300 border border-amber-800/60"
+              }`}
+            >
+              {localVault.recovery_confirmed ? (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Recovery backup confirmed
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" /> Backup not confirmed
+                </>
+              )}
+            </span>
+          )}
+        </div>
+
+        {preview || !localVault ? (
+          <p className="text-xs text-slate-400">
+            SQLCipher whole-store encryption and DPAPI key sealing run in the desktop runtime.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs sm:grid-cols-2">
+              <div>
+                <span className="text-slate-400">Database cipher</span>
+                <p className="font-mono text-slate-200">
+                  {localVault.cipher_version} ({localVault.cipher_provider})
+                </p>
+              </div>
+              <div>
+                <span className="text-slate-400">Vector engine</span>
+                <p className="font-mono text-slate-200">sqlite-vec {localVault.vec_version}</p>
+              </div>
+              <div>
+                <span className="text-slate-400">Key fingerprint</span>
+                <p className="font-mono text-slate-200">{localVault.key_fingerprint ?? "—"}</p>
+              </div>
+              <div>
+                <span className="text-slate-400">Unattended startup</span>
+                <p className="text-slate-200">Sealed with Windows DPAPI</p>
+              </div>
+            </div>
+
+            {!localVault.recovery_confirmed && (
+              <div className="rounded-lg border border-amber-800/60 bg-amber-950/30 p-3 text-xs">
+                <p className="font-semibold text-amber-200">
+                  Save your 24-word offline recovery key
+                </p>
+                <p className="mt-1 text-amber-100/80">
+                  Write these words down offline or save them in a password manager. Aegis unlocks unattended on this Windows account via DPAPI, so you only need this phrase if you move your database or reset Windows.
+                </p>
+
+                {bundle ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {bundle.words.map((word, idx) => (
+                        <div
+                          key={`${idx}-${word}`}
+                          className="rounded border border-slate-800 bg-slate-950/90 px-2 py-1 font-mono text-xs text-slate-100"
+                        >
+                          <span className="mr-1.5 text-slate-500">{idx + 1}.</span>
+                          {word}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyBundle()}
+                        className={btn}
+                      >
+                        <Copy className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+                        {copied ? "Copied!" : "Copy phrase & hex"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowHex((v) => !v)}
+                        className={btn}
+                      >
+                        {showHex ? "Hide 64-hex key" : "Show 64-hex key"}
+                      </button>
+                    </div>
+
+                    {showHex && (
+                      <p className="break-all rounded border border-slate-800 bg-slate-950 p-2 font-mono text-xs text-slate-300">
+                        {bundle.hex}
+                      </p>
+                    )}
+
+                    <form onSubmit={(e) => void handleConfirmBackup(e)} className="space-y-2 border-t border-amber-800/40 pt-3">
+                      <p className="font-medium text-slate-200">
+                        Verify offline backup — enter two words from the grid above:
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1.5">
+                          <span className="text-slate-300">Word #{spotIndices[0]}</span>
+                          <input
+                            required
+                            value={spotWordA}
+                            onChange={(e) => setSpotWordA(e.target.value)}
+                            placeholder={`word #${spotIndices[0]}`}
+                            className="w-32 rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1.5">
+                          <span className="text-slate-300">Word #{spotIndices[1]}</span>
+                          <input
+                            required
+                            value={spotWordB}
+                            onChange={(e) => setSpotWordB(e.target.value)}
+                            placeholder={`word #${spotIndices[1]}`}
+                            className="w-32 rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          disabled={vaultBusy || !spotWordA.trim() || !spotWordB.trim()}
+                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                        >
+                          Confirm offline backup
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={vaultBusy}
+                    onClick={() => void aegis.vault.getInitialRecoveryKey().then(setBundle).catch((e) => setMsg(errorMessage(e)))}
+                    className={`${btn} mt-2`}
+                  >
+                    Load 24-word recovery key
+                  </button>
+                )}
+              </div>
+            )}
+
+            {localVault.recovery_confirmed && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {!bundle ? (
+                    <button
+                      type="button"
+                      disabled={vaultBusy}
+                      onClick={() => void handleRevealKey()}
+                      className={btn}
+                    >
+                      <KeyRound className="mr-1.5 inline h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                      Reveal 24-word recovery key
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyBundle()}
+                        className={btn}
+                      >
+                        <Copy className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+                        {copied ? "Copied!" : "Copy phrase & hex"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBundle(null);
+                          setShowHex(false);
+                        }}
+                        className={btn}
+                      >
+                        Hide recovery key
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {bundle && (
+                  <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {bundle.words.map((word, idx) => (
+                        <div
+                          key={`${idx}-${word}`}
+                          className="rounded border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
+                        >
+                          <span className="mr-1.5 text-slate-500">{idx + 1}.</span>
+                          {word}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="break-all rounded border border-slate-800 bg-slate-950 p-2 font-mono text-xs text-slate-300">
+                      Hex: {bundle.hex}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3">
+              <div className="text-xs">
+                <p className="font-medium text-slate-200">
+                  Sensitive file previews:{" "}
+                  <span className={localVault.sensitive_unlocked ? "text-emerald-300" : "text-slate-400"}>
+                    {localVault.sensitive_unlocked
+                      ? `Unlocked${
+                          localVault.sensitive_expires_at
+                            ? ` until ${new Date(localVault.sensitive_expires_at).toLocaleTimeString()}`
+                            : ""
+                        }`
+                      : "Hidden (text snippets masked)"}
+                  </span>
+                </p>
+                <p className="text-slate-400">
+                  Windows verification is required to view extracted text snippets of files marked sensitive.
+                </p>
+              </div>
+              {localVault.sensitive_unlocked ? (
+                <button
+                  type="button"
+                  disabled={vaultBusy}
+                  onClick={() => void handleToggleSensitive(false)}
+                  className={btn}
+                >
+                  <Lock className="mr-1.5 inline h-3.5 w-3.5" aria-hidden="true" />
+                  <EyeOff className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Lock sensitive previews
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={vaultBusy}
+                  onClick={() => void handleToggleSensitive(true)}
+                  className={btn}
+                >
+                  <Unlock className="mr-1.5 inline h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                  <Eye className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Unlock sensitive previews (15 min)
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       <section aria-label="Reminders moved to your note" className={card}>

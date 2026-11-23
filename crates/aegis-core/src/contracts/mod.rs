@@ -873,6 +873,33 @@ pub enum AegisEvent {
     },
 }
 
+/// Encrypted vault status and timed sensitive-view state surfaced to Settings and Unlock UI (`D1`, `R2`, `R7`).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct VaultStatus {
+    pub locked: bool,
+    pub encrypted: bool,
+    pub cipher_version: String,
+    pub cipher_provider: String,
+    pub vec_version: String,
+    pub key_fingerprint: Option<String>,
+    pub recovery_confirmed: bool,
+    pub migrated_from_plaintext: bool,
+    pub sensitive_unlocked: bool,
+    #[ts(type = "number | null")]
+    pub sensitive_expires_at: Option<i64>,
+    pub lock_reason: Option<String>,
+}
+
+/// 24-word BIP-39 phrase and 64-hex offline recovery key displayed for owner backup (`D1`).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RecoveryKeyBundle {
+    pub words: Vec<String>,
+    pub hex: String,
+    pub fingerprint: String,
+}
+
 /// Generates TypeScript bindings and barrel file `index.ts` into `out_dir`.
 pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(out_dir)?;
@@ -963,6 +990,8 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <AuditEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <DoctorReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AegisEvent as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <VaultStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <RecoveryKeyBundle as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
 
     let mut stems = Vec::new();
     for entry in std::fs::read_dir(out_dir)? {

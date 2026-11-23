@@ -4,6 +4,7 @@ pub mod context;
 pub mod drives;
 pub mod engine;
 pub mod filing;
+pub mod vault;
 
 use aegis_core::contracts::{
     ActionItem, ActionStatus, AegisEvent, AtomicUnit, AuditEntry, ConflictResolutionChoice,
@@ -20,7 +21,10 @@ use aegis_core::db::actions::{
     rollback_batch, simulate_batch,
 };
 use aegis_core::db::audit::{append_audit, list_audit};
-use aegis_core::db::files::{get_file_detail, search_fts, set_file_lifecycle};
+use aegis_core::db::crypto::DbKey;
+use aegis_core::db::files::{
+    get_file_detail_with_options, search_fts_with_options, set_file_lifecycle, set_file_sensitivity,
+};
 use aegis_core::doctor::run_doctor;
 use aegis_core::error::{AegisError, IpcError};
 use aegis_core::quarantine::{list_quarantine, purge_entries, restore_entries, space_summary};
@@ -38,8 +42,17 @@ pub const AEGIS_EVENT: &str = "aegis://event";
 /// scan therefore cannot freeze the window. The single SQLite writer still serializes them.
 pub struct AppState {
     pub store: Mutex<SqliteStore>,
-    /// Background jobs (watcher, catalog, top-up) open their own connection to this file.
+    /// Background jobs (watcher, catalog, top-up) open their own encrypted connection to this file.
     pub db_path: PathBuf,
+    /// In-memory database key held once DPAPI-unsealed or unlocked via recovery phrase.
+    pub db_key: Mutex<Option<std::sync::Arc<DbKey>>>,
+    pub vault_locked: std::sync::atomic::AtomicBool,
+    pub vault_lock_reason: Mutex<Option<String>>,
+    pub vault_migrated: std::sync::atomic::AtomicBool,
+    /// Epoch ms until which sensitive file previews are unlocked (`0` = locked).
+    pub sensitive_unlocked_until: std::sync::atomic::AtomicI64,
+    /// Receiver parked when startup finds a locked vault; consumed once unlocked.
+    pub pending_engine_rx: Mutex<Option<std::sync::mpsc::Receiver<crate::engine_host::EngineMsg>>>,
     /// Set to pause the running top-up; it stops cleanly and resumes next time.
     pub topup_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub topup_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -53,6 +66,29 @@ pub struct AppState {
     /// Wakes the engine thread and carries file-system events to it.
     pub engine_tx: Mutex<std::sync::mpsc::Sender<crate::engine_host::EngineMsg>>,
     pub tray_items: Mutex<Option<crate::shell::TrayItems>>,
+}
+
+impl AppState {
+    /// Opens an independent SQLCipher-encrypted connection for background workers/commands.
+    pub fn open_store(&self) -> aegis_core::error::Result<SqliteStore> {
+        if self.vault_locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(AegisError::VaultLocked(
+                "Vault is locked — enter your 24-word recovery key.".into(),
+            ));
+        }
+        let key = self
+            .db_key
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .ok_or_else(|| AegisError::Vault("Database key unavailable.".into()))?;
+        SqliteStore::open_encrypted(&self.db_path, &key)
+    }
+
+    pub fn is_sensitive_unlocked(&self) -> bool {
+        !self.vault_locked.load(std::sync::atomic::Ordering::SeqCst)
+            && self.sensitive_unlocked_until.load(std::sync::atomic::Ordering::SeqCst) > aegis_core::now_ms()
+    }
 }
 
 /// A set of ids with a job in flight. `try_start` hands out a guard that removes the id
@@ -119,6 +155,14 @@ mod in_flight_tests {
 pub(crate) fn lock_store<'r>(
     state: &'r State<'_, AppState>,
 ) -> Result<std::sync::MutexGuard<'r, SqliteStore>, IpcError> {
+    if state.vault_locked.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(IpcError {
+            code: "vault_locked".into(),
+            message: "Enter your 24-word recovery key to unlock the Aegis database.".into(),
+            retryable: true,
+            remediation: None,
+        });
+    }
     state.store.lock().map_err(|_| IpcError {
         code: "database_error".into(),
         message: "Failed to acquire SQLite store lock".into(),
@@ -271,19 +315,22 @@ pub fn search_query(
     filters: Option<SearchFilters>,
     limit: Option<usize>,
 ) -> Result<SearchPage, IpcError> {
+    let reveal = state.is_sensitive_unlocked();
     let store = lock_store(&state)?;
-    map_err(search_fts(
+    map_err(search_fts_with_options(
         store.conn(),
         &q,
         &filters.unwrap_or_default(),
         limit.unwrap_or(20),
+        reveal,
     ))
 }
 
 #[tauri::command(async)]
 pub fn file_get(state: State<'_, AppState>, id: String) -> Result<FileDetail, IpcError> {
+    let reveal = state.is_sensitive_unlocked();
     let store = lock_store(&state)?;
-    map_err(get_file_detail(store.conn(), &id))
+    map_err(get_file_detail_with_options(store.conn(), &id, reveal))
 }
 
 #[tauri::command(async)]
@@ -294,6 +341,16 @@ pub fn file_set_lifecycle(
 ) -> Result<(), IpcError> {
     let store = lock_store(&state)?;
     map_err(set_file_lifecycle(store.conn(), &id, lifecycle))
+}
+
+#[tauri::command(async)]
+pub fn file_set_sensitivity(
+    state: State<'_, AppState>,
+    id: String,
+    sensitivity: String,
+) -> Result<(), IpcError> {
+    let store = lock_store(&state)?;
+    map_err(set_file_sensitivity(store.conn(), &id, &sensitivity))
 }
 
 #[tauri::command(async)]

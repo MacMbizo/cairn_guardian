@@ -15,7 +15,7 @@ use std::path::Path;
 use tauri::{AppHandle, State};
 
 fn own_store(state: &State<'_, AppState>) -> Result<SqliteStore, IpcError> {
-    map_err(SqliteStore::open(&state.db_path))
+    map_err(state.open_store())
 }
 
 #[tauri::command(async)]

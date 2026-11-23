@@ -2,14 +2,36 @@
 
 pub mod actions;
 pub mod audit;
+pub mod crypto;
 pub mod files;
 
 use crate::contracts::{IndexStats, RootConfig, VolumeInfo};
-use crate::error::Result;
+use crate::error::{AegisError, Result};
 use crate::now_ms;
 use crate::scanner::os_adapter::{disk_space_for_mount, inspect_volume_for_path};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::path::Path;
+use std::sync::Once;
+
+static EXT_INIT: Once = Once::new();
+
+/// Registers statically compiled extensions (`sqlite-vec`) on every SQLite/SQLCipher connection.
+pub fn register_extensions() {
+    EXT_INIT.call_once(|| {
+        type ExtFn = unsafe extern "C" fn(
+            *mut rusqlite::ffi::sqlite3,
+            *mut *mut core::ffi::c_char,
+            *const rusqlite::ffi::sqlite3_api_routines,
+        ) -> core::ffi::c_int;
+        // SAFETY: `sqlite_vec::sqlite3_vec_init` matches SQLite's auto-extension entrypoint signature
+        // when compiled with `SQLITE_CORE`.
+        unsafe {
+            let fn_ptr: ExtFn =
+                core::mem::transmute::<*const (), ExtFn>(sqlite_vec::sqlite3_vec_init as *const ());
+            rusqlite::ffi::sqlite3_auto_extension(Some(fn_ptr));
+        }
+    });
+}
 
 /// Ordered schema migrations: (version, name, SQL). Each applies in its own transaction.
 const MIGRATIONS: &[(i64, &str, &str)] = &[
@@ -21,6 +43,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (6, "0006_context", include_str!("../../migrations/0006_context.sql")),
     (7, "0007_project_plans", include_str!("../../migrations/0007_project_plans.sql")),
     (8, "0008_sets", include_str!("../../migrations/0008_sets.sql")),
+    (9, "0009_vault_and_vec_meta", include_str!("../../migrations/0009_vault_and_vec_meta.sql")),
 ];
 
 /// Where the installed app keeps its database: `%LOCALAPPDATA%\com.aegis.guardian\aegis.db`.
@@ -51,22 +74,49 @@ pub fn refuse_live_database(db: &Path, live: Option<&Path>) -> Result<()> {
 pub struct SqliteStore {
     conn: Connection,
     in_memory: bool,
+    encrypted: bool,
 }
 
 impl SqliteStore {
     /// Opens or creates an on-disk SQLite database with mandatory PRAGMAs and migrations.
     pub fn open(path: &Path) -> Result<Self> {
+        register_extensions();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
-        Self::init_connection(conn, false)
+        Self::init_connection(conn, false, false)
+    }
+
+    /// Opens an encrypted SQLCipher connection WITHOUT applying PRAGMAs or migrations (for
+    /// verification during migration or raw checks).
+    pub(crate) fn open_encrypted_raw(path: &Path, key: &crypto::DbKey) -> Result<Connection> {
+        register_extensions();
+        let conn = Connection::open(path)?;
+        let pragma = key.raw_key_pragma();
+        conn.execute_batch(pragma.as_str())?;
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
+            .map_err(|_| {
+                AegisError::Vault("Wrong encryption key or unreadable encrypted database.".into())
+            })?;
+        Ok(conn)
+    }
+
+    /// Opens or creates an encrypted on-disk SQLCipher database with `key`, verifying decryption
+    /// immediately before applying PRAGMAs and migrations.
+    pub fn open_encrypted(path: &Path, key: &crypto::DbKey) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Self::open_encrypted_raw(path, key)?;
+        Self::init_connection(conn, false, true)
     }
 
     /// Opens an isolated in-memory SQLite database for tests.
     pub fn open_in_memory() -> Result<Self> {
+        register_extensions();
         let conn = Connection::open_in_memory()?;
-        Self::init_connection(conn, true)
+        Self::init_connection(conn, true, false)
     }
 
     /// True when opened with [`SqliteStore::open_in_memory`] (test isolation checks).
@@ -74,7 +124,32 @@ impl SqliteStore {
         self.in_memory
     }
 
-    fn init_connection(conn: Connection, in_memory: bool) -> Result<Self> {
+    /// True when opened with [`SqliteStore::open_encrypted`].
+    pub fn is_encrypted(&self) -> bool {
+        self.encrypted
+    }
+
+    /// Returns `(cipher_version, cipher_provider, vec_version)`.
+    pub fn cipher_info(&self) -> Result<(String, String, String)> {
+        let vec_ver: String = self
+            .conn
+            .query_row("SELECT vec_version()", [], |r| r.get(0))
+            .unwrap_or_default();
+        if !self.encrypted {
+            return Ok((String::new(), String::new(), vec_ver));
+        }
+        let ver: String = self
+            .conn
+            .query_row("PRAGMA cipher_version", [], |r| r.get(0))
+            .unwrap_or_default();
+        let prov: String = self
+            .conn
+            .query_row("PRAGMA cipher_provider", [], |r| r.get(0))
+            .unwrap_or_default();
+        Ok((ver, prov, vec_ver))
+    }
+
+    fn init_connection(conn: Connection, in_memory: bool, encrypted: bool) -> Result<Self> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
@@ -83,7 +158,11 @@ impl SqliteStore {
              PRAGMA temp_store = MEMORY;
              PRAGMA cache_size = -16384;",
         )?;
-        let mut store = Self { conn, in_memory };
+        let mut store = Self {
+            conn,
+            in_memory,
+            encrypted,
+        };
         store.run_migrations()?;
         Ok(store)
     }

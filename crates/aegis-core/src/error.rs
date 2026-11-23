@@ -61,6 +61,12 @@ pub enum AegisError {
     #[error("rollback conflict detected on batch {0}")]
     RollbackConflict(String),
 
+    #[error("vault locked: {0}")]
+    VaultLocked(String),
+
+    #[error("vault error: {0}")]
+    Vault(String),
+
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
 
@@ -158,6 +164,18 @@ impl AegisError {
                 message: format!("External changes detected on batch {batch}"),
                 retryable: false,
                 remediation: Some("Resolve each conflict in the 3-way rollback dialog.".into()),
+            },
+            Self::VaultLocked(msg) => IpcError {
+                code: "vault_locked".into(),
+                message: msg.clone(),
+                retryable: true,
+                remediation: Some("Enter your 24-word recovery key to unlock the database.".into()),
+            },
+            Self::Vault(msg) => IpcError {
+                code: "vault_error".into(),
+                message: msg.clone(),
+                retryable: false,
+                remediation: None,
             },
             Self::Database(e) => IpcError {
                 code: "database_error".into(),

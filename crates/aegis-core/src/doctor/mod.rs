@@ -26,7 +26,8 @@ pub fn run_doctor(store: &mut SqliteStore, repair: bool) -> Result<DoctorReport>
             .map(|seq| format!("Inspect tampering starting at audit_log.seq = {seq}")),
     });
 
-    // 2. SQLite Integrity (quick_check + foreign_key_check)
+    // 2. SQLite Integrity (quick_check + foreign_key_check + cipher / sqlite-vec status)
+    let (cipher_ver, cipher_prov, vec_ver) = store.cipher_info().unwrap_or_default();
     let quick: String = store
         .conn()
         .query_row("PRAGMA quick_check", [], |r| r.get(0))?;
@@ -34,12 +35,17 @@ pub fn run_doctor(store: &mut SqliteStore, repair: bool) -> Result<DoctorReport>
         let mut fk_stmt = store.conn().prepare("PRAGMA foreign_key_check")?;
         fk_stmt.query_map([], |_| Ok(()))?.count()
     };
+    let enc_label = if !cipher_ver.is_empty() {
+        format!("encrypted=SQLCipher {cipher_ver} ({cipher_prov})")
+    } else {
+        "unencrypted".to_string()
+    };
     let sqlite_ok = quick.eq_ignore_ascii_case("ok") && fk_violations == 0;
     checks.push(DoctorCheckResult {
         check_id: 2,
         name: "SQLite Integrity".into(),
         passed: sqlite_ok,
-        details: format!("quick_check={quick}, fk_violations={fk_violations}"),
+        details: format!("quick_check={quick}, fk_violations={fk_violations}, {enc_label}"),
         repaired: false,
         remediation: (!sqlite_ok).then(|| "Restore DB backup or inspect corrupt tables.".into()),
     });
@@ -81,19 +87,20 @@ pub fn run_doctor(store: &mut SqliteStore, repair: bool) -> Result<DoctorReport>
         remediation: (!fts_passed).then(|| "Run doctor with repair=true to rebuild FTS5.".into()),
     });
 
-    // 4. Outbox / Qdrant Lag
+    // 4. Vector Store & Outbox
     let outbox_pending: i64 = store.conn().query_row(
         "SELECT COUNT(*) FROM outbox_events WHERE processed_at IS NULL",
         [],
         |r| r.get(0),
     )?;
+    let vec_label = if vec_ver.is_empty() { "unavailable" } else { vec_ver.as_str() };
     checks.push(DoctorCheckResult {
         check_id: 4,
-        name: "Outbox / Qdrant Lag".into(),
-        passed: true,
-        details: format!("{outbox_pending} pending vector outbox event(s)"),
+        name: "Vector Store & Outbox".into(),
+        passed: !vec_ver.is_empty(),
+        details: format!("sqlite-vec={vec_label}, {outbox_pending} pending vector outbox event(s)"),
         repaired: false,
-        remediation: None,
+        remediation: vec_ver.is_empty().then(|| "Check sqlite-vec SQLite auto-extension registration.".into()),
     });
 
     // 5. Quarantine Consistency

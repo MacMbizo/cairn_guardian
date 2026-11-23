@@ -46,8 +46,7 @@ fn backup_id(store: &SqliteStore) -> Result<String, IpcError> {
 /// Runs `job` on a background thread with its own connection; failures become `JobFailed`.
 fn background(app: AppHandle, name: &'static str, job: impl FnOnce(&AppHandle, &mut SqliteStore) -> aegis_core::error::Result<()> + Send + 'static) {
     std::thread::spawn(move || {
-        let db_path = app.state::<AppState>().db_path.clone();
-        let res = SqliteStore::open(&db_path).and_then(|mut store| job(&app, &mut store));
+        let res = app.state::<AppState>().open_store().and_then(|mut store| job(&app, &mut store));
         if let Err(e) = res {
             let _ = app.emit(AEGIS_EVENT, AegisEvent::JobFailed { v: 1, job: name.into(), message: e.to_string() });
         }

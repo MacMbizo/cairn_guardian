@@ -54,6 +54,7 @@ import type {
   LifecycleState,
   QuarantineEntry,
   QuarantineSpaceSummary,
+  RecoveryKeyBundle,
   RefilePlan,
   RollbackResult,
   RootConfig,
@@ -61,6 +62,7 @@ import type {
   SearchFilters,
   SearchPage,
   Simulation,
+  VaultStatus,
   VolumeInfo,
 } from "./index";
 
@@ -134,6 +136,8 @@ export const aegis = {
     get: (id: string) => call<FileDetail>("file_get", { id }),
     setLifecycle: (id: string, lifecycle: LifecycleState) =>
       call<void>("file_set_lifecycle", { id, lifecycle }),
+    setSensitivity: (id: string, sensitivity: string) =>
+      call<void>("file_set_sensitivity", { id, sensitivity }),
   },
   atomicUnit: {
     list: (volumeId?: string) =>
@@ -291,5 +295,17 @@ export const aegis = {
     tripwireWasMe: (folder: string) => call<void>("tripwire_was_me", { folder }),
     /** Folders whose backup the tripwire has locked. */
     tripwireLocks: () => call<string[]>("tripwire_locks"),
+  },
+  vault: {
+    status: () => call<VaultStatus>("vault_status"),
+    getInitialRecoveryKey: () =>
+      call<RecoveryKeyBundle>("vault_get_initial_recovery_key"),
+    confirmRecoveryBackup: (checks: [number, string][]) =>
+      call<VaultStatus>("vault_confirm_recovery_backup", { checks }),
+    revealRecoveryKey: () => call<RecoveryKeyBundle>("vault_reveal_recovery_key"),
+    unlockWithRecovery: (input: string) =>
+      call<VaultStatus>("vault_unlock_with_recovery", { input }),
+    unlockSensitive: () => call<VaultStatus>("vault_unlock_sensitive"),
+    lockSensitive: () => call<VaultStatus>("vault_lock_sensitive"),
   },
 };

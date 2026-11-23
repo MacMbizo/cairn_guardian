@@ -7,10 +7,13 @@ import {
   Copy,
   CopyCheck,
   Cpu,
+  Eye,
+  EyeOff,
   FolderGit2,
   FolderOpen,
   FolderTree,
   HardDrive,
+  KeyRound,
   Lock,
   NotebookText,
   Play,
@@ -23,6 +26,7 @@ import {
   Sparkles,
   Stethoscope,
   Trash2,
+  Unlock,
   Usb,
   XCircle,
 } from "lucide-react";
@@ -61,6 +65,7 @@ import {
   type Screen,
   type SearchPage,
   type Simulation,
+  type VaultStatus,
 } from "./bindings/client";
 
 type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "rescue" | "simulator" | "doctor" | "settings";
@@ -77,6 +82,10 @@ const TAB_FOR: Record<Screen, TabId> = {
   settings: "settings",
   filing: "filing",
 };
+
+function isSensitiveLabel(sensitivity: string): boolean {
+  return sensitivity === "confidential" || sensitivity === "secret";
+}
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -101,6 +110,12 @@ export default function App() {
   const drivesData = useDrives();
   const engineData = useEngine();
   const filingData = useFiling(tab === "filing" || tab === "dashboard");
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
+  const [vaultChecked, setVaultChecked] = useState(!desktop);
+  const [recoveryInput, setRecoveryInput] = useState("");
+  const [recoveryErr, setRecoveryErr] = useState<string | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const vaultLocked = Boolean(desktop && vaultStatus?.locked);
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
       ? "Aegis Guardian core ready."
@@ -156,8 +171,25 @@ export default function App() {
     }
   }, [desktop]);
 
+  const refreshVault = useCallback(async () => {
+    if (!desktop) {
+      setVaultChecked(true);
+      return null;
+    }
+    try {
+      const vs = await aegis.vault.status();
+      setVaultStatus(vs);
+      setVaultChecked(true);
+      return vs;
+    } catch (err) {
+      setVaultChecked(true);
+      setStatusMsg(`Vault status error: ${errorMessage(err)}`);
+      return null;
+    }
+  }, [desktop]);
+
   const refreshAll = useCallback(async () => {
-    if (!desktop) return;
+    if (!desktop || vaultLocked) return;
     try {
       const [prof, rts, stats, latestScan, h, spaces, act, qList] = await Promise.all([
         aegis.hw.profile(),
@@ -181,11 +213,17 @@ export default function App() {
     } catch (err) {
       setStatusMsg(`Error refreshing state: ${errorMessage(err)}`);
     }
-  }, [desktop, refreshRescue]);
+  }, [desktop, vaultLocked, refreshRescue]);
 
   useEffect(() => {
-    void refreshAll();
-  }, [refreshAll]);
+    void refreshVault();
+  }, [refreshVault]);
+
+  useEffect(() => {
+    if (vaultChecked && !vaultLocked) {
+      void refreshAll();
+    }
+  }, [vaultChecked, vaultLocked, refreshAll]);
 
   useEffect(() => {
     if (tab === "rescue") void refreshRescue();
@@ -297,26 +335,93 @@ export default function App() {
     }
   };
 
+  const handleUnlockVault = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recoveryInput.trim()) return;
+    setRecoveryBusy(true);
+    setRecoveryErr(null);
+    try {
+      const next = await aegis.vault.unlockWithRecovery(recoveryInput.trim());
+      setVaultStatus(next);
+      setRecoveryInput("");
+      setStatusMsg("Vault unlocked and sealed for this Windows account.");
+      await Promise.all([
+        refreshAll(),
+        drivesData.reload(),
+        engineData.reload(),
+        filingData.reload(),
+      ]);
+    } catch (err) {
+      setRecoveryErr(errorMessage(err));
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const fetchSearchPage = useCallback(async () => {
+    const page = await aegis.search.query(
+      query,
+      {
+        project_id: null,
+        ext: null,
+        after_ts: null,
+        before_ts: null,
+        sensitivity: null,
+        include_quarantined: includeQuarantined,
+        ...narrowing,
+      },
+      30
+    );
+    setSearchPage(page);
+    return page;
+  }, [query, includeQuarantined, narrowing]);
+
+  const executeSearch = useCallback(
+    () =>
+      run(
+        "Search",
+        async () => {
+          const page = await fetchSearchPage();
+          return `Search found ${page.total_hits} match(es) in ${page.took_ms}ms.`;
+        },
+        false
+      ),
+    [fetchSearchPage, run]
+  );
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    void executeSearch();
+  };
+
+  const handleToggleSensitivePreviews = () => {
+    if (!desktop) return;
     void run(
-      "Search",
+      "Sensitive previews",
       async () => {
-        const page = await aegis.search.query(
-          query,
-          {
-            project_id: null,
-            ext: null,
-            after_ts: null,
-            before_ts: null,
-            sensitivity: null,
-            include_quarantined: includeQuarantined,
-            ...narrowing,
-          },
-          30
-        );
-        setSearchPage(page);
-        return `Search found ${page.total_hits} match(es) in ${page.took_ms}ms.`;
+        const next = vaultStatus?.sensitive_unlocked
+          ? await aegis.vault.lockSensitive()
+          : await aegis.vault.unlockSensitive();
+        setVaultStatus(next);
+        if (searchPage !== null || query.trim()) {
+          await fetchSearchPage();
+        }
+        return next.sensitive_unlocked
+          ? "Sensitive previews unlocked for 15 minutes."
+          : "Sensitive previews locked.";
+      },
+      false
+    );
+  };
+
+  const handleSetHitSensitivity = (fileId: string, makeSensitive: boolean) => {
+    if (!desktop) return;
+    void run(
+      "Sensitivity",
+      async () => {
+        await aegis.file.setSensitivity(fileId, makeSensitive ? "confidential" : "internal");
+        await fetchSearchPage();
+        return makeSensitive ? "Marked file as sensitive." : "Removed sensitive mark.";
       },
       false
     );
@@ -488,6 +593,50 @@ export default function App() {
     { id: "settings", label: "Settings", icon: SlidersHorizontal },
   ];
 
+  if (vaultLocked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-100">
+        <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
+              <KeyRound className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-slate-50">Unlock Aegis Vault</h1>
+              <p className="text-xs text-slate-400">Encrypted local index recovery required</p>
+            </div>
+          </div>
+          <p className="mb-4 text-xs leading-relaxed text-slate-300">
+            {vaultStatus?.lock_reason ??
+              "This Aegis database is encrypted with SQLCipher and cannot be unsealed by DPAPI on this Windows account. Enter your 24-word recovery phrase or 64-character hex key to unlock."}
+          </p>
+          <form onSubmit={(e) => void handleUnlockVault(e)} className="space-y-3">
+            <textarea
+              aria-label="24-word recovery phrase or 64-character hex key"
+              rows={3}
+              value={recoveryInput}
+              onChange={(e) => setRecoveryInput(e.target.value)}
+              placeholder="Enter your 24 recovery words (space-separated) or 64-character hex key…"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+            />
+            {recoveryErr && (
+              <p className="rounded-lg border border-rose-800/60 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+                {recoveryErr}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={recoveryBusy || !recoveryInput.trim()}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            >
+              {recoveryBusy ? "Unlocking vault…" : "Unlock Vault & Seal for This Account"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100">
       {/* Left Navigation Rail */}
@@ -575,6 +724,23 @@ export default function App() {
           </div>
         </header>
         <PlugBanner preview={!desktop} onOpen={(t) => { setTab(t); void drivesData.reload(); }} />
+        {desktop && vaultStatus && !vaultStatus.locked && !vaultStatus.recovery_confirmed && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-800/60 bg-amber-950/40 px-6 py-2 text-xs text-amber-200">
+            <span className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" aria-hidden="true" />
+              <span>
+                Your Aegis index is encrypted. Back up and verify your 24-word recovery key so you never lose access if Windows changes.
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setTab("settings")}
+              className="rounded border border-amber-700/70 bg-amber-900/40 px-2.5 py-1 font-medium text-amber-100 hover:bg-amber-800/60"
+            >
+              Back up recovery key
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-6">
           {tab === "drives" && (
@@ -594,7 +760,13 @@ export default function App() {
               }}
             />
           )}
-          {tab === "settings" && <EngineSettings data={engineData} />}
+          {tab === "settings" && (
+            <EngineSettings
+              data={engineData}
+              vaultStatus={vaultStatus}
+              onVaultChange={refreshVault}
+            />
+          )}
           {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
@@ -822,6 +994,32 @@ export default function App() {
                 >
                   Search
                 </button>
+                {desktop && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleToggleSensitivePreviews()}
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-40 ${
+                      vaultStatus?.sensitive_unlocked
+                        ? "border-emerald-700/70 bg-emerald-950/50 text-emerald-200 hover:bg-emerald-900/50"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    {vaultStatus?.sensitive_unlocked ? (
+                      <>
+                        <Unlock className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                        Sensitive previews: Unlocked
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                        <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+                        Sensitive previews: Hidden
+                      </>
+                    )}
+                  </button>
+                )}
               </form>
               <SearchFilterBar value={narrowing} onChange={setNarrowing} enabled={desktop} />
 
@@ -839,13 +1037,35 @@ export default function App() {
                         <span className="font-semibold text-slate-100">
                           {hit.name}
                         </span>
-                        <div className="flex items-center gap-1.5 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          {isSensitiveLabel(hit.sensitivity) && (
+                            <span className="rounded border border-amber-700/60 bg-amber-950/60 px-2 py-0.5 text-amber-200">
+                              Sensitive
+                            </span>
+                          )}
                           <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
                             {hit.match_reason}
                           </span>
                           <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
                             state: {hit.state}
                           </span>
+                          {desktop && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                void handleSetHitSensitivity(
+                                  hit.file_id,
+                                  !isSensitiveLabel(hit.sensitivity)
+                                )
+                              }
+                              className="rounded border border-slate-700 px-2 py-0.5 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                            >
+                              {isSensitiveLabel(hit.sensitivity)
+                                ? "Remove sensitive"
+                                : "Mark sensitive"}
+                            </button>
+                          )}
                         </div>
                       </div>
                       <p className="mt-1 font-mono text-xs text-slate-400">

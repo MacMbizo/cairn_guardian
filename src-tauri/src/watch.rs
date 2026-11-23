@@ -46,8 +46,7 @@ fn fail(app: &AppHandle, job: &str, err: impl std::fmt::Display) {
 /// Starts the watcher on its own thread with its own database connection.
 pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || {
-        let db_path = app.state::<AppState>().db_path.clone();
-        let mut store = match SqliteStore::open(&db_path) {
+        let mut store = match app.state::<AppState>().open_store() {
             Ok(s) => s,
             Err(e) => return fail(&app, "drive_watch", e),
         };
@@ -121,8 +120,7 @@ fn handle(app: &AppHandle, store: &mut SqliteStore, report: &SyncReport, seen_be
         // connection, so the watcher keeps noticing drives come and go meanwhile.
         let (app, id, is_backup) = (app.clone(), id.clone(), v.role == "backup");
         std::thread::spawn(move || {
-            let db_path = app.state::<AppState>().db_path.clone();
-            let mut store = match SqliteStore::open(&db_path) {
+            let mut store = match app.state::<AppState>().open_store() {
                 Ok(s) => s,
                 Err(e) => return fail(&app, "drive_refresh", e),
             };

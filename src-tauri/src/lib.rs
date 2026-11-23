@@ -20,6 +20,28 @@ fn local_offset_secs(utc_ms: i64) -> i32 {
     Local.timestamp_millis_opt(utc_ms).single().map_or(0, |d| d.offset().fix().local_minus_utc())
 }
 
+/// Seeds initial PC roots, records first-run autostart setting, and returns the search shortcut.
+pub(crate) fn init_unlocked_settings(
+    app: &tauri::AppHandle,
+    store: &SqliteStore,
+) -> aegis_core::error::Result<String> {
+    // First run: start with the PC folders where clutter lands (spec §7.8.1).
+    let _ = aegis_core::scanner::seed_default_roots(store);
+    let first_run = store.get_setting("engine.autostart_initialised", "global")?.is_none();
+    let shortcut = store
+        .get_setting("engine.shortcut", "global")?
+        .and_then(|j| serde_json::from_str::<String>(&j).ok())
+        .unwrap_or_else(|| shell::DEFAULT_SHORTCUT.to_string());
+    if first_run {
+        store.set_setting("engine.autostart_initialised", "global", "true")?;
+        // Dev builds never register themselves to run at login.
+        if !cfg!(debug_assertions) {
+            let _ = app.autolaunch().enable();
+        }
+    }
+    Ok(shortcut)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     aegis_core::filing::set_local_offset(local_offset_secs);
@@ -43,46 +65,75 @@ pub fn run() {
                 app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("aegis-guardian"))
             });
             let db_path = data_dir.join("aegis.db");
-            let store = SqliteStore::open(&db_path)?;
-            // First run: start with the PC folders where clutter lands (spec §7.8.1).
-            let _ = aegis_core::scanner::seed_default_roots(&store);
-            let first_run = store.get_setting("engine.autostart_initialised", "global")?.is_none();
-            let shortcut = store
-                .get_setting("engine.shortcut", "global")?
-                .and_then(|j| serde_json::from_str::<String>(&j).ok())
-                .unwrap_or_else(|| shell::DEFAULT_SHORTCUT.to_string());
-            if first_run {
-                store.set_setting("engine.autostart_initialised", "global", "true")?;
-            }
+            let open_res = aegis_core::db::crypto::open_or_migrate_encrypted(&db_path)?;
             let (tx, rx) = std::sync::mpsc::channel();
-            app.manage(AppState {
-                store: Mutex::new(store),
-                db_path,
-                topup_cancel: Default::default(),
-                topup_running: Default::default(),
-                cataloguing: Default::default(),
-                nav: Default::default(),
-                paused_until: Default::default(),
-                shortcut_ok: Default::default(),
-                engine_tx: Mutex::new(tx),
-                tray_items: Mutex::new(None),
-            });
-            // Start with Windows by default (spec §8); the owner can turn it off in Settings.
-            // Dev builds never register themselves to run at login.
-            if first_run && !cfg!(debug_assertions) {
-                let _ = app.autolaunch().enable();
-            }
             let handle = app.handle().clone();
-            let items = shell::build_tray(&handle)?;
-            if let Ok(mut g) = app.state::<AppState>().tray_items.lock() {
-                *g = Some(items);
+
+            match open_res {
+                aegis_core::db::crypto::VaultOpenResult::Ready {
+                    store,
+                    key,
+                    meta: _,
+                    migrated,
+                } => {
+                    let shortcut = init_unlocked_settings(&handle, &store)?;
+                    app.manage(AppState {
+                        store: Mutex::new(store),
+                        db_path,
+                        db_key: Mutex::new(Some(std::sync::Arc::new(key))),
+                        vault_locked: std::sync::atomic::AtomicBool::new(false),
+                        vault_lock_reason: Mutex::new(None),
+                        vault_migrated: std::sync::atomic::AtomicBool::new(migrated),
+                        sensitive_unlocked_until: std::sync::atomic::AtomicI64::new(0),
+                        pending_engine_rx: Mutex::new(None),
+                        topup_cancel: Default::default(),
+                        topup_running: Default::default(),
+                        cataloguing: Default::default(),
+                        nav: Default::default(),
+                        paused_until: Default::default(),
+                        shortcut_ok: Default::default(),
+                        engine_tx: Mutex::new(tx),
+                        tray_items: Mutex::new(None),
+                    });
+                    let items = shell::build_tray(&handle)?;
+                    if let Ok(mut g) = app.state::<AppState>().tray_items.lock() {
+                        *g = Some(items);
+                    }
+                    shell::register_shortcut(&handle, &shortcut);
+                    if !std::env::args().any(|a| a == BACKGROUND_ARG) {
+                        shell::open_main(&handle, None);
+                    }
+                    watch::spawn(handle.clone());
+                    engine_host::spawn(handle, rx);
+                }
+                aegis_core::db::crypto::VaultOpenResult::NeedsRecoveryKey { reason } => {
+                    let store = SqliteStore::open_in_memory()?;
+                    app.manage(AppState {
+                        store: Mutex::new(store),
+                        db_path,
+                        db_key: Mutex::new(None),
+                        vault_locked: std::sync::atomic::AtomicBool::new(true),
+                        vault_lock_reason: Mutex::new(Some(reason)),
+                        vault_migrated: std::sync::atomic::AtomicBool::new(false),
+                        sensitive_unlocked_until: std::sync::atomic::AtomicI64::new(0),
+                        pending_engine_rx: Mutex::new(Some(rx)),
+                        topup_cancel: Default::default(),
+                        topup_running: Default::default(),
+                        cataloguing: Default::default(),
+                        nav: Default::default(),
+                        paused_until: Default::default(),
+                        shortcut_ok: Default::default(),
+                        engine_tx: Mutex::new(tx),
+                        tray_items: Mutex::new(None),
+                    });
+                    let items = shell::build_tray(&handle)?;
+                    if let Ok(mut g) = app.state::<AppState>().tray_items.lock() {
+                        *g = Some(items);
+                    }
+                    // Always open the window when recovery is needed so the owner sees the unlock screen.
+                    shell::open_main(&handle, None);
+                }
             }
-            shell::register_shortcut(&handle, &shortcut);
-            if !std::env::args().any(|a| a == BACKGROUND_ARG) {
-                shell::open_main(&handle, None);
-            }
-            watch::spawn(handle.clone());
-            engine_host::spawn(handle, rx);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -105,6 +156,14 @@ pub fn run() {
             commands::search_query,
             commands::file_get,
             commands::file_set_lifecycle,
+            commands::file_set_sensitivity,
+            commands::vault::vault_status,
+            commands::vault::vault_get_initial_recovery_key,
+            commands::vault::vault_confirm_recovery_backup,
+            commands::vault::vault_reveal_recovery_key,
+            commands::vault::vault_unlock_with_recovery,
+            commands::vault::vault_unlock_sensitive,
+            commands::vault::vault_lock_sensitive,
             commands::atomic_unit_list,
             commands::atomic_unit_override,
             commands::dedupe_report,

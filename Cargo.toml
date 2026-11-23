@@ -12,11 +12,13 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+bip39 = { version = "3.0.0", default-features = false, features = ["std", "zeroize"] }
 blake3 = "1"
 ignore = "0.4"
-rusqlite = { version = "0.43", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled-sqlcipher"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sqlite-vec = "=0.1.9"
 sysinfo = "0.40"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-build = { version = "2", features = [] }
@@ -25,4 +27,8 @@ thiserror = "2"
 ts-rs = { version = "12", features = ["serde-compat"] }
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v7", "serde"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Power", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Power", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+zeroize = { version = "1.9.2", features = ["derive"] }
+
+[patch.crates-io]
+libsqlite3-sys = { path = "crates/libsqlite3-sys-sqlcipher" }

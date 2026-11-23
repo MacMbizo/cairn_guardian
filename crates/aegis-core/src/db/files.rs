@@ -533,6 +533,31 @@ pub fn set_file_lifecycle(
     Ok(())
 }
 
+/// Preview mask shown when a file is marked `confidential` or `secret` and sensitive views are locked (`R7`).
+pub const SENSITIVE_MASK: &str = "[Sensitive content hidden — unlock sensitive views to preview]";
+
+/// True when `sensitivity` requires hiding snippets, notifications, and previews until unlocked (`R7`).
+pub fn is_sensitive(sensitivity: &str) -> bool {
+    matches!(sensitivity, "confidential" | "secret")
+}
+
+/// Updates a file's sensitivity classification (`public`, `internal`, `confidential`, or `secret`) (`R7`).
+pub fn set_file_sensitivity(conn: &Connection, file_id: &str, sensitivity: &str) -> Result<()> {
+    if !matches!(sensitivity, "public" | "internal" | "confidential" | "secret") {
+        return Err(AegisError::InvalidInput(format!(
+            "Unsupported sensitivity level: {sensitivity}"
+        )));
+    }
+    let changed = conn.execute(
+        "UPDATE files SET sensitivity = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+        params![sensitivity, now_ms(), file_id],
+    )?;
+    if changed == 0 {
+        return Err(AegisError::NotFound(format!("file {file_id}")));
+    }
+    Ok(())
+}
+
 /// Inserts or replaces a text chunk (syncing `chunks_fts` via trigger and outbox).
 pub fn insert_chunk(
     conn: &Connection,
@@ -585,11 +610,13 @@ fn sanitize_fts_query(raw: &str) -> String {
 }
 
 /// Hybrid/FTS5 search with mandatory SQLite `files.state != 'quarantine'` authoritative post-filter (`B4` §4, `B6` §2).
-pub fn search_fts(
+/// Sensitive files remain searchable (`R7`), with snippets masked unless `reveal_sensitive` is true.
+pub fn search_fts_with_options(
     conn: &Connection,
     query: &str,
     filters: &SearchFilters,
     limit: usize,
+    reveal_sensitive: bool,
 ) -> Result<SearchPage> {
     let started = Instant::now();
     let include_quarantined = filters.include_quarantined.unwrap_or(false);
@@ -718,7 +745,7 @@ pub fn search_fts(
             }
         }
     }
-    // Where each file was before Aegis filed it.
+    // Where each file was before Aegis filed it, plus `R7` preview masking when locked.
     for h in hits.iter_mut() {
         h.was = conn
             .query_row(
@@ -727,6 +754,9 @@ pub fn search_fts(
                 |r| r.get(0),
             )
             .ok();
+        if !reveal_sensitive && is_sensitive(&h.sensitivity) && !h.snippet.is_empty() {
+            h.snippet = SENSITIVE_MASK.to_string();
+        }
     }
 
     Ok(SearchPage {
@@ -737,7 +767,21 @@ pub fn search_fts(
     })
 }
 
-pub fn get_file_detail(conn: &Connection, file_id: &str) -> Result<FileDetail> {
+/// Searches indexed files with sensitive snippets masked by default (`R7`).
+pub fn search_fts(
+    conn: &Connection,
+    query: &str,
+    filters: &SearchFilters,
+    limit: usize,
+) -> Result<SearchPage> {
+    search_fts_with_options(conn, query, filters, limit, false)
+}
+
+pub fn get_file_detail_with_options(
+    conn: &Connection,
+    file_id: &str,
+    reveal_sensitive: bool,
+) -> Result<FileDetail> {
     let mut detail = conn
         .query_row(
             "SELECT id, volume_id, path, name, ext, size, mtime, nlink, state, cloud_state,
@@ -773,5 +817,13 @@ pub fn get_file_detail(conn: &Connection, file_id: &str) -> Result<FileDetail> {
     for row in rows {
         detail.chunks_preview.push(row?);
     }
+    if !reveal_sensitive && is_sensitive(&detail.sensitivity) && !detail.chunks_preview.is_empty() {
+        detail.chunks_preview = vec![SENSITIVE_MASK.to_string()];
+    }
     Ok(detail)
+}
+
+/// Fetches file metadata and text preview (masked for `confidential`/`secret` files by default per `R7`).
+pub fn get_file_detail(conn: &Connection, file_id: &str) -> Result<FileDetail> {
+    get_file_detail_with_options(conn, file_id, false)
 }

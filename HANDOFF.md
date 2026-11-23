@@ -1,36 +1,42 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-24 (Plan 5 — §16 step 7 modules & external drive plans — built, verified, and fast-forward merged into `master`; D1 approved). Read this first in a new chat.
+Updated 2026-11-24 (Plan 6A — D1 SQLCipher encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, 24-word/64-hex recovery, `R7` sensitive views, `R9` guard — built, verified, and fast-forward merged into `master`; Plan 6B next). Read this first in a new chat.
 
 **The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
 `docs/PROGRESS.md`. Keep it current at the end of each plan.
 
 Current state:
-- `master`: Projects 1–3, Context-aware filing Plans 1–5 (project recognition, project plans, sets/photo subjects, Design shelf separation at `C:\Prj\Design\<Name>`, inline `SetKind`, Put back together reunion batches, `SameAs` learned name aliases, weekly-note `projects` summary line, Software packages, Owner's folders, Resources, Series, Old copies, and external-drive plans), fast-forward merged from `feature/context-modules-step7` (not pushed).
-- `feature/context-modules-step7`, `feature/put-back-together-and-learning`, & `feature/sets-and-photo-subjects`: merged into `master` (not pushed).
+- `master`: Projects 1–3, Context-aware filing Plans 1–5, and **Plan 6A** (SQLCipher whole-store encryption, `sqlite-vec` 0.1.9, DPAPI `R2` key sealing, 24-word/64-hex recovery, `R7` sensitive snippet masking + CredUI unlock, `R9` offline dependency guard), fast-forward merged from `feature/d1-encryption-and-vec` (not pushed).
+- `feature/d1-encryption-and-vec`, `feature/context-modules-step7`, `feature/put-back-together-and-learning`, & `feature/sets-and-photo-subjects`: merged into `master` (not pushed).
 - `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`): rollback tag preserving pre-stabilization baseline plus parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`).
 - Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
 
 ## NEXT CHAT: do this first
 
-**Owner-approved roadmap order (2026-11-23, updated after Plan 5 merge 2026-11-24):**
-1. **1. D1 Encryption + Embeddings & Hybrid Search** (SQLCipher whole-store + `sqlite-vec` + DPAPI/TPM `R2` + mandatory offline 24-word/hex recovery key, then embeddings & FTS5+vector hybrid search inside the 350 MB K5 budget) — **NEXT ACTIVE**
+**Owner-approved roadmap order (2026-11-23, updated after Plan 6A merge 2026-11-24):**
+1. **Plan 6B: Local Embeddings & Context-Aware Hybrid Search** (FTS5 + `sqlite-vec` inside encrypted `aegis.db`, on-demand `aegis-embed` inside the 350 MB K5 budget) — **NEXT ACTIVE**
 2. **Project 4: System care**
 
+- Plan 6A doc: `docs/superpowers/plans/2026-11-24-d1-encryption-and-vec.md`.
 - Plan 5 doc: `docs/superpowers/plans/2026-11-23-context-modules-step7.md`.
 - Plan 4 doc: `docs/superpowers/plans/2026-11-23-put-back-together-and-learning.md`.
 - Plan 3 doc: `docs/superpowers/plans/2026-11-23-sets-and-photo-subjects.md`.
-- **Owner Decision D1 approved (2026-11-23):** SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted store (350 MB K5 budget), DPAPI/TPM-sealed engine key (`R2`, Windows Hello for sensitive views only), and mandatory offline 24-word/hex recovery key; owner also confirmed keeping `R1–R11` as written (including `R2` and `R6`).
+- **Owner Decision D1 approved (2026-11-23) — encryption/vec part merged:** SQLCipher whole-store encryption + `sqlite-vec` (`=0.1.9`) inside the encrypted store, DPAPI-sealed engine key (`R2`, Windows CredUI for sensitive views & recovery key reveal), and mandatory offline 24-word/64-hex recovery key (`R1–R11` preserved).
 - **Verification gate on `master`:**
-  - `cargo test --workspace`: **503 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **7** tests in `crates/aegis-core/tests/context_modules.rs` (`0.32s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
-  - Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `239` projects (`84` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects, `18` software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), `9` owner's folders, `4` resources, `52` series seasons, `2` old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **`249` plans in `18.8s` debug** (`New Volume` `"Old copy": 9747` kept whole in Fresh/Tidy), and weekly note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
-  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `881ms`).
+  - `cargo test --workspace`: **511 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/d1_encryption.rs` (`0.73s`), **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.19s`), **7** in `crates/aegis-core/tests/context_modules.rs`, **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `932ms`).
+  - Prior Plan 5 live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `239` projects (`84` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects, `18` software packages, `9` owner's folders, `4` resources, `52` series seasons, `2` old copies, **`249` plans in `18.8s` debug**.
 
 1. **Owner items still open:**
    - app rename choice (another "eagis" / Aegis app exists).
 2. **Note on `src/bindings/` and `node:sqlite`:**
    - Keep `canonical/D1_Design_System_v1.0.md` parked until core features finish.
    - `cargo test` writes LF line endings into `src/bindings/*.ts`; run `git checkout -f --` on unchanged bindings so only real binding diffs are committed.
+
+**What Plan 6A built:**
+- **SQLCipher + `sqlite-vec` Foundation (`crates/libsqlite3-sys-sqlcipher`, `Cargo.toml`, `migrations/0009_vault_and_vec_meta.sql`):** Compiles SQLCipher `sqlcipher-src 420.0.0` + `libtomcrypt 1.18.2` with `-DLTC_NO_ASM` directly under MSVC (zero Perl/OpenSSL dependency), registers `sqlite-vec = "=0.1.9"` on every `SqliteStore`, and creates `chunk_embeddings_meta`.
+- **Key Sealing, Offline Recovery & Plaintext Migration (`db::crypto`, `db::mod`, `src-tauri/lib.rs`, `commands/vault.rs`, `engine_host.rs`, `watch.rs`):** CSPRNG 256-bit `DbKey` (`ZeroizeOnDrop`), Windows DPAPI sealing (`aegis.key.dpapi`, `R2`), verified `sqlcipher_export` migration removing plaintext once row counts + FTS5 + `PRAGMA quick_check` verify (`R8`), 24-word BIP-39 / 64-hex recovery (`aegis.vault.json`), Windows CredUI (`CredUIPromptForWindowsCredentialsW`) timed sessions for sensitive views and recovery key reveal, and `AppState::open_store()` across all desktop handlers and background watchers.
+- **R7 Sensitive Views, UI & Tests (`db::files`, `doctor`, `EngineSettings.tsx`, `App.tsx`, `tests/d1_encryption.rs`):** Indexes confidential/secret files for search while masking snippets/previews (`SENSITIVE_MASK`) unless unlocked; Settings `Security & Encryption` card with 1-based spot-check confirmation + CredUI reveal + 15-min timer; locked-vault recovery screen + unconfirmed backup banner + Search sensitive toggle; 6 integration tests incl. `Cargo.lock` `R9` networking crate guard.
 
 **What Plan 5 built:**
 - **Step 7 Modules (`context::{software,owners,resources,series,old_copies,recognise}`):** Software packages (with `INTERNAL_SW_DIRS` composite-installer preservation into `Software\Tools`/`Installers`), Owner's folders (purpose-name + content/metadata agreement, `.db` pinning, CV-in-Work overrides), Resources (`SKILL.md`, `DESIGN.md`, templates/kits into `Documents\Resources`), Series (`Videos\Shows\<Show>\Season <n>` + companion subtitles), and depth-1 Old copies (`D:\MSIDocuments`, `D:\MSIDownloads`) claimed before projects and compared against live folders.

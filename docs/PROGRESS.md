@@ -6,19 +6,20 @@ Updated 2026-11-24. This is the whole-project view. `HANDOFF.md` covers the work
 
 | Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3, Context-aware filing Plans 1–5 (projects, plans, sets/subjects, Design shelf separation, Put back together, learned aliases, weekly-note summary, §16 step 7 modules & external drive plans), fast-forward merged 2026-11-24. Not pushed. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–5, and **Plan 6A** (SQLCipher whole-store encryption, `sqlite-vec` 0.1.9, DPAPI `R2` sealing, 24-word/64-hex recovery, `R7` sensitive views, `R9` guard), fast-forward merged 2026-11-24. Not pushed. |
+| `feature/d1-encryption-and-vec` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/context-modules-step7` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/put-back-together-and-learning` | Merged (ff-only) into `master` on 2026-11-23. Not pushed. |
 | `feature/sets-and-photo-subjects` | Merged earlier into `master` (`43fc8bd`). Not pushed. |
 | `feature/project-plans` | Tip matching pre-Plan-3 `master`. Not pushed. |
 | `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification on `master` (fast-forward from `feature/context-modules-step7`):
-- `cargo test --workspace`: **503 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **7** tests in `crates/aegis-core/tests/context_modules.rs` (`0.32s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, **11** in `sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
-- Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **239** projects (`84` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **18** software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), **9** owner's folders, **4** resources, **52** series seasons, **2** old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **249** project/set/old-copy plans in `18.8s` debug (including `New Volume` offline waits & same-drive plans), `"Old copy": 9747` kept whole on `New Volume` Fresh/Tidy, **1** `put back together` proposal (`ipadcover`), and weekly-note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
-- `cargo clippy --workspace --all-targets -- -D warnings`: clean (0 warnings).
+Verification on `master` (fast-forward from `feature/d1-encryption-and-vec`):
+- `cargo test --workspace`: **511 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/d1_encryption.rs` (`0.73s`), **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/context_modules.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.19s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings).
 - `cargo check -p aegis-desktop --features custom-protocol`: clean.
-- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `881ms`).
+- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `932ms`).
+- Prior Plan 5 live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **239** projects (`84` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **18** software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), **9** owner's folders, **4** resources, **52** series seasons, **2** old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **249** project/set/old-copy plans in `18.8s` debug (including `New Volume` offline waits & same-drive plans), `"Old copy": 9747` kept whole on `New Volume` Fresh/Tidy, **1** `put back together` proposal (`ipadcover`), and weekly-note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
 
 ## 2. Done
 
@@ -34,8 +35,13 @@ Verification on `master` (fast-forward from `feature/context-modules-step7`):
 | 3c | Context-aware filing, Plan 3: sets, photo subjects, Design-vs-Software shelf separation, and inline UI reclassification | Done, merged 2026-11-23 |
 | 3d | Context-aware filing, Plan 4: put back together (`file_history` reunion), `SameAs` learned aliases, weekly-note summary | Done, merged 2026-11-23 |
 | 3e | Context-aware filing, Plan 5 (§16 step 7): Software packages, Owner's folders, Resources, Series, Old copies & external drive plans | Done, merged 2026-11-24 |
-| 4 | System care | Next after D1 Encryption + Embeddings & Hybrid Search |
+| 3f | D1 Encryption & `sqlite-vec` foundation (Plan 6A): SQLCipher whole-store, DPAPI `R2`, 24-word/hex recovery, `R7` sensitive views, `R9` guard | Done, merged 2026-11-24 |
+| 4 | System care | Next after Plan 6B (Embeddings & Hybrid Search) |
 | 5 | Visual app (grows alongside the others) | Ongoing |
+
+### Plan 6A in one paragraph
+
+Encrypts the entire SQLite catalog (`aegis.db`) at rest with SQLCipher AES-256 (`sqlcipher-src` 4.20.0 + `libtomcrypt` 1.18.2 via `libsqlite3-sys-sqlcipher`, zero Perl/OpenSSL dependency) and registers `sqlite-vec` `0.1.9` on every `SqliteStore` connection alongside migration `0009_vault_and_vec_meta.sql` (`chunk_embeddings_meta`). Startup (`open_or_migrate_encrypted` in `db::crypto`) generates or DPAPI-seals the 256-bit key (`aegis.key.dpapi`, `R2`) for unattended engine/tray launches, performs verified one-time `sqlcipher_export` migration of legacy plaintext databases (`R8` temp cleanup), and locks behind an **Unlock Aegis Vault** screen if `aegis.key.dpapi` is missing on another account/PC until unlocked with the offline 24-word BIP-39 or 64-hex recovery key (`aegis.vault.json`). Sensitive files (`confidential`/`secret`, `R7`) remain searchable while masking snippets/chunk previews unless unlocked for a timed 15-minute session via Windows CredUI (`CredUIPromptForWindowsCredentialsW`), with full Settings (`Security & Encryption`) + Search UI controls, Doctor cipher/`sqlite-vec` checks, and an automated `Cargo.lock` guard (`R9`) blocking networking crates in `aegis-core` and `aegis-embed`.
 
 ### Plan 5 in one paragraph
 
