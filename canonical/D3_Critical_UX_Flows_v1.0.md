@@ -1,8 +1,8 @@
 # D3 — Critical UX Flows & Accessibility Baseline (v1.1)
 
 **ID:** D3 · **Version:** 1.1 · **Status:** MVP Design Baseline
-**Owner:** Staff Product Designer · **Last Updated:** 2026-11-20
-**Related Docs:** `A2_PRD_v2.1.md` (`v2.1.2`), `C1_IPC_Action_Contracts.md` (`v1.2`), `C4_Policy_Engine_Confidence_Spec.md` (`v1.1`)
+**Owner:** Staff Product Designer · **Last Updated:** 2026-11-23
+**Related Docs:** `D1_Design_System_v1.0.md` (`v1.0`), `A2_PRD_v2.1.md` (`v2.1.2`), `C1_IPC_Action_Contracts.md` (`v1.2`), `C4_Policy_Engine_Confidence_Spec.md` (`v1.1`)
 
 > **v1.1 changes:** Aligned §4 Pre-Rollback conflict options with `C1 v1.2` (`modified` vs `collision`, removing fictional content backups) and added promoted `V1.5-01` Quarantine Space vs. Freed Space UI + 10% soft quota banner to §5 Disk Rescue.
 
@@ -51,5 +51,5 @@ Triggered when `actions.rollback(batch)` pre-flight checks return one or more it
 
 ## 7. Metadata, Open Questions, Assumptions & Traceability
 - **Acceptance:** Interactive Storybook/Playwright tests verify keyboard-only completion of Flows 1–4 and zero "100%" fake badges when skipped counts > 0.
-- **Open:** `[OPEN]` `OQ-16` (Owner: Design Lead, Sprint 1): Finalize `D1` design token palette and light/dark contrast verification.
-- **Traceability:** Upstream `A2` (`v2.1.2`, `FR-005`, `FR-011`, `FR-012`, `FR-022`), `C1 v1.2`, `C4 v1.1`; Downstream React/Tailwind components.
+- **Open / Resolved:** `[RESOLVED — D1 v1.0 locked]` `OQ-16` (Owner: Design Lead, 2026-11-23): OLED Dark Mode token palette, local typography, and WCAG 2.2 AA contrast rules finalized in `D1_Design_System_v1.0.md` and `design-system/aegis-guardian/MASTER.md` (optional light-mode sheet deferred).
+- **Traceability:** Upstream `A2` (`v2.1.2`, `FR-005`, `FR-011`, `FR-012`, `FR-022`), `D1` (`v1.0`), `C1 v1.2`, `C4 v1.1`; Downstream React/Tailwind components.

@@ -1,8 +1,11 @@
-# Suite Reconciliation & Living Index (v1.3)
+# Suite Reconciliation & Living Index (v1.4)
 
-**Date:** 2026-11-20 · **Status:** Synchronized MVP Suite — 13/13 indexed documents verified green (plus this index = 14 files in `canonical/`)
+**Date:** 2026-11-23 · **Status:** Synchronized MVP Suite — 14/14 indexed documents verified green (plus this index = 15 files in `canonical/`)
 
-## 1. What Changed in v1.3 Reconciliation
+## 1. What Changed in v1.4 Reconciliation
+- **Added `D1` (`D1_Design_System_v1.0.md`):** Locked the zero-friction UI/UX design direction, OLED Dark palette, local-bundled `IBM Plex Sans` + `JetBrains Mono` zero-egress typography, WCAG 2.2 AA rules, and modular component blueprint (`design-system/aegis-guardian/MASTER.md` + `pages/*.md` + `assets/*.jpg`) for unified post-feature frontend implementation; resolved `OQ-16` in `D3_Critical_UX_Flows_v1.0.md`.
+
+## 2. What Changed in v1.3 Reconciliation
 Cleaned up `canonical/` (moved superseded `B4_Data_Vector_Schema_v2.2.md` and applied `A2_PRD_v2.1_patch_notes.md` to `deprecated/`, unwrapped `V1.5_Feature_Backlog.md`) and patched high-severity architectural/schema contradictions across the suite:
 1. `B4 v2.3.1`: Fixed non-unique `idx_actions_file_status` (`UNIQUE(file_id) WHERE file_id IS NOT NULL AND status IN ('proposed','approved')`); added `cache_dirs` table + `target_kind ('file'|'dir'|'atomic_unit')` on `actions`/`quarantine_entries`; switched `files.file_index` to `BLOB` (64/128-bit) + added `volumes.has_stable_inode`/`case_sensitive` + `idx_files_live_path`; rewrote §3.1 Rename-vs-Hardlink algorithm for atomic-save swaps, case-only renames, inode reuse, and `exFAT`/`SMB` fallback; fixed `security_finding_locations` PK (`(finding_id, file_id, line_number)`); specified canonical length-prefixed `BLAKE3` framing for `audit_log`; mandated SQLite `files.state != 'quarantine'` authoritative search post-filter; documented soft-delete purge & MIH/LSH near-dup indexing.
 2. `C4 v1.1`: Added `safe_build_cache` carve-out in Step 3 for `cache_dirs`; marked `security_remediate` as V2-reserved; fixed §4 pseudocode to check both `from_path` and `to_path` against `.aegis` internals, enforce `ActionType::Purge` explicit confirmation, and enforce `Housekeeper`/`Security` agent ceilings.
@@ -10,7 +13,7 @@ Cleaned up `canonical/` (moved superseded `B4_Data_Vector_Schema_v2.2.md` and ap
 4. `A2 v2.1.2` & `B1/B2 v2.3`: Promoted `V1.5-01` (Quarantine Space vs. Freed Space UI) to v1.0 MVP; reconciled `cache_dirs` vs. `.aegisignore`; separated Target (`≤4.10GB`) vs. Conservative (`≤5.30GB`) interactive LLM burst RSS; aligned ~1.3M selective chunk count + Sprint-0 `ort` CPU microbenchmark; documented `BLOB` `file_index` + `exFAT`/`SMB` fallback and MIH/LSH near-dup indexing.
 5. `B6 v2.4`, `B8 v2.3`, `D3 v1.1`, `E2/E4 v1.2`, `F1/F2 v2.3`, `V1.5 v1.1`: Scoped loopback REST API auth gate to V1.5; documented `safe_build_cache` & directory targets in ADRs; aligned `D3` conflict radios & Disk Rescue space header; added `aegis doctor` Check #8 (orphan relationships & stale `cache_dirs`); synced `F2`/`F3` tests and removed dangling `I4`/`I7`/`P1–P7` references.
 
-## 2. Unified Living Index (`G1`)
+## 3. Unified Living Index (`G1`)
 | ID | Document | Version | Status | File |
 |---|---|---|---|---|
 | **A2** | Product Requirements Document | **`2.1.2`** | ✅ Canonical & Synced | `A2_PRD_v2.1.md` |
@@ -22,10 +25,11 @@ Cleaned up `canonical/` (moved superseded `B4_Data_Vector_Schema_v2.2.md` and ap
 | **C1** | IPC, Events & Action Contracts | **`1.2`** | ✅ Canonical & Synced | `C1_IPC_Action_Contracts.md` |
 | **C1↔B4** | IPC ↔ Schema Alignment Check | **`1.2`** | ✅ Verified Aligned | `C1_B4_Alignment_Check.md` |
 | **C4** | Policy Engine & Confidence Spec | **`1.1`** | ✅ Canonical & Synced | `C4_Policy_Engine_Confidence_Spec.md` |
+| **D1** | Design System & Zero-Friction UX Target | **`1.0`** | ✅ Canonical & Scheduled | `D1_Design_System_v1.0.md` |
 | **D3** | Critical UX Flows & A11y Baseline | **`1.1`** | ✅ Canonical & Synced | `D3_Critical_UX_Flows_v1.0.md` |
 | **E2/E4** | Delivery, Packaging & Observability | **`1.2`** | ✅ Canonical & Synced | `E2_E4_Delivery_Observability_Spec.md` |
 | **F1/F2** | Eval, NFR Soak & Safety Test Plan | **`2.3`** | ✅ Canonical & Synced | `F1_F2_Eval_Safety_Plan.md` |
 | **G2** | Canonical Glossary | **`1.0`** | ✅ Canonical | `G2_Glossary.md` |
 
-## 3. Next Action
-All 13 indexed documents (14 files in `canonical/`) verified and synchronized (v1.3 reconciliation). **Cleared for Sprint 0 scaffolding:** `B4 v2.3.1` SQLite migrations → `C1 v1.2` `ts-rs` IPC bindings → `C4 v1.1` Policy Engine unit tests → `F2`/`F3` safety & scanner invariants.
+## 4. Next Action
+All 14 indexed documents (15 files in `canonical/`) plus the persisted `design-system/aegis-guardian/` blueprint (`MASTER.md`, `pages/*.md`, `assets/*.jpg`) are synchronized for Sprint 0–1 feature execution and unified frontend rollout.
