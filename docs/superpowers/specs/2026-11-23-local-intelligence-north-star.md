@@ -44,7 +44,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | 9 | Autonomous research librarian (2.3) | RAG, embeddings | after 8 |
 | 10 | Cross-project intelligence (3.3) | context layer + embeddings | after 8 |
 | 11 | AI Folderless mode (2.1) | filing rules, learn-then-take-over | after 3; reshaped (R6) |
-| 12 | Self-healing workspace (4.1) | USN journal, batches | after 11; link healing for Markdown first |
+| 12 | Self-healing workspace (4.1) | USN journal, batches | after 11; Dynamic Link & Path Healing for Markdown first, strictly under K1 (`propose → approve → batch → undo`) |
 | 13 | Personal data governance (5.1) | D1, quarantine | parts land with D1; the rest reshaped (R7–R9) |
 | 14 | AI Chief Digital Officer agent (5.2) | everything above | last |
 | 15 | Digital estate management (5.3) | D1, backup drive | last; reshaped (R10) |
@@ -87,11 +87,12 @@ The vision's four phases are kept as a direction, but the order above is driven 
 
 ## 4. Decisions for the owner
 
-- **D1. Encryption at rest.** Decide before the embeddings and search work.
-  - Options: SQLCipher for the whole store, or encrypting only sensitive tables.
-  - Key: sealed to the PC (R2, recommended), or opened by Windows Hello at sign-in.
-  - Effect on backup: the Backup drive mirror needs its own key, or a recovery key the owner keeps offline.
-  - Converting the existing database is a one-time migration.
+- **D1. Encryption at rest** *(Owner architectural decision D1; distinct from the parked UI deliverable `canonical/D1_Design_System_v1.0.md`).* Decide before the embeddings and search work.
+  - Recommended package (awaiting owner sign-off):
+    - **Store & vectors:** SQLCipher for the whole store, plus **`sqlite-vec`** inside the encrypted SQLite store so vectors are encrypted at rest within the 350 MB background RAM budget (K5).
+    - **Key handling:** Engine key sealed to the PC via Windows DPAPI/TPM (R2), with Windows Hello gating only sensitive views.
+    - **Offline recovery:** Mandatory offline 24-word or hex recovery key so Backup drive mirrors remain recoverable without the original PC.
+  - Options & migration: Encrypting only sensitive tables leaves metadata/vector surfaces harder to reason about; converting the existing SQLite database is a one-time migration.
 - **D2. Model sizes.** Which local models are acceptable on this PC: RAM and disk to spare, CPU only or GPU. Decide in the embeddings design.
 - **D3. Trustees** for estate management: who, and with what. Decide when that capability's turn comes.
 

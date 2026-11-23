@@ -4,15 +4,16 @@ Updated 2026-11-23. This is the whole-project view. `HANDOFF.md` covers the work
 
 ## 1. Where the code is
 
-| Branch | State |
+| Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3 and Plan 1 of context-aware filing (merged 2026-11-23). Not pushed. |
-| `feature/project-plans` | Plan 2 of context-aware filing, done (16 commits). **Not merged, not pushed.** Waiting for the owner. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–2, and post-Plan-2 stabilization pass (fast-forward merged 2026-11-23). Not pushed. |
+| `feature/project-plans` | Tip matching `master` after stabilization (`c63e967`, `b9899b2`, `6a4afde` + doc reconciliation). Not pushed. |
+| `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification on `feature/project-plans`:
-- `cargo test --workspace`: 460 passed, 1 ignored (the USN test on C:).
-- Two timing tests (`recognise_is_fast_on_a_big_catalog`, `migration_speed_and_fts_sync`) fail only while the owner's `aegis-desktop` is using about 2 CPU cores. Both passed earlier on the same code.
-- Clippy and `pnpm build` are clean.
+Verification after the stabilization pass:
+- `cargo test --workspace`: **476 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including both timing tests (`recognise_is_fast_on_a_big_catalog`, `migration_speed_and_fts_sync`); **0** new folders created in `C:\.aegis-quarantine` (`57` before and `57` after).
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean (0 warnings).
+- `pnpm build` (`tsc --noEmit && vite build`): clean.
 
 ## 2. Done
 
@@ -24,7 +25,7 @@ Verification on `feature/project-plans`:
 | 2 | Always-on engine: tray, scheduler, watches, reminders, weekly note | Done, merged |
 | 3 | Auto-filing: blueprints (Tidy/Fresh), learn-then-take-over, naming, batches with undo | Done, merged 2026-11-22 |
 | 3a | Context-aware filing, Plan 1: project recognition, filing never splits a project, Projects screen | Done, merged 2026-11-23 |
-| 3b | Context-aware filing, Plan 2: project plans (move into `C:\Prj`, quarantine/versions/material, one batch per project with undo) | Done on `feature/project-plans` |
+| 3b | Context-aware filing, Plan 2: project plans (move into `C:\Prj`, quarantine/versions/material, one batch per project with undo) | Done, merged 2026-11-23 (with stabilization pass) |
 | 4 | System care | Not started |
 | 5 | Visual app (grows alongside the others) | Ongoing |
 
@@ -52,11 +53,11 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 ## 3. Waiting on the owner
 
-1. Merge `feature/project-plans` into `master`?
+1. Choose a new app name (another "eagis" / Aegis app already exists).
 2. Try the Projects screen on the PC: forexTrader's card first, then one Move from the compact list, then Undo once.
-3. **D1, encryption at rest and key handling.** Needed before the embeddings/search work. Recommended: SQLCipher with a key sealed to the PC (DPAPI/TPM); Windows Hello only for sensitive views.
-4. Delete 53 orphaned test folders in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database)?
-5. Which comes after Plan 2 (see §4).
+3. **Owner Decision D1, encryption at rest and key handling** *(distinct from the parked UI deliverable `canonical/D1_Design_System_v1.0.md` saved at `084e3d5` until core features finish)*. Needed before the embeddings/search work. Recommended package awaiting sign-off: SQLCipher whole-store + `sqlite-vec` inside the encrypted SQLite store (keeping vectors encrypted at rest within the 350 MB K5 budget), engine key sealed to the PC (DPAPI/TPM), Windows Hello only for sensitive views, and a mandatory offline 24-word/hex recovery key.
+4. Delete 53 pre-existing orphaned test folders recorded in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database; current folder count is `57` before/after tests, with 0 new leaks)?
+5. Which track comes next: Plan 3 (sets and photo subjects) or Embeddings + hybrid search (once D1 is signed off).
 
 ## 4. What remains
 
@@ -108,10 +109,11 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 ## 5. Known issues and follow-ups
 
-**Noticed 2026-11-23:**
-- The owner's running `aegis-desktop` used about 2 cores continuously and about 1 GB of memory (budget: 350 MB). Investigate.
-- Older test files (not the plan tests) still write into the real `C:\.aegis-quarantine`. Give them a private quarantine, as the plan tests now have.
-- Two timing tests are sensitive to machine load. Consider a looser bound or marking them `#[ignore]` with a manual run.
+**Noticed 2026-11-23 (and stabilization pass):**
+- ~~The owner's running `aegis-desktop` used about 2 cores continuously and about 1 GB of memory (budget: 350 MB).~~ **Fixed (`b9899b2`, `6a4afde`):** capped SQLite `cache_size` to `-16384` (16 MB/conn) + `shrink_memory()` after heavy batches, filtered `is_live_excluded_path` and directory `Modified` events in `engine_host`, drained up to 2,000 queued FS events per wakeup, and removed per-file `canonicalize` syscalls during expansion while handling Windows case-only folder renames. *(Owner live runtime check on installed build remains under §4.)*
+- ~~Older test files (not the plan tests) still write into the real `C:\.aegis-quarantine`.~~ **Fixed (`6a4afde`):** fixed `ensure_volume_for_path` so `ON CONFLICT DO UPDATE` preserves `quarantine_dir`, added `guard_test_quarantine()` refusing non-temp quarantine for in-memory test stores, and isolated `downloads` and `project_plans` tests (`57` before / `57` after full workspace suite).
+- ~~Two timing tests are sensitive to machine load.~~ Both `recognise_is_fast_on_a_big_catalog` and `migration_speed_and_fts_sync` now pass in full workspace runs after the background churn fix.
+- **Fixed (`c63e967`):** six Plan 2 bugs — blocked occupant guard, `MoveAside` collision suffixing, K1 `expected_digest` check on `context_run_plan`, `"location"` inside `propose` evidence, honest `rollback_batch` conflict reporting, `plan::undo` `move_home` ordering, and `volume_id`-scoped `rebase_children`/folder quarantine/restore with `outbox_events` and `cache_dirs`/`atomic_units` cleanup.
 - Project plans' "files moved" counts catalogued files only (`node_modules` and `.venv` contents aren't catalogued).
 - Copies of a project on a drive without its home have no relationship to each other; they wait for the Old copies module.
 
@@ -134,14 +136,12 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 - Action Center click after the popup has gone.
 
 **Deferred from Project 1:**
-- `.aegis-partial` isn't re-hashed before the rename.
-- `path_hash` lookups lack a volume filter.
-- A `backup_jobs` row stays `running` after an error.
-- The first top-up isn't shown for approval.
-- The keeper radio in duplicate review isn't sent to the backend.
-- `rebase_volume_paths` misses tables.
-- There are two verified-copy implementations.
-- A large USN replay runs in one transaction.
+- **Resolved (`6a4afde`):** `.aegis-partial` on-disk BLAKE3 re-hash before rename, `path_hash` `volume_id` scoping (`retire_copy`, `resolve_policy_target_meta`, `copy_survivor_for`), duplicate keeper radio `keeper_index` wiring end-to-end, and extended `rebase_volume_paths` (`collection_locations`, `file_history`, `scan_jobs`, `root_samples`, `settings` roots, pending `actions`).
+- **Still open:**
+  - A `backup_jobs` row stays `running` after an error.
+  - The first top-up isn't shown for approval.
+  - There are two verified-copy implementations.
+  - A large USN replay runs in one transaction.
 
 ## 6. Owner decisions on record (keep)
 

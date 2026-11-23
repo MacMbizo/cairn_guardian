@@ -1,28 +1,26 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-23 (Plan 2 of context-aware filing done). Read this first in a new chat.
+Updated 2026-11-23 (Plan 2 + post-Plan-2 stabilization merged to `master`). Read this first in a new chat.
 
 **The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
 `docs/PROGRESS.md`. Keep it current at the end of each plan.
 
-Current state: on branch `feature/project-plans` (last commit before this handoff: `b502703`). The working tree has the
-owner's own uncommitted `canonical/` and `design-system/` changes: leave them alone.
+Current state: `feature/project-plans` (including stabilization commits `c63e967`, `b9899b2`, `6a4afde`, and doc reconciliation) is fast-forward merged into `master` (not pushed). Rollback tag `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`) preserves the pre-stabilization baseline plus the parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`). Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
 
 ## NEXT CHAT: do this first
 
-**Plan 1 is merged into `master`** (fast-forward to `72cbe11`, 2026-11-23, owner approved). Not pushed.
-
-**Plan 2 (project plans) is done** on branch `feature/project-plans` (not merged, not pushed).
+**Plan 1, Plan 2 (project plans), and the 4-issue stabilization pass are merged into `master`** (2026-11-23). Not pushed.
 - Plan: `docs/superpowers/plans/2026-11-23-project-plans.md`. Every task has an "as built" note, including the rulings from real data.
 - Ledger: `.superpowers/sdd/2026-11-23-project-plans/ledger.md`.
+- Stabilization completed (`c63e967`, `b9899b2`, `6a4afde`): (1) 6 Plan 2 correctness/safety fixes, (2) background RAM/CPU fix (16 MB/conn SQLite cache, `shrink_memory()`, excluded-path & dir-modify FS event filtering, 2,000-event drain, Windows case-only rename fix without per-file `canonicalize`), (3) 4 Project 1 fixes (`path_hash` volume scoping, extended `rebase_volume_paths`, `.aegis-partial` on-disk BLAKE3 re-hash, duplicate `keeper_index` wiring) plus `C:\.aegis-quarantine` test-leak fix, (4) north-star D1 disambiguation and `sqlite-vec` / K1 Link Healing alignment.
+- Verification gate: `cargo test --workspace` **476 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), `0` new folders leaked into `C:\.aegis-quarantine` (`57` before / `57` after); `cargo clippy --workspace --all-targets -- -D warnings` clean; `pnpm build` clean.
 
-1. **Ask the owner:**
-   - whether to merge `feature/project-plans` into `master`;
-   - whether to try the Projects screen on the PC. Suggest starting with forexTrader, then one move-in from the compact list, then Undo once.
-2. **Owner decisions still open:**
-   - D1 (encryption at rest and key handling) before the embeddings work;
-   - whether to delete 53 orphaned test folders in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database).
-3. **Then:** Plan 3 = sets and photo subjects (spec §10), or an item from the ideas backlog (see the north-star doc).
+1. **Owner decisions still open:**
+   - app rename choice (another "eagis" / Aegis app exists);
+   - **Owner Decision D1** (encryption at rest & key handling — distinct from parked UI deliverable `canonical/D1_Design_System_v1.0.md`) before embeddings start. Recommended package: SQLCipher whole-store + `sqlite-vec` inside the encrypted store (350 MB K5 budget), DPAPI/TPM-sealed engine key (R2), Windows Hello only for sensitive views, and mandatory offline 24-word/hex recovery key;
+   - whether to delete 53 pre-existing orphaned test folders in `C:\.aegis-quarantine` (0.3 MB; none referenced by the live database; current folder count `57` is stable with 0 new leaks);
+   - whether to try the Projects screen on the PC (suggest starting with forexTrader, then one move-in from the compact list, then Undo once).
+2. **Then:** Plan 3 = sets and photo subjects (spec §10), or Embeddings + hybrid search (once D1 is signed off), keeping `canonical/D1_Design_System_v1.0.md` parked until core features finish.
 
 **What Plan 2 built:**
 - **Planner** (`context::plan`):
@@ -59,13 +57,12 @@ owner's own uncommitted `canonical/` and `design-system/` changes: leave them al
   - The home keeps its own folder name.
 - **Dry run on a copy of the live database:** 51 plans in 1.3 s. 41 homes move in; 1 copy goes to quarantine; 21 are kept as versions; 1 folder of material is brought in.
 - **Rehearsal** (`examples/plan_rehearsal.rs`) on copies of the real forexTrader and DrivingSchool (117,044 files): both ran, and undo restored every file exactly.
-- **Verified:** 460 passed, 1 ignored. Two timing tests (`recognise_is_fast_on_a_big_catalog`, `migration_speed_and_fts_sync`) fail only while the owner's `aegis-desktop` uses about 2 cores; both passed earlier on the same code. Clippy and `pnpm build` are clean.
+- **Verified (post-stabilization):** `cargo test --workspace` **476 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), with both timing tests (`recognise_is_fast_on_a_big_catalog`, `migration_speed_and_fts_sync`) passing and **0** new folders leaked into `C:\.aegis-quarantine` (`57` before / `57` after). Clippy and `pnpm build` are clean.
 - **Nothing has moved on the owner's real folders.**
 
 **Noticed, not fixed:**
-- The owner's running `aegis-desktop` used about 2 cores continuously, with about 1 GB working set (budget: 350 MB). Worth investigating.
-- Older test files (not the plan tests) still write into the real `C:\.aegis-quarantine`.
-- The owner (or another session) changed `canonical/D3_Critical_UX_Flows_v1.0.md` and `canonical/suite_reconciliation.md`, and added `canonical/D1_Design_System_v1.0.md` and `design-system/`. These were left uncommitted, untouched.
+- *(Resolved 2026-11-23 in `b9899b2`, `6a4afde`: `aegis-desktop` background RAM/CPU churn and real `C:\.aegis-quarantine` test leaks.)*
+- UI baseline docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`) are saved at `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`). Leave untracked `canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md` uncommitted.
 - Copying the live database: no `sqlite3` or Python on this PC. Use `node` with `node:sqlite` (read-only `VACUUM INTO`); the script lived in the session scratchpad.
 
 **North star:** `docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` holds the binding rules for every new spec or plan.
@@ -249,13 +246,10 @@ Officer Agent.
 - Clicking a notification from Action Center after the popup has gone probably lands on Home. Check this on the installed build.
 
 **Still open from Project 1:**
+*(Resolved in `6a4afde`: `.aegis-partial` on-disk BLAKE3 re-hash, `path_hash` `volume_id` filter, duplicate keeper radio `keeper_index` wiring, and extended `rebase_volume_paths`.)*
 
-- The `.aegis-partial` file isn't re-hashed before the rename.
-- `path_hash` lookups lack a volume filter.
 - A `backup_jobs` row stays `running` after an error.
 - The first top-up isn't shown for approval.
-- The keeper radio button in duplicate review isn't sent to the backend.
-- `rebase_volume_paths` misses some tables.
 - There are two verified-copy implementations.
 - `index_paths` applies a large USN replay in one transaction. The live index now batches 500 paths per transaction, but the USN refresh path doesn't yet.
 
