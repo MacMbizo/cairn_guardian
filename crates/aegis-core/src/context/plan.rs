@@ -272,45 +272,77 @@ fn material_folder(store: &SqliteStore, l: &Location) -> Result<&'static str> {
     })
 }
 
-/// Warnings for moving a git repository: a virtual environment to recreate, recent changes.
-fn repo_warnings(store: &SqliteStore, l: &Location) -> Result<Vec<String>> {
-    if !l.is_repo {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    let prefix = format!("{}{SEP}", l.root_path.trim_end_matches(SEP).to_lowercase());
-    let plen = prefix.chars().count() as i64;
-    let venv: bool = store.conn().query_row(
-        "SELECT EXISTS (SELECT 1 FROM files WHERE deleted_at IS NULL AND volume_id = ?3
-                         AND substr(lower(path), 1, ?2) = ?1 AND lower(name) = 'pyvenv.cfg')",
-        params![prefix, plen, l.volume_id],
-        |r| r.get(0),
-    )?;
-    if venv {
-        out.push("It holds a Python virtual environment, which will need recreating after the move.".into());
-    }
-    if l.newest_mtime >= crate::now_ms() - 30 * 86_400_000 {
-        out.push("It changed in the last 30 days: close any editor or terminal using it first.".into());
-    }
-    Ok(out)
+/// What every plan needs to know about the PC, read once: the roots, every saved project
+/// location, and every Python virtual environment (a folder holding `pyvenv.cfg`). Planning
+/// many projects with one `Planner` costs one pass over the catalog, not one per project.
+pub struct Planner {
+    roots: Vec<crate::contracts::RootConfig>,
+    /// (collection id, volume id, root path) of every saved location.
+    locations: Vec<(String, String, String)>,
+    /// (volume id, folder) of every virtual environment.
+    venvs: Vec<(String, String)>,
 }
 
-/// The plans for one project: one per drive it lives on. None for projects the owner left as
-/// they are or said aren't projects.
-pub fn plan_for(store: &SqliteStore, c: &Collection) -> Result<Vec<ProjectPlan>> {
-    if matches!(c.state.as_str(), "left_as_is" | "not_a_project") || c.locations.is_empty() {
-        return Ok(Vec::new());
+impl Planner {
+    pub fn new(store: &SqliteStore) -> Result<Self> {
+        let locations = {
+            let mut stmt = store.conn().prepare("SELECT collection_id, volume_id, root_path FROM collection_locations")?;
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
+        };
+        let venvs = {
+            let mut stmt =
+                store.conn().prepare("SELECT volume_id, path FROM files WHERE deleted_at IS NULL AND name = 'pyvenv.cfg' COLLATE NOCASE")?;
+            let rows: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+            rows.into_iter().map(|(v, p)| (v, parent(&p).to_string())).collect()
+        };
+        Ok(Self { roots: store.list_roots()?, locations, venvs })
     }
-    let mut volumes: Vec<&str> = Vec::new();
-    for l in &c.locations {
-        if !volumes.contains(&l.volume_id.as_str()) {
-            volumes.push(&l.volume_id);
+
+    fn is_venv(&self, l: &Location) -> bool {
+        self.venvs.iter().any(|(v, d)| *v == l.volume_id && same_path(d, &l.root_path))
+    }
+
+    fn holds_venv(&self, l: &Location) -> bool {
+        self.venvs.iter().any(|(v, d)| *v == l.volume_id && path_is_within(d, &l.root_path, false))
+    }
+
+    /// Warnings for moving a git repository: a virtual environment to recreate, recent changes.
+    fn repo_warnings(&self, l: &Location) -> Vec<String> {
+        if !l.is_repo {
+            return Vec::new();
         }
+        let mut out = Vec::new();
+        if self.holds_venv(l) {
+            out.push("It holds a Python virtual environment, which will need recreating after the move.".into());
+        }
+        if l.newest_mtime >= crate::now_ms() - 30 * 86_400_000 {
+            out.push("It changed in the last 30 days: close any editor or terminal using it first.".into());
+        }
+        out
     }
-    volumes.iter().map(|v| plan_on(store, c, v)).collect()
+
+    /// The plans for one project: one per drive it lives on. None for projects the owner left
+    /// as they are or said aren't projects.
+    pub fn plan_for(&self, store: &SqliteStore, c: &Collection) -> Result<Vec<ProjectPlan>> {
+        if matches!(c.state.as_str(), "left_as_is" | "not_a_project") || c.locations.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut volumes: Vec<&str> = Vec::new();
+        for l in &c.locations {
+            if !volumes.contains(&l.volume_id.as_str()) {
+                volumes.push(&l.volume_id);
+            }
+        }
+        volumes.iter().map(|v| plan_on(self, store, c, v)).collect()
+    }
 }
 
-fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<ProjectPlan> {
+/// The plans for one project (see [`Planner::plan_for`]; use one `Planner` for many).
+pub fn plan_for(store: &SqliteStore, c: &Collection) -> Result<Vec<ProjectPlan>> {
+    Planner::new(store)?.plan_for(store, c)
+}
+
+fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<ProjectPlan> {
     let here: Vec<&Location> = c.locations.iter().filter(|l| l.volume_id == volume_id).collect();
     // The project's home if it is on this drive; otherwise this drive's best copy. Copies on a
     // drive without the home were related to the home, not to each other: they get no step.
@@ -338,26 +370,16 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
     // Rulings from the dry run on the owner's database (2026-11-23):
     // - Other drives get no plan yet: they hold old copies and coursework, which the later
     //   Old copies module is for. Their copies are listed on the card.
-    let roots = store.list_roots()?;
+    let roots = &ctx.roots;
     let on_pc = here.iter().any(|l| roots.iter().any(|r| r.enabled && path_is_within(&l.root_path, &r.path, false)));
     if !on_pc {
         return Ok(nothing("Copies on this drive are listed. Plans for other drives come later."));
     }
     // - Nothing inside another project (or holding one) is moved on this project's behalf, and
     //   nothing that is a Python virtual environment is moved at all (it would break).
-    let others: Vec<String> = {
-        let mut stmt = store.conn().prepare("SELECT root_path FROM collection_locations WHERE volume_id = ?1 AND collection_id != ?2")?;
-        stmt.query_map(params![volume_id, c.id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
-    };
+    let others: Vec<String> =
+        ctx.locations.iter().filter(|(cid, v, _)| v == volume_id && *cid != c.id).map(|(_, _, p)| p.clone()).collect();
     let nested = |l: &Location| others.iter().any(|o| inside(&l.root_path, o) || inside(o, &l.root_path));
-    let is_venv = |l: &Location| -> Result<bool> {
-        let (_, hash) = crate::db::files::normalize_path(Path::new(&join(&l.root_path, "pyvenv.cfg")), false);
-        Ok(store.conn().query_row(
-            "SELECT EXISTS (SELECT 1 FROM files WHERE path_hash = ?1 AND deleted_at IS NULL)",
-            params![hash.as_slice()],
-            |r| r.get(0),
-        )?)
-    };
     // - A copy changed in the last 30 days is live work: it stays where it is.
     let recent = crate::now_ms() - 30 * 86_400_000;
     let mut blocked: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -365,7 +387,7 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
     for l in &here {
         let why = if nested(l) {
             Some("it sits inside another project")
-        } else if is_venv(l)? {
+        } else if ctx.is_venv(l) {
             Some("it is a Python environment, which breaks if moved")
         } else if l.id != home.id && l.newest_mtime >= recent {
             Some("it changed in the last 30 days, so it may be work in progress")
@@ -426,7 +448,7 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
                 to: moved,
                 fallback: None,
                 reason: "Moved aside first, so the main copy can take its name.".into(),
-                warnings: repo_warnings(store, o)?,
+                warnings: ctx.repo_warnings(o),
             });
         }
         if Path::new(&target).exists() && !aside.as_ref().is_some_and(|(o, _)| same_path(&o.root_path, &target)) {
@@ -442,7 +464,7 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
                 to: target.clone(),
                 fallback: None,
                 reason: format!("Moves whole to {target} (your projects home)."),
-                warnings: repo_warnings(store, home)?,
+                warnings: ctx.repo_warnings(home),
             });
             home_after = target;
         }
@@ -509,7 +531,7 @@ fn plan_on(store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<Proje
                 to,
                 fallback,
                 reason,
-                warnings: repo_warnings(store, l)?,
+                warnings: ctx.repo_warnings(l),
             });
         }
     }

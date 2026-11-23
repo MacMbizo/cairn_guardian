@@ -94,11 +94,12 @@ projects in more than one place:");
     println!("files kept whole inside projects (build output not counted): {protected}");
 
     // Project plans, in the order the cards would be offered. Planning only; nothing runs.
-    use aegis_core::context::plan::{StepKind, offer_rank, plan_for};
+    use aegis_core::context::plan::{Planner, StepKind, offer_rank};
     let t = Instant::now();
+    let planner = Planner::new(&store)?;
     let mut plans = Vec::new();
     for c in &projects {
-        match plan_for(&store, c) {
+        match planner.plan_for(&store, c) {
             Ok(ps) => plans.extend(ps.into_iter().filter(|p| !p.steps.is_empty()).map(|p| (offer_rank(c, &p), c, p))),
             Err(e) => println!("  plan for {} failed: {e}", c.name),
         }
