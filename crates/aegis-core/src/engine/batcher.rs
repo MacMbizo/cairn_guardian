@@ -60,15 +60,18 @@ impl ChangeBatcher {
 fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
-        let Ok(meta) = std::fs::symlink_metadata(e.path()) else { continue };
+        let p = e.path();
+        if crate::scanner::is_live_excluded_path(&p) {
+            continue;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&p) else { continue };
         if meta.file_type().is_symlink() {
             continue;
         }
         if meta.is_dir() {
-            files_under(&e.path(), out);
+            files_under(&p, out);
         } else if meta.is_file() {
-            let canon = std::fs::canonicalize(e.path()).unwrap_or_else(|_| e.path());
-            out.push(PathBuf::from(normalize_path(&canon, false).0));
+            out.push(PathBuf::from(normalize_path(&p, false).0));
         }
     }
 }
@@ -77,30 +80,41 @@ fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
 /// a folder into its files, and a vanished path into the indexed files that were under it.
 fn expand(store: &SqliteStore, volume_id: &str, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     let mut out = BTreeSet::new();
+    let mut vanished_dirs: Vec<String> = Vec::new();
+    let mut file_check = store.conn().prepare(
+        "SELECT EXISTS(SELECT 1 FROM files WHERE volume_id = ?1 AND path_hash = ?2 AND deleted_at IS NULL)",
+    )?;
     for p in paths {
+        if crate::scanner::is_live_excluded_path(&p) {
+            continue;
+        }
         if p.is_dir() {
             let mut files = Vec::new();
             files_under(&p, &mut files);
             out.extend(files);
         } else if !p.exists() {
-            let prefix = p.to_string_lossy().to_string();
-            let mut stmt = store.conn().prepare(
-                "SELECT path FROM files WHERE volume_id = ?1 AND deleted_at IS NULL
-                   AND lower(substr(path, 1, ?3)) = lower(?2)",
-            )?;
-            let rows = stmt.query_map(
-                rusqlite::params![volume_id, prefix, prefix.chars().count() as i64],
-                |r| r.get::<_, String>(0),
-            )?;
-            for r in rows {
-                let child = r?;
-                if path_is_within(&child, &prefix, false) {
-                    out.insert(PathBuf::from(child));
-                }
+            let (_, ph) = normalize_path(&p, false);
+            let exact_file: bool = file_check.query_row(rusqlite::params![volume_id, ph.as_slice()], |r| r.get(0))?;
+            if exact_file {
+                out.insert(p);
+            } else {
+                vanished_dirs.push(p.to_string_lossy().to_string());
+                out.insert(p);
             }
-            out.insert(p);
         } else {
             out.insert(p);
+        }
+    }
+    if !vanished_dirs.is_empty() {
+        let mut stmt = store.conn().prepare(
+            "SELECT path FROM files WHERE volume_id = ?1 AND deleted_at IS NULL",
+        )?;
+        let rows = stmt.query_map([volume_id], |r| r.get::<_, String>(0))?;
+        for r in rows {
+            let child = r?;
+            if vanished_dirs.iter().any(|pref| path_is_within(&child, pref, false)) {
+                out.insert(PathBuf::from(child));
+            }
         }
     }
     Ok(out.into_iter().collect())

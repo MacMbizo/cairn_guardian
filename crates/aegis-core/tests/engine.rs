@@ -1102,3 +1102,65 @@ fn random_named_encrypted_replacements_trip() {
     assert_eq!(trips.len(), 1);
     assert!(trips[0].suspect_encrypted >= 1);
 }
+
+#[test]
+fn is_live_excluded_path_covers_build_cache_and_git_only() {
+    use aegis_core::scanner::is_live_excluded_path;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let app = tmp.path().join("app");
+    let cargo_app = tmp.path().join("rust-app");
+    std::fs::create_dir_all(app.join("node_modules/pkg")).unwrap();
+    std::fs::create_dir_all(app.join(".venv/Lib")).unwrap();
+    std::fs::create_dir_all(app.join(".git/objects")).unwrap();
+    std::fs::create_dir_all(app.join(".aegis-quarantine/b1")).unwrap();
+    std::fs::create_dir_all(app.join("target")).unwrap();
+    std::fs::create_dir_all(cargo_app.join("target/debug")).unwrap();
+    std::fs::write(cargo_app.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+
+    assert!(is_live_excluded_path(&app.join("node_modules/pkg/index.js")));
+    assert!(is_live_excluded_path(&app.join(".venv/Lib/site.py")));
+    assert!(is_live_excluded_path(&app.join(".git/index.lock")));
+    assert!(is_live_excluded_path(&app.join(".aegis-quarantine/b1/old.txt")));
+    assert!(is_live_excluded_path(&cargo_app.join("target/debug/app.exe")));
+
+    assert!(!is_live_excluded_path(&app.join("src/main.rs")));
+    assert!(!is_live_excluded_path(&app.join("target/notes.md")), "plain target folder without Cargo.toml or CACHEDIR.TAG is user data");
+}
+
+#[test]
+fn index_changed_skips_excluded_subdirs_and_handles_vanished_files_and_folders() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = store();
+    let provider = FakeVolumeProvider::new();
+    let drive = common::fake_drive(&tmp, "A", "0001");
+    let id = common::plug_and_catalog(&mut s, &provider, &drive);
+
+    let proj = drive.mount_point.join("MyApp");
+    common::put(&proj, "Cargo.toml", b"[package]\nname = \"myapp\"\n");
+    common::put(&proj, "src/main.rs", b"fn main() {}");
+    common::put(&proj, "docs/guide.md", b"# guide");
+    common::put(&proj, "node_modules/left-pad/index.js", b"module.exports = 1;");
+    common::put(&proj, ".venv/Lib/site.py", b"# venv");
+    common::put(&proj, ".git/objects/00/abcdef", b"obj");
+    common::put(&proj, "target/debug/myapp.exe", b"exe");
+
+    let proj_canon = PathBuf::from(common::canon(&proj));
+    index_changed(&mut s, &id, vec![vec![proj_canon.clone()]]).unwrap();
+    let paths = common::live_file_paths(&s, &id);
+    assert!(paths.iter().any(|p| p.ends_with("main.rs")), "{paths:?}");
+    assert!(paths.iter().any(|p| p.ends_with("guide.md")), "{paths:?}");
+    assert!(!paths.iter().any(|p| p.contains("node_modules") || p.contains(".venv") || p.contains(".git") || p.contains("target")), "{paths:?}");
+
+    // Vanished single file removes only that file via O(log N) lookup.
+    let vanished_file = PathBuf::from(common::canon(&proj.join("docs/guide.md")));
+    std::fs::remove_file(proj.join("docs/guide.md")).unwrap();
+    index_changed(&mut s, &id, vec![vec![vanished_file]]).unwrap();
+    let paths_after_file = common::live_file_paths(&s, &id);
+    assert!(!paths_after_file.iter().any(|p| p.ends_with("guide.md")), "{paths_after_file:?}");
+    assert!(paths_after_file.iter().any(|p| p.ends_with("main.rs")), "{paths_after_file:?}");
+
+    // Vanished folder removes all remaining indexed children beneath it.
+    std::fs::remove_dir_all(&proj).unwrap();
+    index_changed(&mut s, &id, vec![vec![proj_canon]]).unwrap();
+    assert!(!common::live_file_paths(&s, &id).iter().any(|p| p.contains("MyApp")));
+}

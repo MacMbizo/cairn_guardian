@@ -1002,21 +1002,27 @@ pub fn seed_default_roots(store: &SqliteStore) -> Result<Vec<RootConfig>> {
     Ok(added)
 }
 
-/// True when any component of `path` is a folder the scanner never indexes.
-fn under_excluded_dir(path: &Path) -> bool {
-    path.components().any(|c| {
-        c.as_os_str()
-            .to_str()
-            .is_some_and(is_immutable_excluded_dir_name)
-    }) || path.ancestors().any(|a| {
-        a.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-            n.eq_ignore_ascii_case("_Previous versions")
-                && a.parent()
-                    .and_then(|p| p.file_name())
-                    .and_then(|p| p.to_str())
-                    .is_some_and(|p| p.eq_ignore_ascii_case("Aegis Backup"))
+/// True when live file-watching/indexing should skip `path` (immutable Aegis/OS folders,
+/// Backup `_Previous versions`, `.git` metadata, and recognized build/cache directories such as
+/// `node_modules`, `.venv`, `venv`, `.gradle`, and Cargo `target`).
+pub fn is_live_excluded_path(path: &Path) -> bool {
+    path.ancestors().any(|a| {
+        a.file_name().and_then(|n| n.to_str()).is_some_and(|name| {
+            is_immutable_excluded_dir_name(name)
+                || name.eq_ignore_ascii_case(".git")
+                || (name.eq_ignore_ascii_case("_Previous versions")
+                    && a.parent()
+                        .and_then(|p| p.file_name())
+                        .and_then(|p| p.to_str())
+                        .is_some_and(|p| p.eq_ignore_ascii_case("Aegis Backup")))
+                || detect_cache_dir_kind(a, name).is_some()
         })
     })
+}
+
+/// True when any component of `path` is a folder the live indexer never indexes.
+fn under_excluded_dir(path: &Path) -> bool {
+    is_live_excluded_path(path)
 }
 
 /// Re-indexes individual paths on a registered volume (USN-driven refresh, spec §7.4):

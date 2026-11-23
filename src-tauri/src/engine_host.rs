@@ -22,6 +22,7 @@ use aegis_core::engine::watches::{
 };
 use aegis_core::engine::{Calm, Engine, FindingAction, Screen, record_run};
 use aegis_core::now_ms;
+use aegis_core::scanner::is_live_excluded_path;
 use chrono::{Datelike, Local, Timelike};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -242,6 +243,40 @@ pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
     std::thread::spawn(move || event_loop(app, rx, sched_tx));
 }
 
+fn push_fs_event(ev: notify::Event, batcher: &mut ChangeBatcher, tripwire: &mut Tripwire, now: i64) {
+    for (path, kind) in change_kind(&ev) {
+        let shown = display(&path);
+        match kind {
+            ChangeKind::Renamed { to } => {
+                let to_shown = display(&to);
+                let from_excl = is_live_excluded_path(&shown);
+                let to_excl = is_live_excluded_path(&to_shown);
+                if from_excl && to_excl {
+                    continue;
+                }
+                if !from_excl {
+                    batcher.push(shown.clone(), now);
+                }
+                if !to_excl {
+                    batcher.push(to_shown.clone(), now);
+                }
+                tripwire.observe(&shown, ChangeKind::Renamed { to: to_shown }, now);
+            }
+            other => {
+                if is_live_excluded_path(&shown) {
+                    continue;
+                }
+                // Windows fires Modify on parent directories whenever any child file changes;
+                // expanding a Modified dir would re-walk the entire subtree on every write.
+                if !(matches!(other, ChangeKind::Modified) && shown.is_dir()) {
+                    batcher.push(shown.clone(), now);
+                }
+                tripwire.observe(&shown, other, now);
+            }
+        }
+    }
+}
+
 /// Live index and tripwire. Light work only.
 fn event_loop(app: AppHandle, rx: Receiver<EngineMsg>, sched: Sender<()>) {
     let state = app.state::<AppState>();
@@ -256,20 +291,29 @@ fn event_loop(app: AppHandle, rx: Receiver<EngineMsg>, sched: Sender<()>) {
     loop {
         let timeout = if batcher.is_empty() { HEARTBEAT } else { FAST_TICK };
         let mut woke = false;
+        let mut disconnected = false;
         match rx.recv_timeout(timeout) {
             Ok(EngineMsg::Fs(ev)) => {
                 let now = now_ms();
-                for (path, kind) in change_kind(&ev) {
-                    let shown = display(&path);
-                    batcher.push(shown.clone(), now);
-                    if let ChangeKind::Renamed { to } = &kind {
-                        batcher.push(display(to), now);
+                push_fs_event(ev, &mut batcher, &mut tripwire, now);
+                for _ in 0..2_000 {
+                    match rx.try_recv() {
+                        Ok(EngineMsg::Fs(more)) => push_fs_event(more, &mut batcher, &mut tripwire, now),
+                        Ok(EngineMsg::WatchError(e)) => {
+                            watch_error = Some(e);
+                            watcher = None;
+                            break;
+                        }
+                        Ok(EngineMsg::Wake) => {
+                            woke = true;
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            disconnected = true;
+                            break;
+                        }
                     }
-                    let kind = match kind {
-                        ChangeKind::Renamed { to } => ChangeKind::Renamed { to: display(&to) },
-                        k => k,
-                    };
-                    tripwire.observe(&shown, kind, now);
                 }
             }
             Ok(EngineMsg::WatchError(e)) => {
@@ -281,17 +325,27 @@ fn event_loop(app: AppHandle, rx: Receiver<EngineMsg>, sched: Sender<()>) {
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
+        if disconnected {
+            break;
+        }
         let now = now_ms();
 
         // Live index: apply quiet bursts in small transactions, grouped by root's volume.
+        let mut applied = 0usize;
         for chunk in batcher.drain_ready(now) {
             for (root, vol) in &roots {
                 let mine: Vec<PathBuf> =
                     chunk.iter().filter(|p| path_is_within(&p.to_string_lossy(), root, false)).cloned().collect();
-                if !mine.is_empty() && index_changed(&mut store, vol, vec![mine.clone()]).is_err() {
-                    batcher.requeue(mine, now); // database busy: try again shortly
+                if !mine.is_empty() {
+                    match index_changed(&mut store, vol, vec![mine.clone()]) {
+                        Ok(n) => applied += n,
+                        Err(_) => batcher.requeue(mine, now), // database busy: try again shortly
+                    }
                 }
             }
+        }
+        if applied >= 100 {
+            store.shrink_memory();
         }
 
         // Tripwire: lock the folder's backup and tell the owner at once.
@@ -400,6 +454,9 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
             let mut changed = woke;
             if let Ok(report) = engine.tick(&mut store, now, &calm, paused) {
                 changed |= report.ran.iter().any(|n| *n != "tripwire_locks");
+                if report.ran.iter().any(|n| matches!(*n, "reader" | "context" | "filing" | "janitor")) {
+                    store.shrink_memory();
+                }
             }
 
             // The weekly note.
@@ -476,5 +533,41 @@ mod tests {
         assert!(!super::dismissal_counts(Some(R::TimedOut)));
         assert!(!super::dismissal_counts(Some(R::ApplicationHidden)));
         assert!(!super::dismissal_counts(None));
+    }
+
+    #[test]
+    fn push_fs_event_skips_excluded_paths_and_dir_modify() {
+        use aegis_core::engine::batcher::ChangeBatcher;
+        use aegis_core::engine::tripwire::Tripwire;
+        use notify::{Event, EventKind, event::{DataChange, ModifyKind}};
+
+        let base = std::env::temp_dir().join(format!("aegis-eh-test-{}", aegis_core::new_id()));
+        let root = base.join("Prj");
+        let nm_file = root.join("app/node_modules/pkg/a.js");
+        let dir_only = root.join("app");
+        let code_file = root.join("app/src/main.rs");
+        std::fs::create_dir_all(&dir_only).unwrap();
+        std::fs::create_dir_all(code_file.parent().unwrap()).unwrap();
+        std::fs::write(&code_file, "fn main() {}").unwrap();
+
+        let mut batcher = ChangeBatcher::new();
+        let mut tw = Tripwire::new(vec![root.to_string_lossy().to_string()]);
+
+        let ev = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+            .add_path(nm_file)
+            .add_path(dir_only.clone())
+            .add_path(code_file);
+        super::push_fs_event(ev, &mut batcher, &mut tw, 0);
+
+        let drained = batcher.drain_ready(10_000).concat();
+        assert_eq!(drained.len(), 1, "only the real file modify should be queued: {drained:?}");
+        assert!(drained[0].ends_with("main.rs"));
+
+        // Creating a folder still expands so newly moved-in folders are indexed.
+        let mut batcher2 = ChangeBatcher::new();
+        let created_dir = Event::new(EventKind::Create(notify::event::CreateKind::Folder)).add_path(dir_only);
+        super::push_fs_event(created_dir, &mut batcher2, &mut tw, 0);
+        assert_eq!(batcher2.drain_ready(10_000).concat().len(), 1);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

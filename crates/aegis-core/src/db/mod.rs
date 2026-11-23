@@ -74,7 +74,7 @@ impl SqliteStore {
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;
              PRAGMA temp_store = MEMORY;
-             PRAGMA cache_size = -262144;",
+             PRAGMA cache_size = -16384;",
         )?;
         let mut store = Self { conn };
         store.run_migrations()?;
@@ -118,6 +118,11 @@ impl SqliteStore {
 
     pub fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
+    }
+
+    /// Releases freeable SQLite page-cache memory after large scans or batches (`K5`).
+    pub fn shrink_memory(&self) {
+        let _ = self.conn.execute_batch("PRAGMA shrink_memory;");
     }
 
     /// Executes `f` inside an ACID transaction with `PRAGMA synchronous = FULL` (`B1/B2` §6).
