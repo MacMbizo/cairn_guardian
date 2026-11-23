@@ -195,7 +195,7 @@ fn make_this_the_backup_copy_moves_instead_of_deleting() {
         .unwrap();
     let g = aegis_core::dupes::grouped_report(store.conn()).unwrap().groups.remove(0);
     let victim = g.locations.iter().position(|l| l.volume_id == ids[2]).unwrap();
-    let out = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: victim }).unwrap();
+    let out = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: victim, keeper_index: None }).unwrap();
     run_batch(&mut store, &out.batch_id.unwrap());
     assert!(!pc.exists());
     assert!(b.mount_point.join("Aegis Backup").join("A").join("Docs").join("z.bin").is_file());
@@ -1007,4 +1007,61 @@ fn lock_after_override_still_halts() {
     let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
     assert_eq!(plan.halted_folders.len(), 1, "a newer lock beats an older override");
     assert!(plan.items.is_empty());
+}
+
+#[test]
+fn retire_copy_only_marks_backup_volume_file_missing() {
+    let mut fx = backup_fx(&[
+        ("doc.txt", b"hello"),
+        ("k1.txt", b"1"),
+        ("k2.txt", b"2"),
+        ("k3.txt", b"3"),
+        ("k4.txt", b"4"),
+        ("k5.txt", b"5"),
+    ]);
+    let res = topup(&mut fx);
+    assert_eq!(res.added, 6);
+
+    // Insert an offline unrelated volume whose former mount was the same path holding an identically hashed file path.
+    let backup_file_path: String = fx
+        .store
+        .conn()
+        .query_row(
+            "SELECT path FROM files WHERE volume_id = ?1 AND deleted_at IS NULL AND name = 'doc.txt' LIMIT 1",
+            [&fx.backup_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let (_, ph) = aegis_core::db::files::normalize_path(Path::new(&backup_file_path), false);
+    fx.store
+        .conn()
+        .execute(
+            "INSERT INTO volumes (id, mount_point, fs_type, has_stable_inode, case_sensitive, status, last_seen)
+             VALUES ('v-foreign', 'Z:\\', 'ntfs', 1, 0, 'offline', 0)",
+            [],
+        )
+        .unwrap();
+    fx.store
+        .conn()
+        .execute(
+            "INSERT INTO files (id, volume_id, path, path_hash, name, size, mtime, ctime, cloud_state, state, first_seen, last_seen, created_at, updated_at)
+             VALUES ('foreign-doc', 'v-foreign', ?1, ?2, 'doc.txt', 5, 1, 1, 'local', 'active', 1, 1, 1, 1)",
+            rusqlite::params![backup_file_path, ph.as_slice()],
+        )
+        .unwrap();
+
+    // Remove source doc so top-up retires the backup copy cleanly.
+    std::fs::remove_file(fx.docs.join("doc.txt")).unwrap();
+    aegis_core::scanner::scan_root(&mut fx.store, &fx.docs, &[1]).unwrap();
+    let plan = plan_topup(fx.store.conn(), &fx.backup_id).unwrap();
+    let retire_res = run_topup(&mut fx.store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(retire_res.retired, 1);
+
+    let foreign_state: String = fx
+        .store
+        .conn()
+        .query_row("SELECT state FROM files WHERE id = 'foreign-doc'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(foreign_state, "active", "foreign volume's file at matching path_hash must not be retired");
+    assert_eq!(walk_count(&fx.backup.mount_point, ".aegis-partial"), 0);
 }

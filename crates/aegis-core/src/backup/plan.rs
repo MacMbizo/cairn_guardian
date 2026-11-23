@@ -456,6 +456,17 @@ pub fn apply_plan(store: &mut SqliteStore, roles: &[(String, DriveRole)]) -> Res
 /// "It's a backup" / "Make this the backup copy": puts the copies at `location_index` of a
 /// duplicate group onto the Backup drive, then quarantines them where they are. Needs approval.
 pub fn propose_move_to_backup(store: &mut SqliteStore, group_id: &str, location_index: usize) -> Result<String> {
+    propose_move_to_backup_with_keeper(store, group_id, location_index, None)
+}
+
+/// Like [`propose_move_to_backup`], but honours an explicit `keeper_index` chosen in the UI
+/// (falling back to the automatic keeper if that location has no copy for a file).
+pub fn propose_move_to_backup_with_keeper(
+    store: &mut SqliteStore,
+    group_id: &str,
+    location_index: usize,
+    keeper_index: Option<usize>,
+) -> Result<String> {
     let (backup_id, backup_mount, online) = super::backup_volume(store.conn())?
         .ok_or_else(|| AegisError::InvalidInput("No Backup drive assigned yet.".into()))?;
     if !online {
@@ -468,6 +479,14 @@ pub fn propose_move_to_backup(store: &mut SqliteStore, group_id: &str, location_
         .ok_or_else(|| AegisError::NotFound(format!("duplicate group {group_id}")))?;
     if location_index >= group.locations.len() {
         return Err(AegisError::InvalidInput(format!("no location {location_index} in this group")));
+    }
+    if let Some(ki) = keeper_index {
+        if ki >= group.locations.len() {
+            return Err(AegisError::InvalidInput(format!("no location {ki} in this group")));
+        }
+        if ki == location_index {
+            return Err(AegisError::InvalidInput("cannot keep and remove the same location".into()));
+        }
     }
     let by_hash = copies_by_hash(store.conn())?;
     let by_id: HashMap<String, (&Vec<u8>, &Copy)> = by_hash
@@ -485,12 +504,24 @@ pub fn propose_move_to_backup(store: &mut SqliteStore, group_id: &str, location_
         let Some((h, member)) = by_id.get(&m.file_id) else { continue };
         let copies = &by_hash[*h];
         let others: Vec<Copy> = copies.iter().filter(|c| !here.contains(c.id.as_str())).cloned().collect();
-        let Some(k) = keeper(&others, &backup_id) else { continue };
+        let chosen = keeper_index.and_then(|ki| {
+            group
+                .members
+                .iter()
+                .find(|km| km.location_index == ki && km.blake3_hex == m.blake3_hex)
+                .and_then(|km| copies.iter().find(|c| c.id == km.file_id && c.volume_id != backup_id))
+        });
+        let k = match chosen {
+            Some(c) => c,
+            None => {
+                let Some(auto) = keeper(&others, &backup_id) else { continue };
+                copies.iter().find(|c| c.id == auto.id).unwrap_or(member)
+            }
+        };
         let existing = copies
             .iter()
             .find(|c| c.volume_id == backup_id && in_backup_area(&c.path, &backup_mount))
             .map(|c| c.id.clone());
-        let k = copies.iter().find(|c| c.id == k.id).unwrap_or(member);
         items.push(ToBackup { member, keeper: k, existing, hash: h.as_slice() });
     }
     propose_to_backup(store, &items, &backup_id, &backup_mount)?

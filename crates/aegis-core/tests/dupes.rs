@@ -446,7 +446,7 @@ fn delete_this_copy_creates_quarantine_batch() {
     catalog_all(&mut store, &provider, &[&a, &b, &c]);
     let g = grouped_report(store.conn()).unwrap().groups.remove(0);
     let victim = (0..g.locations.len()).find(|&i| i != g.keeper_index).unwrap();
-    let out = decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: victim }).unwrap();
+    let out = decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: victim, keeper_index: None }).unwrap();
     let batch = out.batch_id.expect("a quarantine batch");
     let (n, with_survivor): (i64, i64) = store
         .conn()
@@ -465,7 +465,7 @@ fn delete_refused_suggests_backup_copy() {
     two_drive_copy(&tmp, &mut store, &provider);
     let g = grouped_report(store.conn()).unwrap().groups.remove(0);
     let victim = 1 - g.keeper_index;
-    let err = decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: victim })
+    let err = decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: victim, keeper_index: None })
         .unwrap_err();
     assert!(err.to_string().contains("Make this the backup copy"), "{err}");
     assert!(list_decisions(store.conn()).unwrap().is_empty(), "a refused answer is not recorded");
@@ -533,7 +533,7 @@ fn backup_move_respects_pending_deletes_and_copy_floor() {
 
     let g = grouped_report(store.conn()).unwrap().groups.remove(0);
     let at_a = g.locations.iter().position(|l| l.volume_id == ids[0]).unwrap();
-    let err = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: at_a }).unwrap_err();
+    let err = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: at_a, keeper_index: None }).unwrap_err();
     assert!(err.to_string().contains("copies"), "{err}");
 }
 
@@ -564,7 +564,7 @@ fn backup_move_handles_internal_duplicates() {
         .find(|g| g.kind == DupeGroupKind::Folder)
         .expect("folder group");
     let at_c = g.locations.iter().position(|l| l.volume_id == ids[2]).unwrap();
-    let out = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: at_c }).unwrap();
+    let out = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: at_c, keeper_index: None }).unwrap();
     let batch = out.batch_id.unwrap();
     let copies: i64 = store
         .conn()
@@ -600,4 +600,65 @@ fn files_that_became_placeholders_are_not_opened() {
     let stats = run_fingerprint(&mut store, &AtomicBool::new(false)).unwrap();
     assert_eq!(stats.skipped_placeholder, 1, "{stats:?}");
     assert!(common::hashes_at(&store, &p1).0.is_none());
+}
+
+#[test]
+fn explicit_keeper_index_overrides_automatic_keeper_for_delete_and_backup() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let c = common::fake_drive(&tmp, "C", "0003");
+    let bk = common::fake_drive(&tmp, "BK", "0004");
+    let body = common::noise(6 * KIB, 199);
+    let pa = common::put(&a.mount_point, "Docs/photo.bin", &body);
+    let pb = common::put(&b.mount_point, "Docs/photo.bin", &body);
+    let pc = common::put(&c.mount_point, "Docs/photo.bin", &body);
+    // Make A newest so it is NOT the automatic keeper (oldest wins automatically).
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(7_200);
+    std::fs::OpenOptions::new().write(true).open(&pb).unwrap().set_modified(old).unwrap();
+    std::fs::OpenOptions::new().write(true).open(&pc).unwrap().set_modified(old).unwrap();
+    let ids = catalog_all(&mut store, &provider, &[&a, &b, &c, &bk]);
+    store.conn().execute("UPDATE volumes SET role = 'backup' WHERE id = ?1", [&ids[3]]).unwrap();
+
+    let g = grouped_report(store.conn()).unwrap().groups.remove(0);
+    let idx_a = g.locations.iter().position(|l| l.volume_id == ids[0]).unwrap();
+    let idx_b = g.locations.iter().position(|l| l.volume_id == ids[1]).unwrap();
+    let idx_c = g.locations.iter().position(|l| l.volume_id == ids[2]).unwrap();
+    assert_ne!(g.keeper_index, idx_a, "A is newest so it should not be automatic keeper");
+
+    // Validation errors.
+    assert!(decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: idx_c, keeper_index: Some(99) }).is_err());
+    assert!(decide(&mut store, &g.group_id, DupeChoice::DeleteThisCopy { location_index: idx_c, keeper_index: Some(idx_c) }).is_err());
+
+    // Delete C keeping explicit keeper A (overriding automatic keeper).
+    let out = decide(
+        &mut store,
+        &g.group_id,
+        DupeChoice::DeleteThisCopy { location_index: idx_c, keeper_index: Some(idx_a) },
+    )
+    .unwrap();
+    let survivor: String = store
+        .conn()
+        .query_row("SELECT survivor_file_id FROM actions WHERE batch_id = ?1", [out.batch_id.as_ref().unwrap()], |r| r.get(0))
+        .unwrap();
+    assert_eq!(survivor, file_id(&store, &pa));
+    undo_decision(&mut store, &out.decision_id).unwrap();
+
+    // Make B the backup copy while explicitly picking A as the kept copy.
+    let g2 = grouped_report(store.conn()).unwrap().groups.remove(0);
+    let out_bk = decide(
+        &mut store,
+        &g2.group_id,
+        DupeChoice::MakeThisTheBackupCopy { location_index: idx_b, keeper_index: Some(idx_a) },
+    )
+    .unwrap();
+    let copy_to: String = store
+        .conn()
+        .query_row(
+            "SELECT to_path FROM actions WHERE batch_id = ?1 AND action_type = 'copy'",
+            [out_bk.batch_id.as_ref().unwrap()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(copy_to.contains("\\A\\") || copy_to.contains("/A/"), "backup destination should follow explicit keeper A: {copy_to}");
 }

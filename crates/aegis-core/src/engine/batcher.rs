@@ -58,6 +58,13 @@ impl ChangeBatcher {
 }
 
 fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
+    // Canonicalize the starting folder once (not each file) so Windows case-only renames
+    // like `documents -> Documents` record the true on-disk casing for every child path.
+    let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    files_under_canon(&canon, out);
+}
+
+fn files_under_canon(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let p = e.path();
@@ -69,7 +76,7 @@ fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
             continue;
         }
         if meta.is_dir() {
-            files_under(&p, out);
+            files_under_canon(&p, out);
         } else if meta.is_file() {
             out.push(PathBuf::from(normalize_path(&p, false).0));
         }

@@ -431,8 +431,8 @@ fn retire_copy(
         }
         tx.execute(
             "UPDATE files SET deleted_at = ?2, state = 'missing', updated_at = ?2
-             WHERE path_hash = ?1 AND deleted_at IS NULL",
-            params![live_hash.as_slice(), now],
+             WHERE volume_id = ?3 AND path_hash = ?1 AND deleted_at IS NULL",
+            params![live_hash.as_slice(), now, backup_volume_id],
         )?;
         Ok(())
     });
@@ -524,12 +524,35 @@ fn copy_verified(
     }
     out.sync_all()?;
     drop(out);
+    let written = h.finalize().as_bytes().to_vec();
     let after = std::fs::metadata(src)?;
     if after.len() != before.len() || mtime_ms(&after) != mtime_ms(&before) {
         let _ = std::fs::remove_file(partial);
         return Ok(CopyOutcome::Changed);
     }
-    Ok(CopyOutcome::Done { hash: h.finalize().as_bytes().to_vec(), bytes })
+    let verify_res = (|| -> Result<Vec<u8>> {
+        let mut f = std::fs::File::open(partial)?;
+        let mut vh = blake3::Hasher::new();
+        let mut vbuf = vec![0u8; 256 * 1024];
+        loop {
+            let n = f.read(&mut vbuf)?;
+            if n == 0 {
+                break;
+            }
+            vh.update(&vbuf[..n]);
+        }
+        Ok(vh.finalize().as_bytes().to_vec())
+    })();
+    match verify_res {
+        Ok(disk_hash) if disk_hash == written => Ok(CopyOutcome::Done { hash: written, bytes }),
+        _ => {
+            let _ = std::fs::remove_file(partial);
+            Err(AegisError::Io(std::io::Error::other(format!(
+                "backup copy failed on-disk BLAKE3 verification: {}",
+                partial.display()
+            ))))
+        }
+    }
 }
 
 /// Runs a top-up plan. Each file is its own disk step plus a short transaction; cancelling

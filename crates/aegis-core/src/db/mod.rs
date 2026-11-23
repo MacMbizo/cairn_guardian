@@ -49,6 +49,7 @@ pub fn refuse_live_database(db: &Path, live: Option<&Path>) -> Result<()> {
 /// Embedded SQLite store holding the single writer connection (`B4` §2).
 pub struct SqliteStore {
     conn: Connection,
+    in_memory: bool,
 }
 
 impl SqliteStore {
@@ -58,16 +59,21 @@ impl SqliteStore {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
-        Self::init_connection(conn)
+        Self::init_connection(conn, false)
     }
 
     /// Opens an isolated in-memory SQLite database for tests.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
-        Self::init_connection(conn)
+        Self::init_connection(conn, true)
     }
 
-    fn init_connection(conn: Connection) -> Result<Self> {
+    /// True when opened with [`SqliteStore::open_in_memory`] (test isolation checks).
+    pub fn is_in_memory(&self) -> bool {
+        self.in_memory
+    }
+
+    fn init_connection(conn: Connection, in_memory: bool) -> Result<Self> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
@@ -76,7 +82,7 @@ impl SqliteStore {
              PRAGMA temp_store = MEMORY;
              PRAGMA cache_size = -16384;",
         )?;
-        let mut store = Self { conn };
+        let mut store = Self { conn, in_memory };
         store.run_migrations()?;
         Ok(store)
     }
@@ -195,7 +201,7 @@ impl SqliteStore {
                is_readonly = excluded.is_readonly,
                has_stable_inode = excluded.has_stable_inode,
                case_sensitive = excluded.case_sensitive,
-               quarantine_dir = excluded.quarantine_dir,
+               quarantine_dir = COALESCE(NULLIF(volumes.quarantine_dir, ''), excluded.quarantine_dir),
                status = 'online',
                last_seen = excluded.last_seen",
             params![

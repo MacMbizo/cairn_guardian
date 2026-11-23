@@ -413,16 +413,25 @@ fn resolve_policy_target_meta(conn: &Connection, row: &DbActionRow) -> Result<Po
     let mut is_cache_dir = false;
     let mut cache_size_bytes = None;
     if row.target_kind == TargetKind::Dir {
-        let cs = volume_case_sensitive_for(conn, Path::new(&row.from_path));
+        let vol = resolve_online_volume(conn, Path::new(&row.from_path))?;
+        let cs = vol.as_ref().map(|v| v.2).unwrap_or(false);
         let (_, ph) = normalize_path(Path::new(&row.from_path), cs);
-        if let Some((au_id, size)) = conn
-            .query_row(
+        let cache_row = if let Some((vid, _, _)) = &vol {
+            conn.query_row(
+                "SELECT atomic_unit_id, size_bytes FROM cache_dirs WHERE volume_id = ?1 AND path_hash = ?2 AND state = 'active'",
+                params![vid, ph.as_slice()],
+                |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        } else {
+            conn.query_row(
                 "SELECT atomic_unit_id, size_bytes FROM cache_dirs WHERE path_hash = ?1 AND state = 'active'",
                 params![ph.as_slice()],
                 |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?)),
             )
             .optional()?
-        {
+        };
+        if let Some((au_id, size)) = cache_row {
             is_cache_dir = true;
             cache_size_bytes = Some(size);
             if unit_id.is_none() {
@@ -461,6 +470,49 @@ fn resolve_volume_for_action(conn: &Connection, from_path: &Path) -> Result<(Str
     })
 }
 
+/// Ensures an in-memory test database never writes into a real volume's `.aegis-quarantine`.
+fn guard_test_quarantine(in_memory: bool, q_path: &Path) -> Result<()> {
+    if !in_memory {
+        return Ok(());
+    }
+    let tmp = std::env::temp_dir();
+    let q_disp = normalize_path(q_path, false).0;
+    let tmp_disp = normalize_path(&tmp, false).0;
+    let within_raw = crate::db::files::path_is_within(&q_disp, &tmp_disp, false);
+    let within_canon = std::fs::canonicalize(&tmp).ok().is_some_and(|tc| {
+        let tc_disp = normalize_path(&tc, false).0;
+        let resolved_q = std::fs::canonicalize(q_path).ok().or_else(|| {
+            let mut cur = q_path.parent();
+            let mut tail = std::collections::VecDeque::new();
+            if let Some(n) = q_path.file_name() {
+                tail.push_front(n.to_os_string());
+            }
+            while let Some(p) = cur {
+                if let Ok(c) = std::fs::canonicalize(p) {
+                    let mut out = c;
+                    for seg in tail {
+                        out.push(seg);
+                    }
+                    return Some(out);
+                }
+                if let Some(n) = p.file_name() {
+                    tail.push_front(n.to_os_string());
+                }
+                cur = p.parent();
+            }
+            None
+        });
+        resolved_q.is_some_and(|qc| crate::db::files::path_is_within(&normalize_path(&qc, false).0, &tc_disp, false))
+    });
+    if !(within_raw || within_canon) {
+        return Err(AegisError::QuarantineUnavailable(format!(
+            "in-memory test store refused to quarantine outside TempDir: {}",
+            q_path.display()
+        )));
+    }
+    Ok(())
+}
+
 fn policy_action_for<'a>(row: &'a DbActionRow, meta: &'a PolicyTargetMeta) -> PolicyAction<'a> {
     PolicyAction {
         action_type: row.action_type,
@@ -483,6 +535,7 @@ pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<Strin
     }
     let batch_id = new_id();
     let now = now_ms();
+    let in_memory = store.is_in_memory();
 
     store.with_full_sync_tx(|tx| {
         tx.execute(
@@ -496,6 +549,7 @@ pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<Strin
             let effective_to = if item.action_type == ActionType::Quarantine && item.to_path.is_none()
             {
                 let (_, qdir, _) = resolve_volume_for_action(tx, Path::new(&item.from_path))?;
+                guard_test_quarantine(in_memory, Path::new(&qdir))?;
                 Some(
                     build_quarantine_dest(
                         Path::new(&qdir),
@@ -507,6 +561,11 @@ pub fn propose_batch(store: &mut SqliteStore, plan: &RefilePlan) -> Result<Strin
                     .to_string(),
                 )
             } else {
+                if item.action_type == ActionType::Quarantine
+                    && let Some(ref explicit_q) = item.to_path
+                {
+                    guard_test_quarantine(in_memory, Path::new(explicit_q))?;
+                }
                 item.to_path.clone()
             };
 
@@ -885,9 +944,17 @@ fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOu
                     out.write_all(&buf[..n])?;
                 }
                 out.sync_all()?;
+                drop(out);
                 Ok(h.finalize().as_bytes().to_vec())
             })();
             let verified = copied.and_then(|written| {
+                let on_disk = hash_file_blake3(&partial)?;
+                if on_disk.as_deref() != Some(written.as_slice()) {
+                    return Err(AegisError::Io(std::io::Error::other(format!(
+                        "{} failed on-disk BLAKE3 verification before rename",
+                        partial.display()
+                    ))));
+                }
                 let fresh = hash_file_blake3(from)?.unwrap_or_default();
                 if fresh == written {
                     Ok(())
@@ -926,15 +993,28 @@ fn copy_survivor_for(conn: &Connection, batch_id: &str, token: &str) -> Result<O
             .and_then(|v| v.get("pair").and_then(|t| t.as_str()).map(|t| t == token))
             .unwrap_or(false);
         if let (true, Some(to)) = (matches, to) {
-            let (_, ph) = normalize_path(Path::new(&to), false);
-            return Ok(conn
-                .query_row(
-                    "SELECT id FROM files WHERE path_hash = ?1 AND deleted_at IS NULL
-                       AND state NOT IN ('quarantine','missing')",
-                    params![ph.as_slice()],
-                    |r| r.get(0),
-                )
-                .optional()?);
+            let vol = resolve_online_volume(conn, Path::new(&to))?;
+            let cs = vol.as_ref().map(|v| v.2).unwrap_or(false);
+            let (_, ph) = normalize_path(Path::new(&to), cs);
+            return if let Some((vid, _, _)) = vol {
+                Ok(conn
+                    .query_row(
+                        "SELECT id FROM files WHERE volume_id = ?1 AND path_hash = ?2 AND deleted_at IS NULL
+                           AND state NOT IN ('quarantine','missing')",
+                        params![vid, ph.as_slice()],
+                        |r| r.get(0),
+                    )
+                    .optional()?)
+            } else {
+                Ok(conn
+                    .query_row(
+                        "SELECT id FROM files WHERE path_hash = ?1 AND deleted_at IS NULL
+                           AND state NOT IN ('quarantine','missing')",
+                        params![ph.as_slice()],
+                        |r| r.get(0),
+                    )
+                    .optional()?)
+            };
         }
     }
     Ok(None)
@@ -1174,10 +1254,19 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
 
     let mut metas = HashMap::new();
     let mut vol_lookup = HashMap::new();
+    let in_memory = store.is_in_memory();
     for r in &rows {
         metas.insert(r.id.clone(), resolve_policy_target_meta(store.conn(), r)?);
         if let Ok(v) = resolve_volume_for_action(store.conn(), Path::new(&r.from_path)) {
+            if r.action_type == ActionType::Quarantine {
+                guard_test_quarantine(in_memory, Path::new(&v.1))?;
+            }
             vol_lookup.insert(r.id.clone(), v);
+        }
+        if r.action_type == ActionType::Quarantine
+            && let Some(ref dest) = r.to_path
+        {
+            guard_test_quarantine(in_memory, Path::new(dest))?;
         }
     }
 

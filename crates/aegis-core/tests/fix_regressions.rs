@@ -557,3 +557,63 @@ fn junctions_are_links_but_plain_dirs_are_not() {
         assert!(inspect_path_metadata(&link).unwrap().unwrap().is_symlink);
     }
 }
+
+#[test]
+fn in_memory_test_store_refuses_to_quarantine_outside_tempdir() {
+    let mut fx = fixture(&[("a.txt", "data")]);
+    // Point volume quarantine_dir outside TempDir (simulating C:\.aegis-quarantine).
+    let unsafe_q = PathBuf::from(r"C:\.aegis-quarantine");
+    fx.store
+        .conn()
+        .execute(
+            "UPDATE volumes SET quarantine_dir = ?1",
+            [unsafe_q.to_string_lossy().to_string()],
+        )
+        .unwrap();
+    let p = fx.root.join("a.txt");
+    let fid = file_id(&fx.store, &p);
+    let err = propose_batch(
+        &mut fx.store,
+        &RefilePlan {
+            origin: "dedupe".into(),
+            actions: vec![action(
+                ActionType::Quarantine,
+                Some(fid),
+                TargetKind::File,
+                &p,
+                None,
+            )],
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, aegis_core::error::AegisError::QuarantineUnavailable(_)), "{err}");
+    assert!(p.is_file(), "source file untouched when guard refuses");
+}
+
+#[test]
+fn action_copy_verifies_on_disk_partial_and_cleans_up() {
+    let mut fx = fixture(&[("src.bin", "verified-payload-123456")]);
+    let src = fx.root.join("src.bin");
+    let dest = fx.root.join("copy.bin");
+    let fid = file_id(&fx.store, &src);
+    let batch = propose_batch(
+        &mut fx.store,
+        &RefilePlan {
+            origin: "manual".into(),
+            actions: vec![action(
+                ActionType::Copy,
+                Some(fid),
+                TargetKind::File,
+                &src,
+                Some(&dest),
+            )],
+        },
+    )
+    .unwrap();
+    approve_batch(&mut fx.store, &batch, None).unwrap();
+    let res = execute_batch(&mut fx.store, &batch).unwrap();
+    assert_eq!(res.executed_count, 1);
+    assert_eq!(fs::read_to_string(&dest).unwrap(), "verified-payload-123456");
+    let partial = PathBuf::from(format!("{}.aegis-partial", normalize_path(&dest, false).0));
+    assert!(!partial.exists(), "partial file removed on rename");
+}

@@ -84,7 +84,7 @@ function GroupCard({
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => void answer({ choice: "make_this_the_backup_copy", location_index: i })}
+                    onClick={() => void answer({ choice: "make_this_the_backup_copy", location_index: i, keeper_index: keeper })}
                     className="flex items-center gap-1 rounded-md border border-sky-700 px-2 py-1 text-xs text-sky-200 hover:bg-sky-950/40 disabled:opacity-40"
                   >
                     <DatabaseBackup className="h-3.5 w-3.5" aria-hidden="true" /> It's a backup
@@ -92,7 +92,7 @@ function GroupCard({
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => void answer({ choice: "delete_this_copy", location_index: i })}
+                    onClick={() => void answer({ choice: "delete_this_copy", location_index: i, keeper_index: keeper })}
                     className="flex items-center gap-1 rounded-md border border-rose-800 px-2 py-1 text-xs text-rose-200 hover:bg-rose-950/40 disabled:opacity-40"
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Delete this copy
@@ -133,7 +133,7 @@ function GroupCard({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void answer({ choice: "make_this_the_backup_copy", location_index: msg.offerBackupFor! })}
+                onClick={() => void answer({ choice: "make_this_the_backup_copy", location_index: msg.offerBackupFor!, keeper_index: keeper })}
                 className="ml-1 rounded-md bg-sky-700 px-2 py-0.5 text-white hover:bg-sky-600"
               >
                 Make this the backup copy

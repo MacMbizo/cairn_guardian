@@ -21,9 +21,17 @@ pub enum DupeChoice {
     /// Both copies are wanted; never ask again for this pair.
     KeepBoth,
     /// Quarantine the copy at this location.
-    DeleteThisCopy { location_index: usize },
+    DeleteThisCopy {
+        location_index: usize,
+        #[serde(default)]
+        keeper_index: Option<usize>,
+    },
     /// Make the copy at this location the Backup drive's copy instead of deleting it.
-    MakeThisTheBackupCopy { location_index: usize },
+    MakeThisTheBackupCopy {
+        location_index: usize,
+        #[serde(default)]
+        keeper_index: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -55,8 +63,14 @@ fn find_group(conn: &Connection, group_id: &str) -> Result<DupeGroup> {
         .ok_or_else(|| AegisError::NotFound(format!("duplicate group {group_id}")))
 }
 
-fn record(store: &mut SqliteStore, group: &DupeGroup, other: usize, decision: &str) -> Result<String> {
-    let a = location_identity(store.conn(), &group.locations[group.keeper_index])?;
+fn record(
+    store: &mut SqliteStore,
+    group: &DupeGroup,
+    keep_at: usize,
+    other: usize,
+    decision: &str,
+) -> Result<String> {
+    let a = location_identity(store.conn(), &group.locations[keep_at])?;
     let b = location_identity(store.conn(), &group.locations[other])?;
     let (a, b) = if a <= b { (a, b) } else { (b, a) };
     let (ap, ar) = a.split_once('|').unwrap_or((&a, ""));
@@ -81,14 +95,8 @@ fn record(store: &mut SqliteStore, group: &DupeGroup, other: usize, decision: &s
     Ok(id)
 }
 
-/// Quarantine pairs `(survivor, member)` for every file at `victim`, each kept by its copy at
-/// the group's keeper (or, when the victim *is* the keeper, at the next location).
-fn pairs_for(group: &DupeGroup, victim: usize) -> Vec<(String, String)> {
-    let keep_at = if victim == group.keeper_index {
-        (0..group.locations.len()).find(|&i| i != victim).unwrap_or(victim)
-    } else {
-        group.keeper_index
-    };
+/// Quarantine pairs `(survivor, member)` for every file at `victim`, each kept by its copy at `keep_at`.
+fn pairs_for(group: &DupeGroup, victim: usize, keep_at: usize) -> Vec<(String, String)> {
     group
         .members
         .iter()
@@ -117,30 +125,52 @@ pub fn decide(store: &mut SqliteStore, group_id: &str, choice: DupeChoice) -> Re
             Err(AegisError::InvalidInput(format!("no location {li} in this group")))
         }
     };
+    let resolve_keep = |victim: usize, explicit: Option<usize>| -> Result<usize> {
+        match explicit {
+            Some(k) if k >= group.locations.len() => {
+                Err(AegisError::InvalidInput(format!("no location {k} in this group")))
+            }
+            Some(k) if k == victim => {
+                Err(AegisError::InvalidInput("cannot keep and remove the same location".into()))
+            }
+            Some(k) => Ok(k),
+            None if victim == group.keeper_index => (0..group.locations.len())
+                .find(|&i| i != victim)
+                .ok_or_else(|| AegisError::InvalidInput("group has a single location".into())),
+            None => Ok(group.keeper_index),
+        }
+    };
     match choice {
         DupeChoice::KeepBoth => {
             let mut last = String::new();
             for other in (0..group.locations.len()).filter(|&i| i != group.keeper_index) {
-                last = record(store, &group, other, "keep_both")?;
+                last = record(store, &group, group.keeper_index, other, "keep_both")?;
             }
             Ok(DecisionOutcome { decision_id: last, batch_id: None })
         }
-        DupeChoice::DeleteThisCopy { location_index } => {
+        DupeChoice::DeleteThisCopy { location_index, keeper_index } => {
             let victim = check(location_index)?;
-            let pairs = pairs_for(&group, victim);
+            let keep_at = resolve_keep(victim, keeper_index)?;
+            let pairs = pairs_for(&group, victim, keep_at);
             let batch = propose_dupe_quarantine_pairs(store, &pairs)?;
-            let id = record(store, &group, if victim == group.keeper_index { first_other } else { victim }, "delete")?;
+            let id = record(store, &group, keep_at, victim, "delete")?;
             Ok(DecisionOutcome { decision_id: id, batch_id: Some(batch) })
         }
-        DupeChoice::ItsABackup => backup_choice(store, &group, first_other),
-        DupeChoice::MakeThisTheBackupCopy { location_index } => {
+        DupeChoice::ItsABackup => backup_choice(store, &group, first_other, None),
+        DupeChoice::MakeThisTheBackupCopy { location_index, keeper_index } => {
             let li = check(location_index)?;
-            backup_choice(store, &group, li)
+            let keep_at = resolve_keep(li, keeper_index)?;
+            backup_choice(store, &group, li, keeper_index.map(|_| keep_at))
         }
     }
 }
 
-fn backup_choice(store: &mut SqliteStore, group: &DupeGroup, location_index: usize) -> Result<DecisionOutcome> {
+fn backup_choice(
+    store: &mut SqliteStore,
+    group: &DupeGroup,
+    location_index: usize,
+    keeper_index: Option<usize>,
+) -> Result<DecisionOutcome> {
     let has_backup: bool = store.conn().query_row(
         "SELECT EXISTS(SELECT 1 FROM volumes WHERE role = 'backup')",
         [],
@@ -149,13 +179,22 @@ fn backup_choice(store: &mut SqliteStore, group: &DupeGroup, location_index: usi
     if !has_backup {
         return Err(AegisError::InvalidInput("No Backup drive assigned yet.".into()));
     }
-    let batch = crate::backup::plan::propose_move_to_backup(store, &group.group_id, location_index)?;
-    let other = if location_index == group.keeper_index {
-        (0..group.locations.len()).find(|&i| i != location_index).unwrap_or(location_index)
-    } else {
-        location_index
-    };
-    let id = record(store, group, other, "backup")?;
+    let batch = crate::backup::plan::propose_move_to_backup_with_keeper(
+        store,
+        &group.group_id,
+        location_index,
+        keeper_index,
+    )?;
+    let keep_at = keeper_index
+        .filter(|&k| k != location_index)
+        .unwrap_or_else(|| {
+            if location_index == group.keeper_index {
+                (0..group.locations.len()).find(|&i| i != location_index).unwrap_or(location_index)
+            } else {
+                group.keeper_index
+            }
+        });
+    let id = record(store, group, keep_at, location_index, "backup")?;
     Ok(DecisionOutcome { decision_id: id, batch_id: Some(batch) })
 }
 

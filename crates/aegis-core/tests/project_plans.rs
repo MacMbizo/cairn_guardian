@@ -953,6 +953,7 @@ fn move_aside_avoids_existing_old_copy_name_collision() {
     let busy_tmp = prj.join("forexTrader (old copy)");
     files(&busy_tmp, &["keep-me.txt"]);
     aegis_core::scanner::scan_root(&mut s, &prj, &[1]).unwrap();
+    fixtures_context::private_quarantine(&s, _t.path());
     recognise(&mut s).unwrap();
     let fx = named(&s, "forexTrader");
     let p = only_plan(&s, &fx);

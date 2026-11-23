@@ -388,5 +388,109 @@ pub fn rebase_volume_paths(
             tx.execute("UPDATE atomic_units SET root_path = ?2 WHERE id = ?1", params![id, nr])?;
         }
     }
+    let locs: Vec<(String, String)> = {
+        let mut stmt = tx.prepare("SELECT id, root_path FROM collection_locations WHERE volume_id = ?1")?;
+        let rows = stmt.query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (id, root) in locs {
+        if let Some(nr) = rebased(&root, old_mount, new_mount, case_sensitive) {
+            tx.execute("UPDATE collection_locations SET root_path = ?2 WHERE id = ?1", params![id, nr])?;
+        }
+    }
+    let hist: Vec<(String, String, String)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, old_path, new_path FROM file_history
+             WHERE file_id IN (SELECT id FROM files WHERE volume_id = ?1)",
+        )?;
+        let rows = stmt.query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (id, old_p, new_p) in hist {
+        let ro = rebased(&old_p, old_mount, new_mount, case_sensitive);
+        let rn = rebased(&new_p, old_mount, new_mount, case_sensitive);
+        if ro.is_some() || rn.is_some() {
+            tx.execute(
+                "UPDATE file_history SET old_path = ?2, new_path = ?3 WHERE id = ?1",
+                params![id, ro.unwrap_or(old_p), rn.unwrap_or(new_p)],
+            )?;
+        }
+    }
+    let jobs: Vec<(String, String)> = {
+        let mut stmt = tx.prepare("SELECT id, root_path FROM scan_jobs")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (id, rp) in jobs {
+        if let Some(nr) = rebased(&rp, old_mount, new_mount, case_sensitive) {
+            tx.execute("UPDATE scan_jobs SET root_path = ?2 WHERE id = ?1", params![id, nr])?;
+        }
+    }
+    let samples: Vec<(String, String)> = {
+        let mut stmt = tx.prepare("SELECT root, day FROM root_samples")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (root, day) in samples {
+        if let Some(nr) = rebased(&root, old_mount, new_mount, case_sensitive) {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM root_samples WHERE root = ?1 AND day = ?2)",
+                params![nr, day],
+                |r| r.get(0),
+            )?;
+            if !exists {
+                tx.execute(
+                    "UPDATE root_samples SET root = ?3 WHERE root = ?1 AND day = ?2",
+                    params![root, day, nr],
+                )?;
+            }
+        }
+    }
+    if let Some(raw_roots) = tx
+        .query_row(
+            "SELECT value_json FROM settings WHERE key = 'roots' AND scope = 'global'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+        && let Ok(mut cfgs) = serde_json::from_str::<Vec<crate::contracts::RootConfig>>(&raw_roots)
+    {
+        let mut roots_changed = false;
+        for c in &mut cfgs {
+            if c.volume_id == volume_id
+                && let Some(np) = rebased(&c.path, old_mount, new_mount, case_sensitive)
+            {
+                c.path = np;
+                roots_changed = true;
+            }
+        }
+        if roots_changed {
+            tx.execute(
+                "UPDATE settings SET value_json = ?1, updated_at = ?2 WHERE key = 'roots' AND scope = 'global'",
+                params![serde_json::to_string(&cfgs)?, crate::now_ms()],
+            )?;
+        }
+    }
+    let pending: Vec<(String, String, Option<String>)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, from_path, to_path FROM actions
+             WHERE status IN ('proposed', 'approved')
+               AND (file_id IN (SELECT id FROM files WHERE volume_id = ?1)
+                    OR atomic_unit_id IN (SELECT id FROM atomic_units WHERE volume_id = ?1)
+                    OR (file_id IS NULL AND atomic_unit_id IS NULL))",
+        )?;
+        let rows = stmt.query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (id, fp, tp) in pending {
+        let rfp = rebased(&fp, old_mount, new_mount, case_sensitive);
+        let rtp = tp.as_deref().and_then(|t| rebased(t, old_mount, new_mount, case_sensitive));
+        if rfp.is_some() || rtp.is_some() {
+            tx.execute(
+                "UPDATE actions SET from_path = ?2, to_path = ?3 WHERE id = ?1",
+                params![id, rfp.unwrap_or(fp), rtp.or(tp)],
+            )?;
+        }
+    }
     Ok(changed)
 }

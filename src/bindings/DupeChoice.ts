@@ -3,4 +3,4 @@
 /**
  * The owner's answer to "what is this copy?".
  */
-export type DupeChoice = { "choice": "its_a_backup" } | { "choice": "keep_both" } | { "choice": "delete_this_copy", location_index: number, } | { "choice": "make_this_the_backup_copy", location_index: number, };
+export type DupeChoice = { "choice": "its_a_backup" } | { "choice": "keep_both" } | { "choice": "delete_this_copy", location_index: number, keeper_index: number | null, } | { "choice": "make_this_the_backup_copy", location_index: number, keeper_index: number | null, };

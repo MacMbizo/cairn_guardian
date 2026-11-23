@@ -523,3 +523,98 @@ fn claimed_mount_retires_legacy_rows_and_catalog_uses_the_drive_id() {
     assert_eq!(common::live_file_paths(&store, &id).len(), 1);
     assert_eq!(common::live_file_paths(&store, "win-legacy").len(), 0);
 }
+
+#[test]
+fn relettered_drive_rebases_context_history_jobs_samples_roots_and_actions() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut store = SqliteStore::open_in_memory().unwrap();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    common::put(&a.mount_point, "Work/doc.txt", b"hello");
+    let provider = FakeVolumeProvider::new();
+    provider.plug(a.clone());
+    sync_mounted(&mut store, &provider).unwrap();
+    scan_root(&mut store, &a.mount_point, &[1]).unwrap();
+    let id = common::volume_id_at(&store, &a.mount_point);
+    store.add_root(&a.mount_point).unwrap();
+
+    let old_mount = common::canon(&a.mount_point);
+    let file_id: String = store
+        .conn()
+        .query_row("SELECT id FROM files WHERE volume_id = ?1 LIMIT 1", [&id], |r| r.get(0))
+        .unwrap();
+    let old_file = format!("{old_mount}\\Work\\doc.txt");
+    let new_file = format!("{old_mount}\\Work\\doc2.txt");
+
+    // Seed all additional path-bearing tables on drive `a`.
+    store
+        .conn()
+        .execute(
+            "INSERT INTO collections (id, kind, name, confidence, state, computed_at) VALUES ('col1', 'project', 'Proj', 0.9, 'confirmed', 1)",
+            [],
+        )
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO collection_locations (id, collection_id, volume_id, root_path, relationship, files, bytes, newest_mtime, shared_files, compared_by, is_repo, fingerprint)
+             VALUES ('loc1', 'col1', ?1, ?2, 'home', 1, 5, 1, 0, 'content', 0, 'fp1')",
+            rusqlite::params![id, format!("{old_mount}\\Work")],
+        )
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO action_batches (id, origin, status, total_actions, created_at) VALUES ('b1', 'filing:pc', 'draft', 1, 1)",
+            [],
+        )
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO actions (id, batch_id, action_type, target_kind, file_id, from_path, to_path, reason, confidence, evidence_json, status, created_at)
+             VALUES ('act1', 'b1', 'move', 'file', ?1, ?2, ?3, 'test', 0.9, '{}', 'proposed', 1)",
+            rusqlite::params![file_id, old_file, new_file],
+        )
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO file_history (id, file_id, old_path, new_path, batch_id, changed_at) VALUES ('fh1', ?1, ?2, ?3, 'b1', 1)",
+            rusqlite::params![file_id, old_file, new_file],
+        )
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO root_samples (root, day, bytes) VALUES (?1, '2026-11-23', 100)",
+            [&old_mount],
+        )
+        .unwrap();
+
+    // Unplug `A` and replug under `G`.
+    provider.unplug(&a.mount_point);
+    sync_mounted(&mut store, &provider).unwrap();
+    let g_mount = tmp.path().join("G");
+    std::fs::rename(&a.mount_point, &g_mount).unwrap();
+    let mut moved = a.clone();
+    moved.mount_point = g_mount.clone();
+    provider.plug(moved);
+    sync_mounted(&mut store, &provider).unwrap();
+
+    let new_mount = common::canon(&g_mount);
+    let loc_path: String = store.conn().query_row("SELECT root_path FROM collection_locations WHERE id = 'loc1'", [], |r| r.get(0)).unwrap();
+    assert!(loc_path.starts_with(&new_mount), "collection_locations: {loc_path}");
+    let (h_old, h_new): (String, String) = store.conn().query_row("SELECT old_path, new_path FROM file_history WHERE id = 'fh1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert!(h_old.starts_with(&new_mount) && h_new.starts_with(&new_mount), "{h_old} -> {h_new}");
+    let (a_from, a_to): (String, Option<String>) = store.conn().query_row("SELECT from_path, to_path FROM actions WHERE id = 'act1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert!(a_from.starts_with(&new_mount) && a_to.unwrap().starts_with(&new_mount), "{a_from}");
+    let sample_root: String = store.conn().query_row("SELECT root FROM root_samples WHERE day = '2026-11-23'", [], |r| r.get(0)).unwrap();
+    assert_eq!(sample_root, new_mount);
+    let jobs: Vec<String> = {
+        let mut st = store.conn().prepare("SELECT root_path FROM scan_jobs").unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    };
+    assert!(jobs.iter().all(|p| p.starts_with(&new_mount)), "{jobs:?}");
+    let roots = store.list_roots().unwrap();
+    assert!(roots.iter().any(|r| r.volume_id == id && r.path == new_mount), "{roots:?}");
+}

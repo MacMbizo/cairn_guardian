@@ -554,6 +554,9 @@ fn downloads() -> (tempfile::TempDir, SqliteStore, PathBuf) {
     let mut s = store();
     s.add_root(&dl).unwrap();
     scan_root(&mut s, &dl, &[1]).unwrap();
+    let q = tmp.path().join(".quarantine");
+    std::fs::create_dir_all(&q).unwrap();
+    s.conn().execute("UPDATE volumes SET quarantine_dir = ?1", [q.to_string_lossy().to_string()]).unwrap();
     (tmp, s, dl)
 }
 
