@@ -711,6 +711,7 @@ fn scan(s: &mut SqliteStore, prj: &Path) {
         s.add_root(prj).unwrap();
     }
     aegis_core::scanner::scan_root(s, prj, &[1]).unwrap();
+    fixtures_context::private_quarantine(s, prj.parent().unwrap());
 }
 
 fn files(root: &Path, rels: &[&str]) {

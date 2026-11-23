@@ -42,7 +42,16 @@ pub fn pc() -> (tempfile::TempDir, aegis_core::db::SqliteStore, PathBuf, PathBuf
         aegis_core::scanner::scan_root(&mut s, &r, &[1]).unwrap();
     }
     aegis_core::filing::reader::read_pending(&mut s, 5_000, std::time::Duration::from_secs(30)).unwrap();
+    private_quarantine(&s, t.path());
     (t, s, home, prj)
+}
+
+/// Points every drive's quarantine at a folder inside the test's own temporary folder, so a
+/// test never leaves anything in the real `C:\.aegis-quarantine`.
+pub fn private_quarantine(s: &aegis_core::db::SqliteStore, tmp: &Path) {
+    let q = tmp.join(".quarantine");
+    std::fs::create_dir_all(&q).unwrap();
+    s.conn().execute("UPDATE volumes SET quarantine_dir = ?1", [q.to_string_lossy().to_string()]).unwrap();
 }
 
 pub fn roots_of(s: &aegis_core::db::SqliteStore) -> Vec<String> {
