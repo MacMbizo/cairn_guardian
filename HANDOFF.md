@@ -1,36 +1,40 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-23 (Plan 4 — Put back together, learned aliases, and weekly-note summary — built, verified, and fast-forward merged into `master`; D1 approved). Read this first in a new chat.
+Updated 2026-11-24 (Plan 5 — §16 step 7 modules & external drive plans — built, verified, and fast-forward merged into `master`; D1 approved). Read this first in a new chat.
 
 **The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
 `docs/PROGRESS.md`. Keep it current at the end of each plan.
 
 Current state:
-- `master`: Projects 1–3, Context-aware filing Plans 1–4 (project recognition, project plans, sets/photo subjects, Design shelf separation at `C:\Prj\Design\<Name>`, inline `SetKind`, Put back together reunion batches, `SameAs` learned name aliases, and weekly-note `projects` summary line), fast-forward merged from `feature/put-back-together-and-learning` (not pushed).
-- `feature/put-back-together-and-learning` & `feature/sets-and-photo-subjects`: merged into `master` on 2026-11-23 (not pushed).
+- `master`: Projects 1–3, Context-aware filing Plans 1–5 (project recognition, project plans, sets/photo subjects, Design shelf separation at `C:\Prj\Design\<Name>`, inline `SetKind`, Put back together reunion batches, `SameAs` learned name aliases, weekly-note `projects` summary line, Software packages, Owner's folders, Resources, Series, Old copies, and external-drive plans), fast-forward merged from `feature/context-modules-step7` (not pushed).
+- `feature/context-modules-step7`, `feature/put-back-together-and-learning`, & `feature/sets-and-photo-subjects`: merged into `master` (not pushed).
 - `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`): rollback tag preserving pre-stabilization baseline plus parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`).
 - Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
 
 ## NEXT CHAT: do this first
 
-**Owner-approved roadmap order (2026-11-23):**
-1. **Context-aware filing §16 step 7 modules** (Software packages → Owner's folders → Old copies for external drives → Resources → Series)
-2. **1. D1 Encryption + Embeddings & Hybrid Search** (SQLCipher whole-store + `sqlite-vec` + DPAPI/TPM `R2` + mandatory offline recovery key, then embeddings & FTS5+vector hybrid search inside the 350 MB K5 budget)
-3. **Project 4: System care**
+**Owner-approved roadmap order (2026-11-23, updated after Plan 5 merge 2026-11-24):**
+1. **1. D1 Encryption + Embeddings & Hybrid Search** (SQLCipher whole-store + `sqlite-vec` + DPAPI/TPM `R2` + mandatory offline 24-word/hex recovery key, then embeddings & FTS5+vector hybrid search inside the 350 MB K5 budget) — **NEXT ACTIVE**
+2. **Project 4: System care**
 
+- Plan 5 doc: `docs/superpowers/plans/2026-11-23-context-modules-step7.md`.
 - Plan 4 doc: `docs/superpowers/plans/2026-11-23-put-back-together-and-learning.md`.
 - Plan 3 doc: `docs/superpowers/plans/2026-11-23-sets-and-photo-subjects.md`.
 - **Owner Decision D1 approved (2026-11-23):** SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted store (350 MB K5 budget), DPAPI/TPM-sealed engine key (`R2`, Windows Hello for sensitive views only), and mandatory offline 24-word/hex recovery key; owner also confirmed keeping `R1–R11` as written (including `R2` and `R6`).
 - **Verification gate on `master`:**
-  - `cargo test --workspace`: **496 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/reunite_and_learning.rs` (`0.30s`), all **11** tests in `crates/aegis-core/tests/sets.rs` (`0.62s`), `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
-  - Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `256` projects (`87` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects, `53` project plans, **`1` reunite plan** (`ipadcover [PhotoSubject]`: 7 files split by batch `01a203ee` returning from `Pictures\2026\2026-08` to `C:\Users\Mac\Pictures\2026\ipadcover`), and weekly note `projects` line `"87 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
-  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `761ms`).
+  - `cargo test --workspace`: **503 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **7** tests in `crates/aegis-core/tests/context_modules.rs` (`0.32s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
+  - Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `239` projects (`84` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects, `18` software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), `9` owner's folders, `4` resources, `52` series seasons, `2` old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **`249` plans in `18.8s` debug** (`New Volume` `"Old copy": 9747` kept whole in Fresh/Tidy), and weekly note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `881ms`).
 
 1. **Owner items still open:**
    - app rename choice (another "eagis" / Aegis app exists).
 2. **Note on `src/bindings/` and `node:sqlite`:**
    - Keep `canonical/D1_Design_System_v1.0.md` parked until core features finish.
    - `cargo test` writes LF line endings into `src/bindings/*.ts`; run `git checkout -f --` on unchanged bindings so only real binding diffs are committed.
+
+**What Plan 5 built:**
+- **Step 7 Modules (`context::{software,owners,resources,series,old_copies,recognise}`):** Software packages (with `INTERNAL_SW_DIRS` composite-installer preservation into `Software\Tools`/`Installers`), Owner's folders (purpose-name + content/metadata agreement, `.db` pinning, CV-in-Work overrides), Resources (`SKILL.md`, `DESIGN.md`, templates/kits into `Documents\Resources`), Series (`Videos\Shows\<Show>\Season <n>` + companion subtitles), and depth-1 Old copies (`D:\MSIDocuments`, `D:\MSIDownloads`) claimed before projects and compared against live folders.
+- **External Drive & Archive Plans (`context::plan`, `filing::{blueprint,batches}`):** `StepKind::ToArchive` moves + same-drive quarantine with BLAKE3 proof, external-drive per-volume planning (same-drive comparison only, offline `waits_for`), `Planner` `offline_dirs`/`projects_homes`/`summaries` caches (cutting 249 plans from `988.0s` to `18.8s` debug), `OldCopy` preservation over inner `atomic_units` in `blueprint::find_groups`, and UI `OldCopy` filter/actions in `Projects.tsx`.
 
 **What Plan 4 built:**
 - **Reunite Engine (`context::reunite`, `context::plan`, `filing::batches`):** Queries earliest filing `file_history` rows for live files, traces executed `MoveHome` ancestor folders (`rev_moves`, cycle-guarded), claims split files with priority `Project > DesignSet > PhotoSubject`, proposes collision-safe exact-dest moves (`propose_reunite`), runs atomically (`run_reunite` syncing `collection_members` & recording `"photo:<subj>"` `LearnedSubject`), wires `"Put back together: <Name>"` into `recent_batches`, and undoes cleanly via `filing_undo` (`undo_reunite`).

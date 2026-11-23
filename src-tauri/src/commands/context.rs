@@ -42,11 +42,13 @@ impl Drop for Running {
     }
 }
 
-/// Every recognised project and design set, those found in more than one place first.
+const PROJECT_LIST_KINDS: [CollectionKind; 3] = [CollectionKind::Project, CollectionKind::DesignSet, CollectionKind::OldCopy];
+
+/// Every recognised project, design set, and old copy, those found in more than one place first.
 #[tauri::command(async)]
 pub fn context_projects(state: State<'_, AppState>) -> Result<Vec<Collection>, IpcError> {
     let store = own_store(&state)?;
-    map_err(list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet]))
+    map_err(list_collections_in(store.conn(), &PROJECT_LIST_KINDS))
 }
 
 /// Whether a recognition pass is running now (so a reopened screen shows it).
@@ -76,12 +78,12 @@ pub fn context_answer(
     map_err(answer(&mut store, &collection_id, location_id.as_deref(), answer_given))
 }
 
-/// Every project's and design set's plans (one per drive it lives on), worked out now from the
-/// saved collections.
+/// Every project's, design set's, and old copy's plans (one per drive it lives on), worked out
+/// now from the saved collections.
 #[tauri::command(async)]
 pub fn context_plans(state: State<'_, AppState>) -> Result<Vec<ProjectPlan>, IpcError> {
     let store = own_store(&state)?;
-    let projects = map_err(list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet]))?;
+    let projects = map_err(list_collections_in(store.conn(), &PROJECT_LIST_KINDS))?;
     let planner = map_err(Planner::new(&store))?;
     let mut out = Vec::new();
     for c in &projects {
@@ -105,7 +107,7 @@ pub fn context_run_plan(
 ) -> Result<PlanOutcome, IpcError> {
     let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
     let mut store = own_store(&state)?;
-    let projects = map_err(list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet]))?;
+    let projects = map_err(list_collections_in(store.conn(), &PROJECT_LIST_KINDS))?;
     let stale = || IpcError {
         code: "not_found".into(),
         message: "This project changed since the card was shown. Look again and check its plan.".into(),

@@ -55,6 +55,8 @@ pub enum StepKind {
     ToMaterial,
     /// Loose files of a design set are gathered into one design project folder.
     GatherFiles,
+    /// An old copy moves whole into `Archive\<device or year>\<name>`.
+    ToArchive,
 }
 
 /// One whole-folder step of a plan.
@@ -289,6 +291,16 @@ fn volume_info(store: &SqliteStore, volume_id: &str) -> Result<Option<(String, S
     volume_info_conn(store.conn(), volume_id)
 }
 
+pub(crate) fn catalog_has_dir(conn: &rusqlite::Connection, volume_id: &str, dir: &str) -> Result<bool> {
+    let prefix = format!("{}{SEP}", dir.trim_end_matches(SEP).to_lowercase());
+    let plen = prefix.chars().count() as i64;
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM files WHERE deleted_at IS NULL AND volume_id = ?1 AND substr(lower(path), 1, ?3) = ?2)",
+        params![volume_id, prefix, plen],
+        |r| r.get(0),
+    )?)
+}
+
 pub(crate) fn projects_home_conn(
     conn: &rusqlite::Connection,
     roots: &[crate::contracts::RootConfig],
@@ -306,7 +318,7 @@ pub(crate) fn projects_home_conn(
     }
     let dirs: Vec<String> = roots
         .iter()
-        .filter(|r| r.enabled && !GENERAL_FOLDERS.contains(&leaf(&r.path).to_lowercase().as_str()))
+        .filter(|r| r.enabled && r.volume_id == volume_id && !GENERAL_FOLDERS.contains(&leaf(&r.path).to_lowercase().as_str()))
         .map(|r| r.path.clone())
         .collect();
     let mut stmt = conn.prepare("SELECT root_path FROM collection_locations WHERE volume_id = ?1")?;
@@ -329,7 +341,7 @@ pub(crate) fn projects_home_conn(
     }
     if let Some((mount, _, online)) = volume_info_conn(conn, volume_id)? {
         let p = join(&mount, "Projects");
-        if online && Path::new(&p).is_dir() {
+        if (online && Path::new(&p).is_dir()) || (!online && catalog_has_dir(conn, volume_id, &p)?) {
             return Ok(Some(p));
         }
     }
@@ -380,11 +392,18 @@ pub struct Planner {
     project_info: HashMap<String, (String, Option<ProjectKind>, bool)>,
     /// (volume id, folder) of every virtual environment.
     venvs: Vec<(String, String)>,
+    /// Offline volume id -> set of lowercase ancestor folder paths present in `files`.
+    offline_dirs: HashMap<String, std::collections::HashSet<String>>,
+    /// Cached projects home per volume (resolved once without repeated catalog scans).
+    projects_homes: HashMap<String, Option<String>>,
+    /// Cached `ContentSummary` for multi-copy non-home same-drive folders.
+    summaries: HashMap<(String, String), super::relate::ContentSummary>,
 }
 
 impl Planner {
     pub fn new(store: &SqliteStore) -> Result<Self> {
-        let locations = {
+        let roots = store.list_roots()?;
+        let locations: Vec<(String, String, String)> = {
             let mut stmt = store.conn().prepare("SELECT collection_id, volume_id, root_path FROM collection_locations")?;
             stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
         };
@@ -412,7 +431,194 @@ impl Planner {
             v.extend(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<(String, String)>>>()?);
             v
         };
-        Ok(Self { roots: store.list_roots()?, locations, project_info, venvs })
+        let volumes: HashMap<String, (String, String, bool)> = {
+            let mut stmt = store.conn().prepare(
+                "SELECT id, mount_point, COALESCE(NULLIF(label, ''), mount_point), status = 'online' FROM volumes",
+            )?;
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, bool>(3)?))))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let offline_vols: Vec<String> = volumes.iter().filter(|(_, (_, _, online))| !*online).map(|(id, _)| id.clone()).collect();
+        let mut offline_dirs: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        if !offline_vols.is_empty() {
+            let mut stmt = store.conn().prepare("SELECT path FROM files WHERE deleted_at IS NULL AND volume_id = ?1")?;
+            for vol_id in offline_vols {
+                let mut dirs = std::collections::HashSet::new();
+                let mut rows = stmt.query([&vol_id])?;
+                while let Some(row) = rows.next()? {
+                    let path: String = row.get(0)?;
+                    let lower = path.to_lowercase();
+                    let mut cur = lower.as_str();
+                    while let Some(i) = cur.rfind(SEP) {
+                        cur = &cur[..i];
+                        if cur.is_empty() || !dirs.insert(cur.to_string()) {
+                            break;
+                        }
+                    }
+                }
+                offline_dirs.insert(vol_id, dirs);
+            }
+        }
+        let mut projects_homes = HashMap::new();
+        for vol_id in volumes.keys() {
+            let ph = Self::resolve_projects_home(store.conn(), &roots, &locations, &volumes, &offline_dirs, vol_id)?;
+            projects_homes.insert(vol_id.clone(), ph);
+        }
+        let summaries = {
+            let mut stmt = store.conn().prepare(
+                "SELECT l.collection_id, l.volume_id, l.root_path, l.relationship
+                 FROM collection_locations l
+                 JOIN collections c ON c.id = l.collection_id
+                 WHERE c.kind = 'project' AND c.state NOT IN ('left_as_is', 'not_a_project')",
+            )?;
+            let rows: Vec<(String, String, String, String)> =
+                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+            let mut by_cv: HashMap<(String, String), (bool, Vec<String>)> = HashMap::new();
+            for (cid, vid, root, rel) in rows {
+                let e = by_cv.entry((cid, vid)).or_default();
+                if rel == "home" {
+                    e.0 = true;
+                }
+                e.1.push(root);
+            }
+            let mut raw_targets: Vec<(String, String)> = Vec::new();
+            for ((_, vid), (has_home, paths)) in by_cv {
+                if !has_home
+                    && paths.len() >= 2
+                    && volumes.get(&vid).is_some_and(|(m, _, _)| !m.is_empty())
+                {
+                    for p in paths {
+                        if volumes.get(&vid).is_some_and(|(m, _, _)| path_is_within(&p, m, false)) {
+                            raw_targets.push((vid.clone(), p));
+                        }
+                    }
+                }
+            }
+            raw_targets.sort();
+            raw_targets.dedup();
+            let targets: Vec<(String, String)> = raw_targets
+                .iter()
+                .filter(|(v, p)| !raw_targets.iter().any(|(ov, op)| ov == v && !same_path(op, p) && (inside(p, op) || inside(op, p))))
+                .cloned()
+                .collect();
+            let mut map = HashMap::new();
+            if !targets.is_empty() {
+                let mut root_scopes: Vec<(String, Option<String>)> = Vec::new();
+                let mut seen_vols = std::collections::HashSet::new();
+                for (v, _) in &targets {
+                    if seen_vols.insert(v.clone())
+                        && let Some((mount, _, _)) = volumes.get(v)
+                    {
+                        root_scopes.push((mount.clone(), Some(v.clone())));
+                    }
+                }
+                let sums = super::relate::content_summaries(store, &root_scopes, &targets)?;
+                for ((vid, path), sum) in targets.into_iter().zip(sums) {
+                    map.insert((vid, path.trim_end_matches(SEP).to_lowercase()), sum);
+                }
+            }
+            map
+        };
+        Ok(Self {
+            roots,
+            locations,
+            project_info,
+            venvs,
+            offline_dirs,
+            projects_homes,
+            summaries,
+        })
+    }
+
+    fn resolve_projects_home(
+        conn: &rusqlite::Connection,
+        roots: &[crate::contracts::RootConfig],
+        locations: &[(String, String, String)],
+        volumes: &HashMap<String, (String, String, bool)>,
+        offline_dirs: &HashMap<String, std::collections::HashSet<String>>,
+        volume_id: &str,
+    ) -> Result<Option<String>> {
+        if let Some(p) = conn
+            .query_row(
+                "SELECT value_json FROM settings WHERE key = ?1 AND scope = 'context'",
+                [format!("{PROJECTS_HOME_KEY}:{volume_id}")],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+        {
+            return Ok(Some(p));
+        }
+        let dirs: Vec<&str> = roots
+            .iter()
+            .filter(|r| r.enabled && r.volume_id == volume_id && !GENERAL_FOLDERS.contains(&leaf(&r.path).to_lowercase().as_str()))
+            .map(|r| r.path.as_str())
+            .collect();
+        let best = dirs
+            .iter()
+            .map(|r| {
+                let design_shelf = join(r, "Design");
+                let count = locations
+                    .iter()
+                    .filter(|(_, v, l)| v == volume_id && (same_path(parent(l), r) || same_path(parent(l), &design_shelf)))
+                    .count();
+                (count, *r)
+            })
+            .filter(|(n, _)| *n > 0)
+            .max_by_key(|(n, _)| *n)
+            .map(|(_, r)| r.to_string());
+        if best.is_some() {
+            return Ok(best);
+        }
+        if let Some((mount, _, online)) = volumes.get(volume_id) {
+            let p = join(mount, "Projects");
+            let has = if *online {
+                Path::new(&p).is_dir()
+            } else if let Some(dirs) = offline_dirs.get(volume_id) {
+                dirs.contains(&p.trim_end_matches(SEP).to_lowercase())
+            } else {
+                catalog_has_dir(conn, volume_id, &p)?
+            };
+            if has {
+                return Ok(Some(p));
+            }
+        }
+        Ok(None)
+    }
+
+    fn dir_exists(&self, store: &SqliteStore, volume_id: &str, vol_online: bool, path: &str) -> bool {
+        if vol_online {
+            Path::new(path).exists()
+        } else if let Some(dirs) = self.offline_dirs.get(volume_id) {
+            dirs.contains(&path.trim_end_matches(SEP).to_lowercase())
+        } else {
+            catalog_has_dir(store.conn(), volume_id, path).unwrap_or(false)
+        }
+    }
+
+    fn projects_home_for(&self, store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
+        if let Some(ph) = self.projects_homes.get(volume_id) {
+            return Ok(ph.clone());
+        }
+        projects_home_conn(store.conn(), &self.roots, volume_id)
+    }
+
+    fn design_home_for(&self, store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
+        if let Some(ph) = self.projects_home_for(store, volume_id)? {
+            return Ok(Some(ph));
+        }
+        Ok(self
+            .roots
+            .iter()
+            .find(|r| r.enabled && r.volume_id == volume_id && matches!(leaf(&r.path).to_lowercase().as_str(), "prj" | "projects"))
+            .map(|r| r.path.clone()))
+    }
+
+    fn content_summary_for(&self, store: &SqliteStore, volume_id: &str, root: &str) -> Result<super::relate::ContentSummary> {
+        let key = (volume_id.to_string(), root.trim_end_matches(SEP).to_lowercase());
+        if let Some(sum) = self.summaries.get(&key) {
+            return Ok(sum.clone());
+        }
+        super::relate::content_summary(store, volume_id, root)
     }
 
     fn is_venv(&self, l: &Location) -> bool {
@@ -436,11 +642,12 @@ impl Planner {
         out
     }
 
-    /// The plans for one project or design set: one per drive it lives on. None for items the
-    /// owner left as they are, said aren't projects, or photo subjects (which Fresh files by year).
+    /// The plans for one project, design set, or old copy: one per drive it lives on. None for
+    /// items left as they are, dismissed as not a project, or loose media/folder modules handled by
+    /// blueprint filing directly.
     pub fn plan_for(&self, store: &SqliteStore, c: &Collection) -> Result<Vec<ProjectPlan>> {
         if matches!(c.state.as_str(), "left_as_is" | "not_a_project")
-            || c.kind == CollectionKind::PhotoSubject
+            || !matches!(c.kind, CollectionKind::Project | CollectionKind::DesignSet | CollectionKind::OldCopy)
             || c.locations.is_empty()
         {
             return Ok(Vec::new());
@@ -451,10 +658,12 @@ impl Planner {
                 volumes.push(&l.volume_id);
             }
         }
-        if c.kind == CollectionKind::DesignSet {
-            return volumes.iter().map(|v| plan_design_set(self, store, c, v)).collect();
+        match c.kind {
+            CollectionKind::DesignSet => volumes.iter().map(|v| plan_design_set(self, store, c, v)).collect(),
+            CollectionKind::OldCopy => volumes.iter().map(|v| plan_old_copy(self, store, c, v)).collect(),
+            CollectionKind::Project => volumes.iter().map(|v| plan_on(self, store, c, v)).collect(),
+            _ => Ok(Vec::new()),
         }
-        volumes.iter().map(|v| plan_on(self, store, c, v)).collect()
     }
 }
 
@@ -490,14 +699,15 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         summary: summary.to_string(),
         digest: plan_digest(&c.id, volume_id, &home.root_path, &[]),
     };
-    // Rulings from the dry run on the owner's database (2026-11-23):
-    // - Other drives get no plan yet: they hold old copies and coursework, which the later
-    //   Old copies module is for. Their copies are listed on the card.
+    // Per-drive planning (spec §8, §17): every step stays strictly inside `volume_id`. When a
+    // drive doesn't hold the project's global home, copies on it are NEVER quarantined against the
+    // home on another drive — same-drive copies are compared strictly against `volume_id`'s own
+    // best copy (`home`), while a sole copy on that drive only moves into that drive's Projects
+    // folder if eligible.
     let roots = &ctx.roots;
-    let on_pc = here.iter().any(|l| roots.iter().any(|r| r.enabled && path_is_within(&l.root_path, &r.path, false)));
-    if !on_pc {
-        return Ok(nothing("Copies on this drive are listed. Plans for other drives come later."));
-    }
+    let mount = info.as_ref().map(|(m, _, _)| m.as_str());
+    let vol_online = info.as_ref().is_some_and(|(_, _, on)| *on) && waits_for.is_none();
+    let dir_exists = |p: &str| ctx.dir_exists(store, volume_id, vol_online, p);
     // - Nothing inside another project (or holding one) is moved on this project's behalf, and
     //   nothing that is a Python virtual environment is moved at all (it would break).
     let others: Vec<String> =
@@ -531,7 +741,7 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
     //   isn't a general place such as Documents or Downloads and holds two or more projects):
     //   a tool found elsewhere stays put.
     let all_locs: Vec<&String> = others.iter().chain(here.iter().map(|l| &l.root_path)).collect();
-    let is_root = |d: &str| roots.iter().any(|r| same_path(&r.path, d));
+    let is_root = |d: &str| roots.iter().any(|r| same_path(&r.path, d)) || mount.is_some_and(|m| same_path(m, d));
     let mut in_projects_folder = false;
     let mut d = parent(&home.root_path);
     while !d.is_empty() && !is_root(d) && d.contains(SEP) {
@@ -545,7 +755,7 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         }
         d = up;
     }
-    let ph = projects_home(store, volume_id)?;
+    let ph = ctx.projects_home_for(store, volume_id)?;
     let already_in_ph = ph.as_deref().is_some_and(|ph| path_is_within(&home.root_path, ph, false));
     let eligible_home_move = in_projects_folder || already_in_ph;
 
@@ -567,14 +777,14 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
             let dest_parent = kind_home(ph, c.project_kind);
             let mut target = join(&dest_parent, &name);
             let occupant = here.iter().find(|l| l.id != home.id && same_path(&l.root_path, &target)).copied();
-            let taken_by_other = occupant.is_none() && Path::new(&target).exists();
+            let taken_by_other = occupant.is_none() && dir_exists(&target);
             if taken_by_other || occupant.is_some_and(|o| o.keep_here || blocked.contains(&o.id)) {
                 let year = &date_of(home.newest_mtime)[..4];
                 target = join(&dest_parent, &format!("{name} ({} {year})", kind_word(c.project_kind)));
             } else if let Some(o) = occupant {
                 let mut moved = join(&dest_parent, &format!("{name} (old copy)"));
                 let mut n = 2;
-                while Path::new(&moved).exists() {
+                while dir_exists(&moved) {
                     moved = join(&dest_parent, &format!("{name} (old copy {n})"));
                     n += 1;
                 }
@@ -590,7 +800,7 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
                     warnings: ctx.repo_warnings(o),
                 });
             }
-            if Path::new(&target).exists() && !aside.as_ref().is_some_and(|(o, _)| same_path(&o.root_path, &target)) {
+            if dir_exists(&target) && !aside.as_ref().is_some_and(|(o, _)| same_path(&o.root_path, &target)) {
                 // Even the disambiguated name is taken: leave the home where it is.
                 target = home.root_path.clone();
             }
@@ -615,7 +825,7 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         }
     }
 
-    // Where material and versions from the other copies go.
+    // Where material and versions from the other copies on this same drive go.
     let base = if home.is_repo { join(parent(&home_after), &format!("{} - material", leaf(&home_after))) } else { home_after.clone() };
     let versions = join(&base, "Versions");
     let origin = |l: &Location| leaf(parent(&l.root_path)).to_string();
@@ -623,15 +833,41 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
     let mut unique = |p: String| -> String {
         let mut out = p.clone();
         let mut n = 2;
-        while taken.contains(&out.to_lowercase()) || Path::new(&out).exists() {
+        while taken.contains(&out.to_lowercase()) || dir_exists(&out) {
             out = format!("{p} {n}");
             n += 1;
         }
         taken.insert(out.to_lowercase());
         out
     };
-    if main.is_some() {
+    let same_vol_rel: HashMap<String, Relationship> = if main.is_some() {
+        here.iter().filter(|l| l.id != home.id).map(|l| (l.id.clone(), l.relationship)).collect()
+    } else if here.len() >= 2 {
+        let home_sum = ctx.content_summary_for(store, volume_id, &home.root_path)?;
+        let mut m = HashMap::new();
+        if !home_sum.is_empty() {
+            for l in here.iter().filter(|l| l.id != home.id) {
+                let other_sum = ctx.content_summary_for(store, volume_id, &l.root_path)?;
+                if !other_sum.is_empty() {
+                    let (mut rel, _, _) = super::relate::relate(&home_sum, &other_sum);
+                    if super::relate::version_series(leaf(&home.root_path), leaf(&l.root_path))
+                        && !matches!(rel, Relationship::Identical | Relationship::OlderSubset)
+                    {
+                        rel = Relationship::Version;
+                    }
+                    m.insert(l.id.clone(), rel);
+                }
+            }
+        }
+        m
+    } else {
+        HashMap::new()
+    };
+    if !same_vol_rel.is_empty() {
         for l in here.iter().filter(|l| l.id != home.id && !l.keep_here && !blocked.contains(&l.id)) {
+            let Some(&rel) = same_vol_rel.get(&l.id) else {
+                continue;
+            };
             // A copy inside the home (or holding it) is not moved on its own.
             if inside(&l.root_path, &home.root_path) || inside(&home.root_path, &l.root_path) {
                 continue;
@@ -641,12 +877,12 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
                 _ => (l.root_path.clone(), 4),
             };
             let dated = |label: &str| join(&versions, &format!("{} {label}", date_of(l.newest_mtime)));
-            let (kind, to, fallback, reason) = match l.relationship {
+            let (kind, to, fallback, reason) = match rel {
                 Relationship::Identical | Relationship::OlderSubset if !l.is_repo => {
-                    let why = if l.relationship == Relationship::Identical {
-                        "Same as the main copy: to quarantine for 30 days."
+                    let why = if rel == Relationship::Identical {
+                        "Same as the main copy on this drive: to quarantine for 30 days."
                     } else {
-                        "Older copy: everything here is in the main copy. To quarantine for 30 days."
+                        "Older copy: everything here is in this drive's main copy. To quarantine for 30 days."
                     };
                     (StepKind::Quarantine, from.clone(), Some(unique(dated(&origin(l)))), why.to_string())
                 }
@@ -729,10 +965,6 @@ pub(crate) fn design_projects_home_conn(
         .map(|r| r.path.clone()))
 }
 
-fn design_projects_home(ctx: &Planner, store: &SqliteStore, volume_id: &str) -> Result<Option<String>> {
-    design_projects_home_conn(store.conn(), &ctx.roots, volume_id)
-}
-
 pub(crate) fn existing_design_project_dir(
     locations: &[(String, String, String)],
     project_info: &HashMap<String, (String, Option<ProjectKind>, bool)>,
@@ -785,11 +1017,9 @@ fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id
         summary: summary.to_string(),
         digest: plan_digest_with_members(&c.id, volume_id, &home_dir, &[], &[]),
     };
-    let on_pc = here.iter().any(|l| ctx.roots.iter().any(|r| r.enabled && path_is_within(&l.root_path, &r.path, false)));
-    if !on_pc {
-        return Ok(nothing("Copies on this drive are listed. Plans for other drives come later."));
-    }
-    let Some(ph) = design_projects_home(ctx, store, volume_id)? else {
+    let vol_online = info.as_ref().is_some_and(|(_, _, on)| *on) && waits_for.is_none();
+    let dir_exists = |p: &str| ctx.dir_exists(store, volume_id, vol_online, p);
+    let Some(ph) = ctx.design_home_for(store, volume_id)? else {
         return Ok(nothing("No projects home is set on this drive yet."));
     };
     let shelf = kind_home(&ph, c.project_kind);
@@ -811,7 +1041,7 @@ fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id
     };
     let mut target = existing_match.unwrap_or_else(|| join(&shelf, &base_name));
     let conflicts = |dir: &str| {
-        (Path::new(dir).exists() || ctx.locations.iter().any(|(_, v, r)| v == volume_id && same_path(r, dir)))
+        (dir_exists(dir) || ctx.locations.iter().any(|(_, v, r)| v == volume_id && same_path(r, dir)))
             && (!is_design_target || !matches_existing_design(dir))
     };
     if conflicts(&target) {
@@ -895,6 +1125,127 @@ fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id
     })
 }
 
+fn plan_old_copy(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) -> Result<ProjectPlan> {
+    let Some(loc) = c.locations.iter().find(|l| l.volume_id == volume_id) else {
+        return Err(AegisError::InvalidInput("Old copy has no location on that drive.".into()));
+    };
+    let info = volume_info(store, volume_id)?;
+    let waits_for = match &info {
+        Some((_, label, false)) => Some(format!("{label} is unplugged.")),
+        None => Some("That drive isn't known any more.".into()),
+        _ if !loc.online => Some("One of its drives is unplugged.".into()),
+        _ => None,
+    };
+    let nothing = |summary: &str| ProjectPlan {
+        collection_id: c.id.clone(),
+        volume_id: volume_id.to_string(),
+        home_after: loc.root_path.clone(),
+        steps: Vec::new(),
+        waits_for: waits_for.clone(),
+        notes: Vec::new(),
+        rank: 9,
+        summary: summary.to_string(),
+        digest: plan_digest(&c.id, volume_id, &loc.root_path, &[]),
+    };
+    if loc.keep_here {
+        return Ok(nothing("Kept where it is: you chose Keep here."));
+    }
+    let fp_str = super::store::collection_fingerprint(store.conn(), &c.id)?;
+    let (archive_rel, same_vol_live) = match fp_str.as_deref().and_then(|s| s.strip_prefix("old_copy:")) {
+        Some(rest) => match rest.split_once('|') {
+            Some((rel, live)) => (rel.to_string(), live.to_string()),
+            None => (rest.to_string(), String::new()),
+        },
+        None => (safe_name(&c.name), String::new()),
+    };
+    let on_pc = ctx.roots.iter().any(|r| r.enabled && path_is_within(&loc.root_path, &r.path, false));
+    let mount = info.as_ref().map(|(m, _, _)| m.clone()).unwrap_or_default();
+    let archive_base = if on_pc {
+        let docs = ctx
+            .roots
+            .iter()
+            .find(|r| {
+                r.enabled
+                    && r.volume_id == volume_id
+                    && matches!(leaf(&r.path).to_lowercase().as_str(), "documents" | "my documents")
+            })
+            .or_else(|| ctx.roots.iter().find(|r| r.enabled && r.volume_id == volume_id));
+        docs.map(|r| join(&r.path, "Archive")).unwrap_or_else(|| join(&mount, "Archive"))
+    } else if !mount.is_empty() {
+        join(&mount, "Archive")
+    } else {
+        return Ok(nothing("That drive isn't known any more."));
+    };
+    if path_is_within(&loc.root_path, &archive_base, false) {
+        return Ok(nothing("Already in Archive."));
+    }
+    let vol_online = info.as_ref().is_some_and(|(_, _, on)| *on) && waits_for.is_none();
+    let dir_exists = |p: &str| ctx.dir_exists(store, volume_id, vol_online, p);
+    let mut target = join(&archive_base, &archive_rel);
+    let base_target = target.clone();
+    let mut n = 2;
+    while dir_exists(&target) || ctx.locations.iter().any(|(_, v, r)| v == volume_id && same_path(r, &target)) {
+        target = format!("{base_target} {n}");
+        n += 1;
+    }
+
+    let can_quarantine = !same_vol_live.is_empty()
+        && matches!(loc.relationship, Relationship::Identical | Relationship::OlderSubset)
+        && info.as_ref().is_some_and(|(m, _, _)| path_is_within(&same_vol_live, m, false));
+
+    let (steps, home_after) = if can_quarantine {
+        (
+            vec![PlanStep {
+                step: 1,
+                kind: StepKind::Quarantine,
+                location_id: loc.id.clone(),
+                from: loc.root_path.clone(),
+                to: loc.root_path.clone(),
+                fallback: Some(target),
+                reason: format!("Same as {same_vol_live} on this drive: to quarantine for 30 days (verified file by file)."),
+                warnings: ctx.repo_warnings(loc),
+            }],
+            same_vol_live,
+        )
+    } else {
+        (
+            vec![PlanStep {
+                step: 1,
+                kind: StepKind::ToArchive,
+                location_id: loc.id.clone(),
+                from: loc.root_path.clone(),
+                to: target.clone(),
+                fallback: None,
+                reason: format!("Moves whole to archive at {target}."),
+                warnings: ctx.repo_warnings(loc),
+            }],
+            target,
+        )
+    };
+    if let Some((m, _, _)) = &info
+        && let Some(bad) = steps.iter().find(|s| !path_is_within(&s.from, m, false) || !path_is_within(&s.to, m, false))
+    {
+        return Err(AegisError::InvalidInput(format!("A plan step would leave its drive ({} → {}).", bad.from, bad.to)));
+    }
+    let summary = summarise(&steps, &home_after);
+    let digest = plan_digest(&c.id, volume_id, &home_after, &steps);
+    let mut plan = ProjectPlan {
+        collection_id: c.id.clone(),
+        volume_id: volume_id.to_string(),
+        home_after,
+        steps,
+        waits_for,
+        notes: Vec::new(),
+        rank: 9,
+        summary,
+        digest,
+    };
+    if !plan.steps.is_empty() {
+        plan.rank = offer_rank(c, &plan);
+    }
+    Ok(plan)
+}
+
 /// Whether `batch_id` is a project plan's batch (undone with [`undo`], not as a filing batch).
 pub fn is_project_batch(conn: &rusqlite::Connection, batch_id: &str) -> Result<bool> {
     Ok(conn
@@ -905,7 +1256,7 @@ pub fn is_project_batch(conn: &rusqlite::Connection, batch_id: &str) -> Result<b
 
 /// The order cards are offered in (spec §8.5), simplest and safest first: 0 identical copies
 /// (space back, nothing lost), 1 older copies, 2 projects that only move into the projects
-/// home, 3 anything that keeps versions or brings material in.
+/// home (or old copies moving to Archive), 3 anything that keeps versions or brings material in.
 pub fn offer_rank(c: &Collection, p: &ProjectPlan) -> u8 {
     let rel = |id: &str| c.locations.iter().find(|l| l.id == id).map(|l| l.relationship);
     if p.steps.iter().any(|s| matches!(s.kind, StepKind::ToVersions | StepKind::ToMaterial)) {
@@ -1200,10 +1551,10 @@ fn unfollow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     }
     let tx = store.conn().unchecked_transaction()?;
     let mut seen: HashSet<String> = HashSet::new();
-    // Reverse `move_home` first so the original destination path is freed before reinserting any
-    // copy that had occupied it.
+    // Reverse `move_home` / `to_archive` first so the original destination path is freed before
+    // reinserting any copy that had occupied it.
     for (kind, loc) in &dir_locs {
-        if kind != "move_home" || !seen.insert(loc.id.clone()) {
+        if (kind != "move_home" && kind != "to_archive") || !seen.insert(loc.id.clone()) {
             continue;
         }
         let n = tx.execute(
@@ -1218,7 +1569,7 @@ fn unfollow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
         }
     }
     for (kind, loc) in &dir_locs {
-        if kind == "move_home" || !seen.insert(loc.id.clone()) {
+        if kind == "move_home" || kind == "to_archive" || !seen.insert(loc.id.clone()) {
             continue;
         }
         let exists: bool = tx.query_row(
@@ -1302,6 +1653,7 @@ fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
             SELECT 1 FROM files f WHERE f.id = file_history.file_id AND lower(f.path) = lower(file_history.old_path))",
         [batch_id],
     )?;
+    let mut archive_parents: HashSet<String> = HashSet::new();
     let dest_dirs: HashSet<String> = {
         let mut stmt = store.conn().prepare(
             "SELECT evidence_json, to_path FROM actions WHERE batch_id = ?1 AND status = 'rolled_back'",
@@ -1317,14 +1669,21 @@ fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                     v.get("dest_dir")?.as_str().map(str::to_string)
                 } else if kind == "move_home" {
                     to_path.filter(|p| leaf(parent(p)).eq_ignore_ascii_case("design"))
+                } else if kind == "to_archive" {
+                    if let Some(p) = to_path {
+                        archive_parents.insert(parent(&p).to_string());
+                    }
+                    None
                 } else {
                     None
                 }
             })
             .collect()
     };
-    if !dest_dirs.is_empty() {
-        let roots: Vec<String> = store.list_roots()?.into_iter().map(|r| r.path).collect();
+    if !dest_dirs.is_empty() || !archive_parents.is_empty() {
+        let mut roots: Vec<String> = store.list_roots()?.into_iter().map(|r| r.path).collect();
+        let mut vstmt = store.conn().prepare("SELECT mount_point FROM volumes WHERE status = 'online'")?;
+        roots.extend(vstmt.query_map([], |r| r.get::<_, String>(0))?.filter_map(|m| m.ok()));
         let strictly_inside = |p: &str| roots.iter().any(|r| !same_path(p, r) && path_is_within(p, r, false));
         for d in dest_dirs {
             if strictly_inside(&d) && Path::new(&d).is_dir() {
@@ -1333,6 +1692,22 @@ fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
             let shelf = parent(&d);
             if leaf(shelf).eq_ignore_ascii_case("design") && strictly_inside(shelf) && Path::new(shelf).is_dir() {
                 let _ = std::fs::remove_dir(shelf);
+            }
+        }
+        for start in archive_parents {
+            let mut cur = start;
+            while strictly_inside(&cur) && Path::new(&cur).is_dir() {
+                if std::fs::remove_dir(&cur).is_err() {
+                    break;
+                }
+                if leaf(&cur).eq_ignore_ascii_case("archive") {
+                    break;
+                }
+                let next = parent(&cur);
+                if same_path(next, &cur) {
+                    break;
+                }
+                cur = next.to_string();
             }
         }
     }
@@ -1450,7 +1825,7 @@ fn follow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                     learned.insert((fp.clone(), proj.clone()));
                 }
             }
-        } else if st.kind != "move_home" {
+        } else if st.kind != "move_home" && st.kind != "to_archive" {
             tx.execute("DELETE FROM collection_locations WHERE id = ?1", [&st.location_id])?;
         }
     }
@@ -1496,7 +1871,7 @@ fn follow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
             params![new_id(), target_cid, g.volume_id, dest_dir, g.files, g.bytes, g.newest_mtime, g.set_fingerprint],
         )?;
     }
-    for st in steps.iter().filter(|s| s.kind == "move_home") {
+    for st in steps.iter().filter(|s| s.kind == "move_home" || s.kind == "to_archive") {
         tx.execute("UPDATE collection_locations SET root_path = ?1 WHERE id = ?2", params![st.to, st.location_id])?;
     }
     for (fp, proj) in learned {
@@ -1537,6 +1912,9 @@ fn summarise(steps: &[PlanStep], home_after: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     if n(StepKind::MoveHome) > 0 {
         parts.push(format!("moves to {home_after}"));
+    }
+    if n(StepKind::ToArchive) > 0 {
+        parts.push(format!("moves to archive at {home_after}"));
     }
     let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {many}") };
     if n(StepKind::Quarantine) > 0 {

@@ -34,10 +34,22 @@ pub enum Answer {
 }
 
 fn collection(store: &SqliteStore, id: &str) -> Result<Collection> {
-    list_collections_in(store.conn(), &[CollectionKind::Project, CollectionKind::DesignSet, CollectionKind::PhotoSubject])?
-        .into_iter()
-        .find(|c| c.id == id)
-        .ok_or_else(|| AegisError::NotFound("That project is no longer listed. Refresh and try again.".into()))
+    list_collections_in(
+        store.conn(),
+        &[
+            CollectionKind::Project,
+            CollectionKind::DesignSet,
+            CollectionKind::PhotoSubject,
+            CollectionKind::SoftwarePackage,
+            CollectionKind::OwnersFolder,
+            CollectionKind::Resource,
+            CollectionKind::Series,
+            CollectionKind::OldCopy,
+        ],
+    )?
+    .into_iter()
+    .find(|c| c.id == id)
+    .ok_or_else(|| AegisError::NotFound("That project is no longer listed. Refresh and try again.".into()))
 }
 
 fn decision(kind: DecisionKind, a: &str, b: Option<&str>, value: &str, at: i64) -> Decision {
@@ -105,7 +117,7 @@ fn answer_set(store: &SqliteStore, c: &Collection, location_id: Option<&str>, a:
 pub fn answer(store: &mut SqliteStore, collection_id: &str, location_id: Option<&str>, a: Answer) -> Result<()> {
     let c = collection(store, collection_id)?;
     let at = now_ms();
-    let out: Vec<Decision> = if c.kind != CollectionKind::Project {
+    let out: Vec<Decision> = if c.kind.is_member_collection() {
         answer_set(store, &c, location_id, &a, at)?
     } else {
         let targets: Vec<&str> = match location_id {

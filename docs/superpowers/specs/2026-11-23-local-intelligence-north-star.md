@@ -33,8 +33,8 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 
 | # | Capability (vision §) | Builds on | Order |
 |---|---|---|---|
-| 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **in progress**: Plan 2 (project plans) merged; Plan 3 (sets & photo subjects) built on `feature/sets-and-photo-subjects`; next: putting back together, learning/weekly note, other modules |
-| 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **next after the context layer**: hybrid search |
+| 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **done** (Plans 1–5 merged 2026-11-24: projects, plans, sets/photo subjects, put back together, §16 step 7 modules & external drive plans) |
+| 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **next active**: D1 encryption + embeddings & hybrid search |
 | 3 | Local RAG engine (3.1) | hybrid search | after 2 |
 | 4 | Dead file detection (4.2) | janitor, duplicates, Project 4 System care | with Project 4 |
 | 5 | Workspace health score (4.4) | space recorder, duplicates, self-check | with Project 4; storage and integrity first, taxonomy later |

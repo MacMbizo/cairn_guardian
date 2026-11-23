@@ -2,14 +2,19 @@
 //! Backup drive excepted), copies of one project grouped into one collection, each copy related
 //! to the project's home, the owner's answers applied, and the result saved.
 
+use super::old_copies::{build_old_copy_collections, filter_profiles_outside, find_old_copies};
+use super::owners::find_owners_folders;
 use super::profile::{FolderProfile, profiles_for};
 use super::projects::{AREA_NAMES, LIFE_AREAS, PROJECT_THRESHOLD, ProjectCandidate, find_projects_with};
 use super::relate::{
     ContentSummary, Identity, answered_same, choose_home, content_summaries, fingerprint, fingerprints_match,
     identity_of_with_aliases, learned_aliases, normalized_name, relate, version_series,
 };
+use super::resources::find_resources;
+use super::series::find_series;
 use super::sets::{find_sets, parse_learned_subjects};
-use super::store::{decisions, plan_runs, save_collections_with_members};
+use super::software::find_software_packages;
+use super::store::{PlanRun, decisions, plan_runs, save_collections_with_members};
 use super::{Collection, CollectionKind, Decision, DecisionKind, Location, ProjectKind, Relationship};
 use crate::db::SqliteStore;
 use crate::db::files::path_is_within;
@@ -40,6 +45,11 @@ pub struct RecogniseReport {
     pub multi_location: usize,
     pub design_sets: usize,
     pub photo_subjects: usize,
+    pub software_packages: usize,
+    pub owners_folders: usize,
+    pub resources: usize,
+    pub series: usize,
+    pub old_copies: usize,
     #[ts(type = "number")]
     pub took_ms: u64,
 }
@@ -86,20 +96,209 @@ fn find(parent: &mut [usize], i: usize) -> usize {
     r
 }
 
+struct FolderModItem {
+    root: String,
+    volume_id: String,
+    name: String,
+    hint_fp: String,
+    confidence: f64,
+    evidence: Vec<String>,
+    files: i64,
+    bytes: i64,
+    newest_mtime: i64,
+}
+
+struct PassEnv<'a> {
+    store: &'a SqliteStore,
+    roots: &'a [(String, Option<String>)],
+    answers: &'a [Decision],
+    online: &'a HashMap<String, bool>,
+    runs: &'a [PlanRun],
+}
+
+type BuiltFolderModules = (Vec<(Collection, Option<String>)>, Vec<(Option<String>, String)>);
+
+fn build_folder_module_collections(
+    env: &PassEnv<'_>,
+    kind: CollectionKind,
+    items: Vec<FolderModItem>,
+    group_across_volumes: bool,
+) -> Result<BuiltFolderModules> {
+    if items.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let locs: Vec<(String, String)> = items.iter().map(|it| (it.volume_id.clone(), it.root.clone())).collect();
+    let summaries = content_summaries(env.store, env.roots, &locs)?;
+    let fps: Vec<String> = items
+        .iter()
+        .zip(&summaries)
+        .map(|(it, s)| fingerprint(&it.name, &[], s, &it.volume_id, &it.root))
+        .collect();
+    let keep: Vec<usize> = (0..items.len())
+        .filter(|&i| answer_for(env.answers, DecisionKind::IsProject, &fps[i]).is_none_or(|d| d.value != "no"))
+        .collect();
+
+    let mut parent: Vec<usize> = (0..items.len()).collect();
+    if group_across_volumes && keep.len() > 1 {
+        let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+        for &i in &keep {
+            by_name.entry(normalized_name(&items[i].name)).or_default().push(i);
+        }
+        for members in by_name.into_values() {
+            if members.len() < 2 {
+                continue;
+            }
+            for (x, &i) in members.iter().enumerate() {
+                for &j in &members[x + 1..] {
+                    if items[i].volume_id == items[j].volume_id {
+                        continue;
+                    }
+                    if answered_same(&fps[i], &fps[j], env.answers) == Some(false) {
+                        continue;
+                    }
+                    let explicit_same = answered_same(&fps[i], &fps[j], env.answers) == Some(true);
+                    let (_, shared, _) = relate(&summaries[i], &summaries[j]);
+                    if !explicit_same && shared == 0 {
+                        continue;
+                    }
+                    let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                    if ri != rj {
+                        parent[rj] = ri;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for &i in &keep {
+        groups.entry(find(&mut parent, i)).or_default().push(i);
+    }
+
+    let mut out = Vec::new();
+    let mut claimed = Vec::new();
+    for members in groups.into_values() {
+        let collection_id = new_id();
+        let mut locations: Vec<Location> = members
+            .iter()
+            .map(|&i| {
+                let it = &items[i];
+                claimed.push((Some(it.volume_id.clone()), it.root.clone()));
+                Location {
+                    id: new_id(),
+                    collection_id: collection_id.clone(),
+                    volume_id: it.volume_id.clone(),
+                    root_path: it.root.clone(),
+                    relationship: Relationship::Unknown,
+                    files: it.files,
+                    bytes: it.bytes,
+                    newest_mtime: it.newest_mtime,
+                    shared_files: 0,
+                    compared_by: String::new(),
+                    is_repo: false,
+                    online: env.online.get(&it.volume_id).copied().unwrap_or(false),
+                    fingerprint: fps[i].clone(),
+                    keep_here: answer_for(env.answers, DecisionKind::KeepHere, &fps[i]).is_some_and(|d| d.value == "yes"),
+                }
+            })
+            .collect();
+        let chosen = members
+            .iter()
+            .enumerate()
+            .filter_map(|(k, &i)| answer_for(env.answers, DecisionKind::Home, &fps[i]).map(|d| (d.at, k)))
+            .max()
+            .map(|(_, k)| k);
+        let h = chosen.unwrap_or_else(|| choose_home(&locations));
+        let home = members[h];
+        let mut evidence = items[home].evidence.clone();
+        for (k, &m) in members.iter().enumerate() {
+            if k == h {
+                locations[k].relationship = Relationship::Home;
+                locations[k].shared_files = summaries[m].len();
+                continue;
+            }
+            let (rel, shared, by) = relate(&summaries[home], &summaries[m]);
+            locations[k].relationship = rel;
+            locations[k].shared_files = shared;
+            locations[k].compared_by = by;
+            evidence.push(format!("also at {}", items[m].root));
+        }
+        let any = |k: DecisionKind| members.iter().find_map(|&i| answer_for(env.answers, k, &fps[i]));
+        let confidence = members.iter().map(|&i| items[i].confidence).fold(PROJECT_THRESHOLD, f64::max);
+        let state = if any(DecisionKind::LeaveAsIs).is_some() {
+            "left_as_is"
+        } else if any(DecisionKind::IsProject).is_some_and(|d| d.value == "yes") || confidence >= 0.80 {
+            "confirmed"
+        } else {
+            "candidate"
+        };
+        let cname = any(DecisionKind::Name).map_or_else(|| items[home].name.clone(), |d| d.value.clone());
+        let plan_state = env
+            .runs
+            .iter()
+            .rev()
+            .find(|r| r.fingerprints.iter().any(|f| members.iter().any(|&i| fingerprints_match(f, &fps[i]))))
+            .map(|r| format!("{}:{}", r.state, r.batch_id));
+        out.push((
+            Collection {
+                id: collection_id,
+                kind,
+                name: cname,
+                project_kind: None,
+                confidence,
+                state: state.into(),
+                evidence,
+                locations,
+                sub_projects: Vec::new(),
+                plan_state,
+            },
+            Some(items[home].hint_fp.clone()),
+        ));
+    }
+    Ok((out, claimed))
+}
+
 /// Runs a full recognition pass and saves what it found (replacing the previous pass).
 pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
     let t = Instant::now();
     let roots = recognition_roots(store)?;
-    let mut cands: Vec<ProjectCandidate> = Vec::new();
+    let plain_roots: Vec<String> = roots.iter().map(|(r, _)| r.clone()).collect();
+    let answers = decisions(store.conn())?;
+    let runs = plan_runs(store.conn())?;
+    let online: HashMap<String, bool> = {
+        let mut stmt = store.conn().prepare("SELECT id, status = 'online' FROM volumes")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+
+    type RootProfileGroup = ((String, Option<String>), Vec<FolderProfile>);
+    let mut per_root_profiles: Vec<RootProfileGroup> = Vec::new();
     let mut all_profiles: Vec<FolderProfile> = Vec::new();
     for (root, volume) in &roots {
         let ps = profiles_for(store, &[(root.clone(), volume.clone())])?;
+        all_profiles.extend(ps.iter().cloned());
+        per_root_profiles.push(((root.clone(), volume.clone()), ps));
+    }
+
+    // 1. Old copies claim top-level backup trees before project discovery so nested repos inside
+    // backups (`D:\MSIDownloads`) aren't lifted to claim the whole backup tree as one project.
+    let old_cands = find_old_copies(&all_profiles, &plain_roots);
+    let (old_collections, active_old_roots) =
+        build_old_copy_collections(store, &all_profiles, &roots, &old_cands, &answers, &online, &runs)?;
+
+    // 2. Projects across all remaining folders.
+    let mut cands: Vec<ProjectCandidate> = Vec::new();
+    for ((root, volume), ps) in &per_root_profiles {
+        let filtered;
+        let ps_proj = if active_old_roots.is_empty() {
+            ps.as_slice()
+        } else {
+            filtered = filter_profiles_outside(ps, &active_old_roots);
+            filtered.as_slice()
+        };
         // A drive's top level is a general place, like Documents: it lends no project status.
         let general: Vec<String> = volume.iter().map(|_| root.clone()).collect();
-        cands.extend(find_projects_with(&ps, std::slice::from_ref(root), &general));
-        all_profiles.extend(ps);
+        cands.extend(find_projects_with(ps_proj, std::slice::from_ref(root), &general));
     }
-    let answers = decisions(store.conn())?;
     let learned = parse_learned_subjects(&answers);
     let learned_design_norms: HashMap<String, String> = learned
         .iter()
@@ -114,6 +313,7 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
                 || AREA_NAMES.contains(&nlow.as_str())
                 || LIFE_AREAS.contains(&nlow.as_str())
                 || !learned_design_norms.contains_key(&normalized_name(p.name()))
+                || active_old_roots.iter().any(|r| path_is_within(&p.path, r, false))
             {
                 continue;
             }
@@ -139,11 +339,6 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
         }
         cands.sort_by_key(|a| a.root.to_lowercase());
     }
-    let runs = plan_runs(store.conn())?;
-    let online: HashMap<String, bool> = {
-        let mut stmt = store.conn().prepare("SELECT id, status = 'online' FROM volumes")?;
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
-    };
 
     let locs: Vec<(String, String)> = cands.iter().map(|c| (c.volume_id.clone(), c.root.clone())).collect();
     let summaries: Vec<ContentSummary> = content_summaries(store, &roots, &locs)?;
@@ -360,10 +555,68 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
         });
     }
     collections.sort_by_key(|c| (std::cmp::Reverse(c.locations.len().min(2)), c.name.to_lowercase()));
-    let project_roots: Vec<(Option<String>, String)> = collections
+    let mut claimed_roots: Vec<(Option<String>, String)> = old_collections
         .iter()
-        .flat_map(|c| c.locations.iter().map(|l| (Some(l.volume_id.clone()), l.root_path.clone())))
+        .flat_map(|(c, _)| c.locations.iter().map(|l| (Some(l.volume_id.clone()), l.root_path.clone())))
+        .chain(collections.iter().flat_map(|c| c.locations.iter().map(|l| (Some(l.volume_id.clone()), l.root_path.clone()))))
         .collect();
+
+    let env = PassEnv { store, roots: &roots, answers: &answers, online: &online, runs: &runs };
+
+    // 3. Software packages (tools & installers outside OldCopy and Project trees).
+    let sw_items: Vec<FolderModItem> = find_software_packages(&all_profiles, &plain_roots, &claimed_roots)
+        .into_iter()
+        .map(|s| FolderModItem {
+            root: s.root,
+            volume_id: s.volume_id,
+            name: s.name,
+            hint_fp: format!("software:{}", s.bucket),
+            confidence: s.confidence,
+            evidence: s.evidence,
+            files: s.files,
+            bytes: s.bytes,
+            newest_mtime: s.newest_mtime,
+        })
+        .collect();
+    let (sw_collections, sw_claimed) = build_folder_module_collections(&env, CollectionKind::SoftwarePackage, sw_items, true)?;
+    claimed_roots.extend(sw_claimed);
+
+    // 4. Owner's folders (purpose-named document folders outside claimed modules).
+    let owner_items: Vec<FolderModItem> = find_owners_folders(store, &all_profiles, &plain_roots, &claimed_roots)?
+        .into_iter()
+        .map(|o| FolderModItem {
+            root: o.root,
+            volume_id: o.volume_id,
+            name: o.name,
+            hint_fp: format!("owners:{}", o.life_area),
+            confidence: o.confidence,
+            evidence: o.evidence,
+            files: o.files,
+            bytes: o.bytes,
+            newest_mtime: o.newest_mtime,
+        })
+        .collect();
+    let (owner_collections, owner_claimed) = build_folder_module_collections(&env, CollectionKind::OwnersFolder, owner_items, true)?;
+    claimed_roots.extend(owner_claimed);
+
+    // 5. Resources (skills, UI kits, design packs, templates).
+    let res_items: Vec<FolderModItem> = find_resources(&all_profiles, &plain_roots, &claimed_roots)
+        .into_iter()
+        .map(|r| FolderModItem {
+            root: r.root,
+            volume_id: r.volume_id,
+            name: r.name,
+            hint_fp: format!("resource:{}", r.topic),
+            confidence: r.confidence,
+            evidence: r.evidence,
+            files: r.files,
+            bytes: r.bytes,
+            newest_mtime: r.newest_mtime,
+        })
+        .collect();
+    let (res_collections, res_claimed) = build_folder_module_collections(&env, CollectionKind::Resource, res_items, false)?;
+    claimed_roots.extend(res_claimed);
+
     let mut existing_design: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for c in collections.iter().filter(|c| c.project_kind == Some(ProjectKind::Design)) {
         let cname_norm = normalized_name(&c.name);
@@ -376,27 +629,55 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
             }
         }
     }
+
+    // 6. Loose design sets & photo subjects outside all claimed folder collections.
     let (mut set_collections, set_members) =
-        find_sets(store, &roots, &project_roots, &existing_design, &answers, &online, &runs)?;
+        find_sets(store, &roots, &claimed_roots, &existing_design, &answers, &online, &runs)?;
     set_collections.sort_by_key(|(c, _)| {
         let k = if c.kind == CollectionKind::DesignSet { 0u8 } else { 1u8 };
         (k, std::cmp::Reverse(c.locations.len().min(2)), c.name.to_lowercase())
     });
 
+    // 7. TV series episodes & companion subtitles outside all claimed folder collections.
+    let has_videos = all_profiles.iter().filter(|p| p.depth == 0).any(|p| p.kind_count(crate::filing::Kind::Video) > 0);
+    let (series_collections, series_members) = if has_videos {
+        find_series(store, &roots, &claimed_roots, &answers, &online, &runs)?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
     let project_count = collections.len();
     let multi_location = collections.iter().filter(|c| c.locations.len() > 1).count();
     let design_sets = set_collections.iter().filter(|(c, _)| c.kind == CollectionKind::DesignSet).count();
     let photo_subjects = set_collections.iter().filter(|(c, _)| c.kind == CollectionKind::PhotoSubject).count();
+    let software_packages = sw_collections.len();
+    let owners_folders = owner_collections.len();
+    let resources = res_collections.len();
+    let series = series_collections.len();
+    let old_copies = old_collections.len();
 
     let mut combined: Vec<(Collection, Option<String>)> = collections.into_iter().map(|c| (c, None)).collect();
+    combined.extend(old_collections);
+    combined.extend(sw_collections);
+    combined.extend(owner_collections);
+    combined.extend(res_collections);
     combined.extend(set_collections);
-    save_collections_with_members(store.conn(), &combined, &set_members)?;
+    combined.extend(series_collections);
+    let mut all_members = set_members;
+    all_members.extend(series_members);
+    save_collections_with_members(store.conn(), &combined, &all_members)?;
     store.set_setting(RECOGNISED_AT, "context", &now_ms().to_string())?;
+    store.shrink_memory();
     Ok(RecogniseReport {
         projects: project_count,
         multi_location,
         design_sets,
         photo_subjects,
+        software_packages,
+        owners_folders,
+        resources,
+        series,
+        old_copies,
         took_ms: t.elapsed().as_millis() as u64,
     })
 }

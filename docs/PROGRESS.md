@@ -1,23 +1,24 @@
 # Aegis Guardian: progress and what remains
 
-Updated 2026-11-23. This is the whole-project view. `HANDOFF.md` covers the working detail for the next chat.
+Updated 2026-11-24. This is the whole-project view. `HANDOFF.md` covers the working detail for the next chat.
 
 ## 1. Where the code is
 
 | Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3, Context-aware filing Plans 1–4 (projects, plans, sets/subjects, Design shelf separation, Put back together, learned aliases, weekly-note summary), fast-forward merged 2026-11-23. Not pushed. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–5 (projects, plans, sets/subjects, Design shelf separation, Put back together, learned aliases, weekly-note summary, §16 step 7 modules & external drive plans), fast-forward merged 2026-11-24. Not pushed. |
+| `feature/context-modules-step7` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/put-back-together-and-learning` | Merged (ff-only) into `master` on 2026-11-23. Not pushed. |
 | `feature/sets-and-photo-subjects` | Merged earlier into `master` (`43fc8bd`). Not pushed. |
 | `feature/project-plans` | Tip matching pre-Plan-3 `master`. Not pushed. |
 | `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification on `master` (fast-forward from `feature/put-back-together-and-learning`):
-- `cargo test --workspace`: **496 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/reunite_and_learning.rs` (`0.30s`), all **11** tests in `crates/aegis-core/tests/sets.rs` (`0.62s`), `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases` (`[1..=8]`); **0** folders in `C:\.aegis-quarantine` before and **0** after.
-- Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **256** projects (`87` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **53** project plans, **1** `put back together` proposal (`ipadcover [PhotoSubject]`: 7 files split earlier by batch `01a203ee` into `Pictures\2026\2026-08` returning to `C:\Users\Mac\Pictures\2026\ipadcover`), zero false positives on already-reunited `SmoothLite`/`Back Cement` or `mugs`, and weekly-note `projects` line `"87 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
+Verification on `master` (fast-forward from `feature/context-modules-step7`):
+- `cargo test --workspace`: **503 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **7** tests in `crates/aegis-core/tests/context_modules.rs` (`0.32s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, **11** in `sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
+- Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **239** projects (`84` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **18** software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), **9** owner's folders, **4** resources, **52** series seasons, **2** old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **249** project/set/old-copy plans in `18.8s` debug (including `New Volume` offline waits & same-drive plans), `"Old copy": 9747` kept whole on `New Volume` Fresh/Tidy, **1** `put back together` proposal (`ipadcover`), and weekly-note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
 - `cargo clippy --workspace --all-targets -- -D warnings`: clean (0 warnings).
 - `cargo check -p aegis-desktop --features custom-protocol`: clean.
-- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `761ms`).
+- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `881ms`).
 
 ## 2. Done
 
@@ -32,8 +33,13 @@ Verification on `master` (fast-forward from `feature/put-back-together-and-learn
 | 3b | Context-aware filing, Plan 2: project plans (move into `C:\Prj`, quarantine/versions/material, one batch per project with undo) | Done, merged 2026-11-23 (with stabilization pass) |
 | 3c | Context-aware filing, Plan 3: sets, photo subjects, Design-vs-Software shelf separation, and inline UI reclassification | Done, merged 2026-11-23 |
 | 3d | Context-aware filing, Plan 4: put back together (`file_history` reunion), `SameAs` learned aliases, weekly-note summary | Done, merged 2026-11-23 |
-| 4 | System care | Next after remaining Context-aware filing modules (§16 step 7) + D1/Embeddings |
+| 3e | Context-aware filing, Plan 5 (§16 step 7): Software packages, Owner's folders, Resources, Series, Old copies & external drive plans | Done, merged 2026-11-24 |
+| 4 | System care | Next after D1 Encryption + Embeddings & Hybrid Search |
 | 5 | Visual app (grows alongside the others) | Ongoing |
+
+### Plan 5 in one paragraph
+
+Adds the five remaining Step 7 context modules plus safe same-volume external-drive project planning: **Software packages** (`context::software`) keep programs, drivers, and composite installers whole (`Microsoft Office 2024`, `DDU`, `Armoury_Crate_Uninstall_Tool`, `drivers`; routing in Fresh to `Software\Tools` or `Software\Installers`), **Owner's folders** (`context::owners`) protect purpose-named folders (`CVs`, `Ass. Bursar`, `Finance Manager`, `PhD`, `PM`, `.db`-pinned `Last30Days`/`DocAtlas Notes`) into their life areas, **Resources** (`context::resources`) protect skills/UI kits/templates into `Documents\Resources`, **Series** (`context::series`) pair episodic videos and subtitles into `Videos\Shows\<Show>\Season <n>`, and **Old copies** (`context::old_copies`) claim top-level backup trees (`D:\MSIDocuments`, `D:\MSIDownloads`) ahead of project discovery so inner repos don't claim the whole backup, proposing same-volume identical copies for BLAKE3-verified 30-day quarantine and others (plus cross-volume copies) for `StepKind::ToArchive`. External-drive plans run per drive (`offline_dirs`, `projects_homes`, and prefetched `summaries` in `Planner` keeping 249 plans fast offline) and set `waits_for` when unplugged without ever quarantining against another drive.
 
 ### Plan 4 in one paragraph
 
@@ -71,7 +77,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 **Still waiting on the owner:**
 1. Choose a new app name (another "eagis" / Aegis app already exists).
-2. Next active roadmap sequence (owner-approved 2026-11-23): Context-aware filing remaining modules (§16 step 7: Software packages, Owner's folders, Old copies, Resources, Series) → **1. D1 Encryption + Embeddings & Hybrid Search** → **Project 4: System care**.
+2. Next active roadmap sequence (owner-approved 2026-11-23): **1. D1 Encryption + Embeddings & Hybrid Search** (now active after Plan 5 merge) → **Project 4: System care**.
 
 ## 4. What remains
 
@@ -83,7 +89,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 | 3 | Project plans | Done (Plan 2) |
 | 4 | Sets, photo subjects, Design-vs-Software shelf separation, and UI kind filtering | Done, merged 2026-11-23 (Plan 3) |
 | 5–6 | Put back together (`file_history` reunion), `SameAs` learned name aliases, and weekly-note projects summary line | Done, merged 2026-11-23 (Plan 4) |
-| 7 | Other modules, each with a short design: Software packages, Owner's folders, Old copies (drive D: plans belong here), Resources, Series | Next up |
+| 7 | Other modules: Software packages, Owner's folders, Old copies (drive D: & external-drive plans), Resources, Series | Done, merged 2026-11-24 (Plan 5) |
 
 ### Programme
 
@@ -128,7 +134,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 - ~~Two timing tests are sensitive to machine load.~~ Both `recognise_is_fast_on_a_big_catalog` and `migration_speed_and_fts_sync` now pass in full workspace runs after the background churn fix.
 - **Fixed (`c63e967`):** six Plan 2 bugs — blocked occupant guard, `MoveAside` collision suffixing, K1 `expected_digest` check on `context_run_plan`, `"location"` inside `propose` evidence, honest `rollback_batch` conflict reporting, `plan::undo` `move_home` ordering, and `volume_id`-scoped `rebase_children`/folder quarantine/restore with `outbox_events` and `cache_dirs`/`atomic_units` cleanup.
 - Project plans' "files moved" counts catalogued files only (`node_modules` and `.venv` contents aren't catalogued).
-- Copies of a project on a drive without its home have no relationship to each other; they wait for the Old copies module.
+- ~~Copies of a project on a drive without its home have no relationship to each other; they wait for the Old copies module.~~ **Resolved (Plan 5, 2026-11-24):** external-drive `plan_on` compares same-drive copies against that drive's own best copy (`same_vol_rel`, never quarantining against another drive's home) and `OldCopy` compares backup trees (`D:\MSIDocuments`, `D:\MSIDownloads`) against live counterparts via `StepKind::ToArchive` / same-drive quarantine.
 
 **Filing follow-ups:**
 - Search filters only apply to a typed query, and changing a filter needs another press of Search.

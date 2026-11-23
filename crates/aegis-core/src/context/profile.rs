@@ -73,6 +73,22 @@ pub struct FolderProfile {
     pub has_git: bool,
     /// The folder is a code project found by its build marker.
     pub atomic_unit: bool,
+    /// Code projects inside it, or binary/installer/resource/database clues rolled up across its
+    /// subtree for Step 7 modules (0 extra SQL queries).
+    /// Executables / MSI installers (`exe`, `msi`, `msix`).
+    pub exe_files: i64,
+    /// Installer package/payload files (`msi`, `msix`, `msp`, `mst`, `cab`, `inf`, `cat`).
+    pub installer_files: i64,
+    /// Native runtime/config files (`dll`, `sys`, `ocx`, `pdb`, `cfg`, `config`, `ini`).
+    pub runtime_files: i64,
+    /// Holds `setup.exe`, `install.exe`, `installer.exe`, `autorun.inf`, `setup.ini`, or `.msi`.
+    pub has_setup_file: bool,
+    /// Holds a `SKILL.md` file.
+    pub has_skill_file: bool,
+    /// Holds a `DESIGN.md`, `tokens.json`, or `theme.json` file.
+    pub has_design_kit_file: bool,
+    /// Holds a local database file (`db`, `sqlite`, `sqlite3`).
+    pub has_db_file: bool,
     /// Full paths of its sub-folders (build folders left out).
     pub child_dirs: Vec<String>,
     /// Files directly inside it.
@@ -209,6 +225,13 @@ struct Acc {
     asset_files: i64,
     manifests: Vec<(String, String)>,
     readme: bool,
+    exe_files: i64,
+    installer_files: i64,
+    runtime_files: i64,
+    has_setup_file: bool,
+    has_skill_file: bool,
+    has_design_kit_file: bool,
+    has_db_file: bool,
     loose: i64,
     children: BTreeSet<String>,
 }
@@ -235,6 +258,25 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
         let plen = prefix.chars().count() as i64;
         let root_key = root.to_lowercase();
         let mut acc: HashMap<String, Acc> = HashMap::new();
+
+const SETUP_FILE_NAMES: [&str; 5] = ["setup.exe", "install.exe", "installer.exe", "autorun.inf", "setup.ini"];
+const DESIGN_KIT_FILE_NAMES: [&str; 3] = ["design.md", "tokens.json", "theme.json"];
+
+fn is_exe_ext(ext: &str) -> bool {
+    matches!(ext, "exe" | "msi" | "msix")
+}
+
+fn is_installer_ext(ext: &str) -> bool {
+    matches!(ext, "msi" | "msix" | "msp" | "mst" | "cab" | "inf" | "cat")
+}
+
+fn is_runtime_ext(ext: &str) -> bool {
+    matches!(ext, "dll" | "sys" | "ocx" | "pdb" | "cfg" | "config" | "ini")
+}
+
+fn is_db_ext(ext: &str) -> bool {
+    matches!(ext, "db" | "sqlite" | "sqlite3")
+}
 
         // Folder totals by extension.
         let mut stmt = conn.prepare(&format!(
@@ -267,11 +309,33 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
             if is_source_ext(&ext) {
                 a.source += n;
             }
+            if is_exe_ext(&ext) {
+                a.exe_files += n;
+            }
+            if is_installer_ext(&ext) {
+                a.installer_files += n;
+            }
+            if is_runtime_ext(&ext) {
+                a.runtime_files += n;
+            }
+            if ext == "msi" {
+                a.has_setup_file = true;
+            }
+            if is_db_ext(&ext) {
+                a.has_db_file = true;
+            }
         }
 
-        // Names that carry a signal, a README or a manifest.
+        // Names that carry a signal, a README, a manifest, setup marker or resource kit marker.
         let mut like: Vec<String> = DOC_WORDS.iter().chain(ASSET_WORDS.iter()).map(|w| format!("%{}%", w.replace('_', ""))).collect();
         like.push("%readme%".into());
+        let special_names = SETUP_FILE_NAMES
+            .iter()
+            .chain(std::iter::once(&"skill.md"))
+            .chain(DESIGN_KIT_FILE_NAMES.iter())
+            .map(|f| format!("'{f}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let name_test: String = like
             .iter()
             .map(|l| format!("replace(lower(name), '_', '') LIKE '{l}'"))
@@ -280,6 +344,7 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
                 None => format!("lower(name) = '{m}'"),
             }))
             .chain(ASSET_EXTS.iter().map(|e| format!("lower(COALESCE(ext, '')) = '{e}'")))
+            .chain(std::iter::once(format!("lower(name) IN ({special_names})")))
             .collect::<Vec<_>>()
             .join(" OR ");
         let mut stmt = conn.prepare(&format!(
@@ -305,6 +370,15 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
             }
             if lower.starts_with("readme") {
                 a.readme = true;
+            }
+            if SETUP_FILE_NAMES.contains(&lower.as_str()) {
+                a.has_setup_file = true;
+            }
+            if lower == "skill.md" {
+                a.has_skill_file = true;
+            }
+            if DESIGN_KIT_FILE_NAMES.contains(&lower.as_str()) {
+                a.has_design_kit_file = true;
             }
             if is_manifest(&lower) {
                 let text: Option<String> = text_stmt.query_row([&id], |r| r.get(0)).ok();
@@ -352,7 +426,24 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
             }
             let Some(pk) = parent_dir(&k).map(str::to_string) else { continue };
             let Some(c) = acc.get(&k) else { continue };
-            let (files, bytes, newest, source, kinds, docs, assets, df, af) = (
+            let (
+                files,
+                bytes,
+                newest,
+                source,
+                kinds,
+                docs,
+                assets,
+                df,
+                af,
+                exe_files,
+                installer_files,
+                runtime_files,
+                has_setup_file,
+                has_skill_file,
+                has_design_kit_file,
+                has_db_file,
+            ) = (
                 c.files,
                 c.bytes,
                 c.newest,
@@ -362,6 +453,13 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
                 c.assets.clone(),
                 c.doc_files,
                 c.asset_files,
+                c.exe_files,
+                c.installer_files,
+                c.runtime_files,
+                c.has_setup_file,
+                c.has_skill_file,
+                c.has_design_kit_file,
+                c.has_db_file,
             );
             if let Some(p) = acc.get_mut(&pk) {
                 p.files += files;
@@ -375,6 +473,13 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
                 p.assets.extend(assets);
                 p.doc_files += df;
                 p.asset_files += af;
+                p.exe_files += exe_files;
+                p.installer_files += installer_files;
+                p.runtime_files += runtime_files;
+                p.has_setup_file |= has_setup_file;
+                p.has_skill_file |= has_skill_file;
+                p.has_design_kit_file |= has_design_kit_file;
+                p.has_db_file |= has_db_file;
             }
         }
 
@@ -404,6 +509,13 @@ pub fn profiles_for(store: &SqliteStore, roots: &[(String, Option<String>)]) -> 
                 has_readme: a.readme,
                 has_git: unit.is_some_and(|t| t == "git_repo"),
                 atomic_unit: unit.is_some(),
+                exe_files: a.exe_files,
+                installer_files: a.installer_files,
+                runtime_files: a.runtime_files,
+                has_setup_file: a.has_setup_file,
+                has_skill_file: a.has_skill_file,
+                has_design_kit_file: a.has_design_kit_file,
+                has_db_file: a.has_db_file,
                 child_dirs: a.children.into_iter().collect(),
                 loose_files: a.loose,
             });

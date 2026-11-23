@@ -4,7 +4,7 @@
 //! - **Photo subjects**: loose photos sharing a meaningful subject (`ipadcover`, `fragrances`) so
 //!   Fresh files them into `Photos\<year>\<subject>` instead of `<year-month>`.
 
-use super::profile::live_under_root_sql;
+use super::profile::BUILD_DIRS;
 use super::relate::{fingerprints_match, normalized_name};
 use super::store::PlanRun;
 use super::{Collection, CollectionKind, Decision, DecisionKind, Location, ProjectKind, Relationship, SetMember};
@@ -393,12 +393,18 @@ pub fn find_sets(
     online: &HashMap<String, bool>,
     runs: &[PlanRun],
 ) -> Result<FoundSets> {
-    let filter = live_under_root_sql().replace("deleted_at", "f.deleted_at")
-        .replace("container_file_id", "f.container_file_id")
-        .replace("state != 'quarantine'", "f.state NOT IN ('quarantine', 'missing')")
-        .replace("substr(lower(path)", "substr(lower(f.path)")
-        .replace("lower(COALESCE(ext", "lower(COALESCE(f.ext")
-        .replace("instr(substr(lower(path)", "instr(substr(lower(f.path)");
+    let has_build_dir = |path: &str, root: &str| -> bool {
+        let Ok(rel) = Path::new(path).strip_prefix(Path::new(root)) else {
+            return false;
+        };
+        rel.parent()
+            .into_iter()
+            .flat_map(|p| p.components())
+            .any(|c| {
+                let s = c.as_os_str().to_string_lossy();
+                BUILD_DIRS.iter().any(|b| s.eq_ignore_ascii_case(b))
+            })
+    };
     #[derive(Default)]
     struct FolderSignals {
         dir: String,
@@ -454,11 +460,14 @@ pub fn find_sets(
     let sql = format!(
         "SELECT f.id, f.volume_id, f.path, f.name, lower(COALESCE(f.ext, '')), f.size, f.mtime
          FROM files f LEFT JOIN volumes v ON v.id = f.volume_id
-         WHERE {filter}
-           AND COALESCE(v.role, 'unassigned') != 'backup'
+         WHERE f.deleted_at IS NULL
+           AND f.container_file_id IS NULL
+           AND f.state NOT IN ('quarantine', 'missing')
            AND f.atomic_unit_id IS NULL
+           AND lower(COALESCE(f.ext, '')) IN ({ext_sql})
+           AND COALESCE(v.role, 'unassigned') != 'backup'
            AND (?3 IS NULL OR f.volume_id = ?3)
-           AND lower(COALESCE(f.ext, '')) IN ({ext_sql})"
+           AND substr(lower(f.path), 1, ?2) = ?1"
     );
     let mut stmt = store.conn().prepare(&sql)?;
     let normalized_roots: Vec<String> = roots.iter().map(|(r, _)| r.trim_end_matches(SEP).to_lowercase()).collect();
@@ -480,7 +489,7 @@ pub fn find_sets(
         })?;
         for row in rows {
             let (id, vol, path, name, ext, size, mtime) = row?;
-            if in_project_root(&path, &vol) {
+            if in_project_root(&path, &vol) || has_build_dir(&path, &root_t) {
                 continue;
             }
             if is_all_set_ext(&ext) {
@@ -967,10 +976,13 @@ fn build_locations(
 /// On-the-spot fallback when `recognise` hasn't run yet: finds sets within `roots` without
 /// writing to the database.
 pub fn find_sets_for_roots(store: &SqliteStore, roots: &[String]) -> Result<FoundSets> {
-    let projs: Vec<(Option<String>, String)> = super::protected_roots(store, roots)?
+    let mut projs: Vec<(Option<String>, String)> = super::protected_roots(store, roots)?
         .into_iter()
         .map(|(p, _)| (None, p))
         .collect();
+    for mg in super::module_folder_groups(store, roots)? {
+        projs.push((None, mg.path));
+    }
     let root_tuples: Vec<(String, Option<String>)> = roots.iter().map(|r| (r.clone(), None)).collect();
     let decisions = super::store::decisions(store.conn())?;
     let online: HashMap<String, bool> = {

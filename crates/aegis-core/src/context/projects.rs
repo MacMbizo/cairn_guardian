@@ -187,6 +187,9 @@ impl<'a> Ctx<'a> {
     /// The confidence that `p` is a project root, with evidence. `among` names the container it
     /// sits in, when that container holds other projects.
     fn score(&self, p: &FolderProfile, among: Option<&str>) -> (f64, Vec<String>) {
+        if super::software::looks_like_software_package(p) {
+            return (0.0, Vec::new());
+        }
         let own = self.own(p);
         let mut ev = Vec::new();
         let html_app = p.manifests.iter().any(|(m, _)| m.eq_ignore_ascii_case("index.html")) && own.source >= 2;
@@ -292,7 +295,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn strong(&self, p: &FolderProfile) -> bool {
-        p.atomic_unit || p.has_readme || p.manifests.iter().any(|(m, _)| !m.eq_ignore_ascii_case("index.html"))
+        p.atomic_unit
+            || (p.has_readme && !super::software::looks_like_software_package(p))
+            || p.manifests.iter().any(|(m, _)| !m.eq_ignore_ascii_case("index.html"))
     }
 
     /// Whether `p` is a container of projects: two or more of its own sub-folders are projects

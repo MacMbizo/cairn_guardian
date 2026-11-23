@@ -577,7 +577,7 @@ fn a_folder_inside_another_project_gets_no_step() {
 }
 
 #[test]
-fn other_drives_get_no_plan_yet() {
+fn other_drives_never_quarantine_against_another_drives_home() {
     let (_t, mut s, home, _prj) = pc();
     recognise(&mut s).unwrap();
     s.conn()
@@ -593,13 +593,16 @@ fn other_drives_get_no_plan_yet() {
         l.id = format!("l-y{i}");
         l.volume_id = "v-y".into();
         l.root_path = (*p).into();
-        l.relationship = Relationship::Diverged;
+        l.relationship = Relationship::Identical;
         c.locations.push(l);
     }
     let plans = plan_for(&s, &c).unwrap();
     let on_y = plans.iter().find(|p| p.volume_id == "v-y").unwrap();
+    assert!(
+        on_y.steps.iter().all(|st| st.kind != StepKind::Quarantine),
+        "cross-drive relationship must never trigger quarantine on another drive: {on_y:?}"
+    );
     assert!(on_y.steps.is_empty(), "{on_y:?}");
-    assert!(on_y.summary.contains("later"), "{}", on_y.summary);
 }
 
 #[test]

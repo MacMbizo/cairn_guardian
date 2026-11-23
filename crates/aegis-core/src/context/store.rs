@@ -51,7 +51,7 @@ pub fn save_collections_with_members(
                 c.plan_state,
                 fp
             ])?;
-            if c.kind == CollectionKind::Project {
+            if c.kind.is_folder_collection() {
                 for l in &c.locations {
                     l_stmt.execute(params![
                         l.id,
@@ -155,8 +155,9 @@ pub(crate) fn synthesize_set_locations(
     Ok(locs)
 }
 
-/// Every saved collection matching `kinds`, in the order they were saved, with their locations.
-pub fn list_collections_in(conn: &Connection, kinds: &[CollectionKind]) -> Result<Vec<Collection>> {
+/// Every saved collection matching `kinds`, in the order they were saved, with their locations
+/// and stored collection fingerprint.
+pub fn list_collections_with_fingerprints(conn: &Connection, kinds: &[CollectionKind]) -> Result<Vec<(Collection, Option<String>)>> {
     if kinds.is_empty() {
         return Ok(Vec::new());
     }
@@ -201,7 +202,7 @@ pub fn list_collections_in(conn: &Connection, kinds: &[CollectionKind]) -> Resul
             fp,
         ));
     }
-    let need_set_answers = out.iter().any(|(c, _)| c.kind != CollectionKind::Project);
+    let need_set_answers = out.iter().any(|(c, _)| c.kind.is_member_collection());
     let answers = if need_set_answers { decisions(conn)? } else { Vec::new() };
     let mut l_stmt = conn.prepare(
         "SELECT l.id, l.collection_id, l.volume_id, l.root_path, l.relationship, l.files, l.bytes, l.newest_mtime,
@@ -210,7 +211,7 @@ pub fn list_collections_in(conn: &Connection, kinds: &[CollectionKind]) -> Resul
          WHERE l.collection_id = ?1 ORDER BY l.rowid",
     )?;
     for (c, fp) in &mut out {
-        if c.kind == CollectionKind::Project {
+        if c.kind.is_folder_collection() {
             c.locations = l_stmt
                 .query_map([&c.id], |r| {
                     Ok(Location {
@@ -236,7 +237,12 @@ pub fn list_collections_in(conn: &Connection, kinds: &[CollectionKind]) -> Resul
             c.locations = synthesize_set_locations(conn, &c.id, &set_fp, &answers)?;
         }
     }
-    Ok(out.into_iter().map(|(c, _)| c).collect())
+    Ok(out)
+}
+
+/// Every saved collection matching `kinds`, in the order they were saved, with their locations.
+pub fn list_collections_in(conn: &Connection, kinds: &[CollectionKind]) -> Result<Vec<Collection>> {
+    Ok(list_collections_with_fingerprints(conn, kinds)?.into_iter().map(|(c, _)| c).collect())
 }
 
 /// Every saved collection of `kind`, in the order they were saved, with their locations.
@@ -273,10 +279,23 @@ pub fn list_members(conn: &Connection, collection_id: &str) -> Result<Vec<SetMem
 /// `(collection_id, name, confidence, state, member)` for all live members of collections of `kind`.
 pub type MemberWithCollection = (String, String, f64, String, SetMember);
 
+/// `(collection_id, name, sub_projects, confidence, state, member)` for all live members of
+/// collections of `kind`.
+pub type MemberWithCollectionMeta = (String, String, Vec<String>, f64, String, SetMember);
+
 /// `(collection_id, name, confidence, state, member)` for all members of collections of `kind`.
 pub fn list_members_with_collection(conn: &Connection, kind: CollectionKind) -> Result<Vec<MemberWithCollection>> {
+    Ok(list_members_with_collection_meta(conn, kind)?
+        .into_iter()
+        .map(|(cid, name, _, conf, state, m)| (cid, name, conf, state, m))
+        .collect())
+}
+
+/// `(collection_id, name, sub_projects, confidence, state, member)` for all live members of
+/// collections of `kind`.
+pub fn list_members_with_collection_meta(conn: &Connection, kind: CollectionKind) -> Result<Vec<MemberWithCollectionMeta>> {
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.name, c.confidence, c.state, m.file_id, f.volume_id, f.path, f.size, f.mtime
+        "SELECT c.id, c.name, c.sub_projects_json, c.confidence, c.state, m.file_id, f.volume_id, f.path, f.size, f.mtime
          FROM collection_members m
          JOIN collections c ON c.id = m.collection_id
          JOIN files f ON f.id = m.file_id
@@ -284,18 +303,21 @@ pub fn list_members_with_collection(conn: &Connection, kind: CollectionKind) -> 
     )?;
     let rows = stmt.query_map([kind.as_str()], |r| {
         let cid: String = r.get(0)?;
+        let subs_json: String = r.get(2)?;
+        let subs: Vec<String> = serde_json::from_str(&subs_json).unwrap_or_default();
         Ok((
             cid.clone(),
             r.get(1)?,
-            r.get(2)?,
+            subs,
             r.get(3)?,
+            r.get(4)?,
             SetMember {
                 collection_id: cid,
-                file_id: r.get(4)?,
-                volume_id: r.get(5)?,
-                path: r.get(6)?,
-                size: r.get(7)?,
-                mtime: r.get(8)?,
+                file_id: r.get(5)?,
+                volume_id: r.get(6)?,
+                path: r.get(7)?,
+                size: r.get(8)?,
+                mtime: r.get(9)?,
             },
         ))
     })?;

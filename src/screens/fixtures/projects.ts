@@ -136,6 +136,21 @@ export const fixtureProjects: Collection[] = [
     "left_as_is",
   ),
   {
+    id: "c-msi-docs",
+    kind: "old_copy",
+    name: "MSI Documents",
+    project_kind: null,
+    confidence: 0.9,
+    state: "confirmed",
+    evidence: [
+      "old PC or backup copy (MSIDocuments) with 7604 files",
+      String.raw`compared with C:\Users\Mac\Documents: changed on both sides (636 shared files by content)`,
+    ],
+    locations: [loc("c-msi-docs", String.raw`D:\MSIDocuments`, "diverged", 7604, 636, false)],
+    sub_projects: [],
+    plan_state: null,
+  },
+  {
     id: "c-smoothlite",
     kind: "design_set",
     name: "SmoothLite",
@@ -167,6 +182,35 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
   const out: ProjectPlan[] = [];
   for (const c of list) {
     if (c.state === "left_as_is") continue;
+    if (c.kind === "old_copy") {
+      const l = c.locations[0];
+      const to = l ? String.raw`D:\Archive\MSI\Documents` : "";
+      out.push({
+        collection_id: c.id,
+        volume_id: l?.volume_id ?? "pp-d",
+        home_after: to,
+        steps: l
+          ? [
+              {
+                step: 1,
+                kind: "to_archive",
+                location_id: l.id,
+                from: l.root_path,
+                to,
+                fallback: null,
+                reason: `Moves whole to archive at ${to}.`,
+                warnings: [],
+              },
+            ]
+          : [],
+        waits_for: l && !l.online ? "Passport D is unplugged." : null,
+        notes: [],
+        rank: 2,
+        summary: `Moves to archive at ${to}.`,
+        digest: "fixture",
+      });
+      continue;
+    }
     if (c.kind === "design_set") {
       const shelf = c.project_kind === "design" ? `${PRJ}\\Design` : PRJ;
       const target = `${shelf}\\${leafOf(c.name)}`;
@@ -257,15 +301,30 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
       digest: "fixture",
     });
     if (away.length) {
+      const targetD = String.raw`D:\Projects\${leafOf(away[0].root_path)}`;
+      const movesD = away[0].root_path.toLowerCase() !== targetD.toLowerCase();
       out.push({
         collection_id: c.id,
         volume_id: away[0].volume_id,
-        home_after: away[0].root_path,
-        steps: [],
+        home_after: movesD ? targetD : away[0].root_path,
+        steps: movesD
+          ? [
+              {
+                step: 1,
+                kind: "move_home",
+                location_id: away[0].id,
+                from: away[0].root_path,
+                to: targetD,
+                fallback: null,
+                reason: `Moves whole to ${targetD} (your projects home).`,
+                warnings: [],
+              },
+            ]
+          : [],
         waits_for: away[0].online ? null : "Passport D is unplugged.",
         notes: [],
-        rank: 9,
-        summary: "Copies on this drive are listed. Plans for other drives come later.",
+        rank: movesD ? 2 : 9,
+        summary: movesD ? `Moves to ${targetD}.` : "Nothing to do: it is already where it belongs.",
         digest: "fixture",
       });
     }

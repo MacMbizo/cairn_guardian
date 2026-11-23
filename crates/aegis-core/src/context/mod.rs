@@ -7,13 +7,18 @@
 //! - `store`: persistence of collections, locations, loose set members and the owner's answers
 
 pub mod answers;
+pub mod old_copies;
+pub mod owners;
 pub mod plan;
 pub mod profile;
 pub mod projects;
 pub mod recognise;
 pub mod relate;
+pub mod resources;
 pub mod reunite;
+pub mod series;
 pub mod sets;
+pub mod software;
 pub mod store;
 pub mod watch;
 
@@ -28,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ts_rs::TS;
 
-/// Which module recognised a collection. Further modules add variants later.
+/// Which module recognised a collection.
 #[derive(TS, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -36,6 +41,11 @@ pub enum CollectionKind {
     Project,
     DesignSet,
     PhotoSubject,
+    SoftwarePackage,
+    OwnersFolder,
+    Resource,
+    Series,
+    OldCopy,
 }
 
 impl CollectionKind {
@@ -44,6 +54,11 @@ impl CollectionKind {
             Self::Project => "project",
             Self::DesignSet => "design_set",
             Self::PhotoSubject => "photo_subject",
+            Self::SoftwarePackage => "software_package",
+            Self::OwnersFolder => "owners_folder",
+            Self::Resource => "resource",
+            Self::Series => "series",
+            Self::OldCopy => "old_copy",
         }
     }
 
@@ -52,8 +67,24 @@ impl CollectionKind {
             "project" => Some(Self::Project),
             "design_set" => Some(Self::DesignSet),
             "photo_subject" => Some(Self::PhotoSubject),
+            "software_package" => Some(Self::SoftwarePackage),
+            "owners_folder" => Some(Self::OwnersFolder),
+            "resource" => Some(Self::Resource),
+            "series" => Some(Self::Series),
+            "old_copy" => Some(Self::OldCopy),
             _ => None,
         }
+    }
+
+    /// True when this collection owns whole folders in `collection_locations` rather than
+    /// file-level rows in `collection_members`.
+    pub fn is_folder_collection(self) -> bool {
+        matches!(self, Self::Project | Self::SoftwarePackage | Self::OwnersFolder | Self::Resource | Self::OldCopy)
+    }
+
+    /// True when this collection owns loose member files in `collection_members`.
+    pub fn is_member_collection(self) -> bool {
+        !self.is_folder_collection()
     }
 }
 
@@ -261,6 +292,103 @@ pub struct Decision {
     pub at: i64,
 }
 
+/// Fast `O(depth)` index of already-claimed roots (`Project`, `OldCopy`, etc.) so subsequent
+/// modules never run quadratic `path_is_within` scans across hundreds of projects.
+pub(crate) struct ClaimedIndex {
+    exact: HashMap<String, Vec<Option<String>>>,
+    strict_ancestors: HashMap<String, Vec<Option<String>>>,
+}
+
+impl ClaimedIndex {
+    pub(crate) fn new(roots: &[(Option<String>, String)]) -> Self {
+        let sep = std::path::MAIN_SEPARATOR;
+        let mut exact: HashMap<String, Vec<Option<String>>> = HashMap::new();
+        let mut strict_ancestors: HashMap<String, Vec<Option<String>>> = HashMap::new();
+        for (v, r) in roots {
+            let norm = r.trim_end_matches(sep).to_lowercase();
+            if norm.is_empty() {
+                continue;
+            }
+            exact.entry(norm.clone()).or_default().push(v.clone());
+            let mut cur = norm.as_str();
+            while let Some(pos) = cur.rfind(sep) {
+                cur = &cur[..pos];
+                if cur.is_empty() || cur.ends_with(':') {
+                    if !cur.is_empty() {
+                        strict_ancestors.entry(format!("{cur}{sep}")).or_default().push(v.clone());
+                    }
+                    break;
+                }
+                strict_ancestors.entry(cur.to_string()).or_default().push(v.clone());
+            }
+        }
+        Self { exact, strict_ancestors }
+    }
+
+    /// Returns `(inside_claimed, holds_claimed)` for `(volume_id, path)`.
+    pub(crate) fn overlaps(&self, volume_id: &str, path: &str) -> (bool, bool) {
+        if self.exact.is_empty() {
+            return (false, false);
+        }
+        let sep = std::path::MAIN_SEPARATOR;
+        let low = path.trim_end_matches(sep).to_lowercase();
+        let vol_matches = |vols: &Vec<Option<String>>| vols.iter().any(|v| v.as_deref().is_none_or(|rv| rv == volume_id));
+
+        let mut inside = false;
+        let mut cur = low.as_str();
+        loop {
+            if let Some(vols) = self.exact.get(cur)
+                && vol_matches(vols)
+            {
+                inside = true;
+                break;
+            }
+            let Some(pos) = cur.rfind(sep) else { break };
+            if pos == 0 {
+                break;
+            }
+            let parent = &cur[..pos];
+            if parent.ends_with(':') {
+                let root = format!("{parent}{sep}");
+                if let Some(vols) = self.exact.get(&root)
+                    && vol_matches(vols)
+                {
+                    inside = true;
+                }
+                break;
+            }
+            cur = parent;
+        }
+        let holds = self.strict_ancestors.get(&low).is_some_and(vol_matches)
+            || (low.ends_with(':') && self.strict_ancestors.get(&format!("{low}{sep}")).is_some_and(vol_matches));
+        (inside, holds)
+    }
+}
+
+/// A folder claimed as a whole by one of the Step 7 context modules (`SoftwarePackage`,
+/// `OwnersFolder`, `Resource`, or `OldCopy`), used by blueprint filing and open-batch re-checks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleFolderGroup {
+    pub kind: CollectionKind,
+    pub name: String,
+    pub path: String,
+    pub hint: String,
+    pub confidence: f64,
+    pub left_as_is: bool,
+}
+
+/// Extracts the module-specific routing hint stored in `collections.fingerprint`.
+pub(crate) fn module_hint(kind: CollectionKind, fingerprint: Option<&str>) -> String {
+    let Some(fp) = fingerprint else { return String::new() };
+    match kind {
+        CollectionKind::SoftwarePackage => fp.strip_prefix("software:").unwrap_or("tools").to_string(),
+        CollectionKind::OwnersFolder => fp.strip_prefix("owners:").unwrap_or("").to_string(),
+        CollectionKind::Resource => fp.strip_prefix("resource:").unwrap_or("").to_string(),
+        CollectionKind::OldCopy => fp.strip_prefix("old_copy:").and_then(|s| s.split('|').next()).unwrap_or("").to_string(),
+        _ => String::new(),
+    }
+}
+
 /// Project roots filing must keep whole, with each project's name: every saved project location
 /// at 0.60 or more that the owner hasn't said is not a project, under `roots`. Before the first
 /// recognition pass has run, projects are recognised on the spot (nothing is saved).
@@ -270,7 +398,10 @@ pub fn protected_roots(store: &crate::db::SqliteStore, roots: &[String]) -> crat
     let never_ran = store.get_setting(recognise::RECOGNISED_AT, "context")?.is_none();
     let found: Vec<(String, String)> = if never_ran {
         let ps = profile::profiles(store, roots)?;
-        projects::find_projects(&ps, roots).into_iter().map(|c| (c.root.clone(), c.name().to_string())).collect()
+        let old = old_copies::find_old_copies(&ps, roots);
+        let old_paths: Vec<String> = old.iter().map(|o| o.root.clone()).collect();
+        let ps_proj = old_copies::filter_profiles_outside(&ps, &old_paths);
+        projects::find_projects(&ps_proj, roots).into_iter().map(|c| (c.root.clone(), c.name().to_string())).collect()
     } else {
         saved
             .into_iter()
@@ -282,6 +413,140 @@ pub fn protected_roots(store: &crate::db::SqliteStore, roots: &[String]) -> crat
             .collect()
     };
     Ok(found.into_iter().filter(|(p, _)| roots.iter().any(|r| path_is_within(p, r, false))).collect())
+}
+
+/// Folder-level Step 7 module groups (`SoftwarePackage`, `OwnersFolder`, `Resource`, `OldCopy`)
+/// under `roots` that blueprint filing keeps whole (and moves whole in Fresh). Falls back to
+/// on-the-spot detection before the first recognition pass has run.
+pub fn module_folder_groups(store: &crate::db::SqliteStore, roots: &[String]) -> crate::error::Result<Vec<ModuleFolderGroup>> {
+    use crate::db::files::path_is_within;
+    let never_ran = store.get_setting(recognise::RECOGNISED_AT, "context")?.is_none();
+    if never_ran {
+        let ps = profile::profiles(store, roots)?;
+        let old = old_copies::find_old_copies(&ps, roots);
+        let mut claimed: Vec<(Option<String>, String)> = old.iter().map(|o| (Some(o.volume_id.clone()), o.root.clone())).collect();
+        let old_paths: Vec<String> = old.iter().map(|o| o.root.clone()).collect();
+        let ps_proj = old_copies::filter_profiles_outside(&ps, &old_paths);
+        for p in projects::find_projects(&ps_proj, roots) {
+            claimed.push((Some(p.volume_id.clone()), p.root));
+        }
+        let sw = software::find_software_packages(&ps, roots, &claimed);
+        for s in &sw {
+            claimed.push((Some(s.volume_id.clone()), s.root.clone()));
+        }
+        let ow = owners::find_owners_folders(store, &ps, roots, &claimed)?;
+        for o in &ow {
+            claimed.push((Some(o.volume_id.clone()), o.root.clone()));
+        }
+        let res = resources::find_resources(&ps, roots, &claimed);
+        let mut out = Vec::new();
+        for o in old {
+            out.push(ModuleFolderGroup {
+                kind: CollectionKind::OldCopy,
+                name: o.display_name,
+                path: o.root,
+                hint: o.archive_rel,
+                confidence: o.confidence,
+                left_as_is: false,
+            });
+        }
+        for s in sw {
+            out.push(ModuleFolderGroup {
+                kind: CollectionKind::SoftwarePackage,
+                name: s.name,
+                path: s.root,
+                hint: s.bucket.to_string(),
+                confidence: s.confidence,
+                left_as_is: false,
+            });
+        }
+        for o in ow {
+            out.push(ModuleFolderGroup {
+                kind: CollectionKind::OwnersFolder,
+                name: o.name,
+                path: o.root,
+                hint: o.life_area,
+                confidence: o.confidence,
+                left_as_is: false,
+            });
+        }
+        for r in res {
+            out.push(ModuleFolderGroup {
+                kind: CollectionKind::Resource,
+                name: r.name,
+                path: r.root,
+                hint: r.topic.to_string(),
+                confidence: r.confidence,
+                left_as_is: false,
+            });
+        }
+        return Ok(out);
+    }
+
+    let rows = store::list_collections_with_fingerprints(
+        store.conn(),
+        &[CollectionKind::SoftwarePackage, CollectionKind::OwnersFolder, CollectionKind::Resource, CollectionKind::OldCopy],
+    )?;
+    let mut out = Vec::new();
+    for (c, fp) in rows {
+        if c.confidence < projects::PROJECT_THRESHOLD || c.state == "not_a_project" {
+            continue;
+        }
+        let hint = module_hint(c.kind, fp.as_deref());
+        let left_as_is = c.state == "left_as_is";
+        for l in c.locations {
+            if roots.iter().any(|r| path_is_within(&l.root_path, r, false)) {
+                out.push(ModuleFolderGroup {
+                    kind: c.kind,
+                    name: c.name.clone(),
+                    path: l.root_path,
+                    hint: hint.clone(),
+                    confidence: c.confidence,
+                    left_as_is,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Episodes and companion subtitles belonging to a TV series (`CollectionKind::Series`), keyed by
+/// lowercase file path → `(show_name, season_folder)` (`"Reacher"`, `"Season 1"`), within `roots`.
+pub fn series_episodes(store: &crate::db::SqliteStore, roots: &[String]) -> crate::error::Result<HashMap<String, (String, String)>> {
+    use crate::db::files::path_is_within;
+    let mut out = HashMap::new();
+    let never_ran = store.get_setting(recognise::RECOGNISED_AT, "context")?.is_none();
+    if never_ran {
+        let (cols, members) = series::find_series_for_roots(store, roots)?;
+        let eligible: HashMap<String, (String, String)> = cols
+            .into_iter()
+            .filter(|(c, _)| c.kind == CollectionKind::Series && c.confidence >= sets::SET_THRESHOLD && c.state != "not_a_project")
+            .filter_map(|(c, _)| {
+                let show = c.sub_projects.first()?.clone();
+                let season = c.sub_projects.get(1)?.clone();
+                Some((c.id, (show, season)))
+            })
+            .collect();
+        for m in members {
+            if let Some(meta) = eligible.get(&m.collection_id)
+                && roots.iter().any(|r| path_is_within(&m.path, r, false))
+            {
+                out.insert(m.path.to_lowercase(), meta.clone());
+            }
+        }
+        return Ok(out);
+    }
+    let rows = store::list_members_with_collection_meta(store.conn(), CollectionKind::Series)?;
+    for (_, _, subs, conf, state, m) in rows {
+        if conf >= sets::SET_THRESHOLD
+            && state != "not_a_project"
+            && let (Some(show), Some(season)) = (subs.first(), subs.get(1))
+            && roots.iter().any(|r| path_is_within(&m.path, r, false))
+        {
+            out.insert(m.path.to_lowercase(), (show.clone(), season.clone()));
+        }
+    }
+    Ok(out)
 }
 
 /// Loose files belonging to a design project (`CollectionKind::DesignSet`), keyed by lowercase

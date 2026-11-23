@@ -471,6 +471,7 @@ pub fn reunite_plans_conn(conn: &Connection) -> Result<Vec<ReunitePlan>> {
             CollectionKind::Project => 0u8,
             CollectionKind::DesignSet => 1u8,
             CollectionKind::PhotoSubject => 2u8,
+            _ => 3u8,
         };
         a.waits_for
             .is_some()

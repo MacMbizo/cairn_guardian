@@ -51,16 +51,26 @@ fn main() -> aegis_core::error::Result<()> {
     // Projects (context layer): what filing keeps whole, and where each project lives.
     let rep = aegis_core::context::recognise(&mut store)?;
     println!(
-        "\nprojects: {} ({} in more than one place), design sets: {}, photo subjects: {} in {:.1}s",
+        "\nprojects: {} ({} multi), design sets: {}, photo subjects: {}, software: {}, owner's folders: {}, resources: {}, series: {}, old copies: {} in {:.1}s",
         rep.projects,
         rep.multi_location,
         rep.design_sets,
         rep.photo_subjects,
+        rep.software_packages,
+        rep.owners_folders,
+        rep.resources,
+        rep.series,
+        rep.old_copies,
         rep.took_ms as f64 / 1000.0
     );
     let projects = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::Project)?;
     let design_sets = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::DesignSet)?;
     let photo_subjects = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::PhotoSubject)?;
+    let software = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::SoftwarePackage)?;
+    let owners = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::OwnersFolder)?;
+    let resources = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::Resource)?;
+    let series = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::Series)?;
+    let old_copies = aegis_core::context::store::list_collections(store.conn(), aegis_core::context::CollectionKind::OldCopy)?;
     let mut by_container: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for c in &projects {
         for l in &c.locations {
@@ -116,13 +126,38 @@ projects in more than one place:");
         let sample: Vec<&str> = ms.iter().take(4).filter_map(|m| std::path::Path::new(&m.path).file_name()?.to_str()).collect();
         println!("  {} [{:.2}] {} photos  [{}]", c.name, c.confidence, total, sample.join(", "));
     }
+    println!("\nsoftware packages ({}):", software.len());
+    for c in &software {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        println!("  {} [{:.2}] {} files · {}", c.name, c.confidence, total, c.locations.iter().map(|l| l.root_path.as_str()).collect::<Vec<_>>().join(" | "));
+    }
+    println!("\nowner's folders ({}):", owners.len());
+    for c in &owners {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        println!("  {} [{:.2}] {} files · {} · {}", c.name, c.confidence, total, c.evidence.first().map(String::as_str).unwrap_or(""), c.locations.iter().map(|l| l.root_path.as_str()).collect::<Vec<_>>().join(" | "));
+    }
+    println!("\nresources ({}):", resources.len());
+    for c in &resources {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        println!("  {} [{:.2}] {} files · {}", c.name, c.confidence, total, c.locations.first().map(|l| l.root_path.as_str()).unwrap_or(""));
+    }
+    println!("\nseries ({}):", series.len());
+    for c in series.iter().take(30) {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        println!("  {} [{:.2}] {} files", c.name, c.confidence, total);
+    }
+    println!("\nold copies ({}):", old_copies.len());
+    for c in &old_copies {
+        let total: i64 = c.locations.iter().map(|l| l.files).sum();
+        println!("  {} [{:.2}] {} files · {}", c.name, c.confidence, total, c.evidence.join("; "));
+    }
 
-    // Project & design-set plans, in the order the cards would be offered. Planning only; nothing runs.
+    // Project, design-set & old-copy plans, in the order the cards would be offered. Planning only; nothing runs.
     use aegis_core::context::plan::{Planner, StepKind, offer_rank};
     let t = Instant::now();
     let planner = Planner::new(&store)?;
     let mut plans = Vec::new();
-    for c in projects.iter().chain(design_sets.iter()) {
+    for c in projects.iter().chain(design_sets.iter()).chain(old_copies.iter()) {
         match planner.plan_for(&store, c) {
             Ok(ps) => plans.extend(ps.into_iter().filter(|p| !p.steps.is_empty()).map(|p| (offer_rank(c, &p), c, p))),
             Err(e) => println!("  plan for {} failed: {e}", c.name),
@@ -215,6 +250,10 @@ projects in more than one place:");
                 .iter()
                 .filter_map(|p| match &p.target {
                     Target::Group { files, .. } if p.reason.starts_with("Part of project") => Some(("Part of a project".to_string(), *files)),
+                    Target::Group { files, .. } if p.reason.starts_with("Software package") => Some(("Software package".to_string(), *files)),
+                    Target::Group { files, .. } if p.reason.starts_with("Your folder") => Some(("Owner's folder".to_string(), *files)),
+                    Target::Group { files, .. } if p.reason.starts_with("Resource") => Some(("Resource".to_string(), *files)),
+                    Target::Group { files, .. } if p.reason.starts_with("Old copy") => Some(("Old copy".to_string(), *files)),
                     Target::Group { files, .. } => Some((p.reason.split(':').next().unwrap_or("").to_string(), *files)),
                     _ => None,
                 })

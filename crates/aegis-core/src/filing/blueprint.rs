@@ -396,8 +396,10 @@ fn stays(row: &Row, reason: &str) -> Placement {
 
 struct Group {
     path: String,
-    /// A code project (never renamed around or moved).
+    /// A code project (or old copy) whose folder hierarchy must never be renamed.
     code: bool,
+    /// A module folder kept whole in Fresh and protected from Tidy top-level renames.
+    keep_whole: bool,
     to: Option<PathBuf>,
     reason: String,
     confidence: f64,
@@ -438,6 +440,7 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
         groups.push(Group {
             path: path.clone(),
             code: true,
+            keep_whole: true,
             to: None,
             reason: format!("Part of project {name}: it stays together"),
             confidence: 1.0,
@@ -447,10 +450,81 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
         groups.push(Group {
             path: u,
             code: true,
+            keep_whole: true,
             to: None,
             reason: "Code project: stays where it is so your tools keep working".into(),
             confidence: 1.0,
         });
+    }
+    // Step 7 context modules (Software packages, Owner's folders, Resources, Old copies): kept
+    // whole and, for Fresh, moved whole into their target shelf when not left as is.
+    let module_groups = crate::context::module_folder_groups(store, &[root.to_string()])?;
+    for mg in module_groups {
+        if groups.iter().any(|g| {
+            path_is_within(&mg.path, &g.path, false)
+                || (mg.kind != crate::context::CollectionKind::OldCopy && path_is_within(&g.path, &mg.path, false))
+        }) {
+            continue;
+        }
+        let mg_leaf = Path::new(&mg.path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| sanitize(&mg.name));
+        let (code, to, reason) = match mg.kind {
+            crate::context::CollectionKind::OldCopy => (
+                true,
+                None,
+                format!("Old copy ({}): kept whole (review in Projects)", mg.name),
+            ),
+            crate::context::CollectionKind::SoftwarePackage => {
+                let to = if !mg.left_as_is && choice == BlueprintChoice::Fresh {
+                    let sub = if mg.hint == "installers" { "Installers" } else { "Tools" };
+                    bases.of("Software").and_then(|sb| {
+                        let tools = sb.join("Tools").to_string_lossy().to_string();
+                        let inst = sb.join("Installers").to_string_lossy().to_string();
+                        if path_is_within(&mg.path, &tools, false) || path_is_within(&mg.path, &inst, false) {
+                            None
+                        } else {
+                            Some(sb.join(sub).join(&mg_leaf))
+                        }
+                    })
+                } else {
+                    None
+                };
+                (false, to, format!("Software package ({}): kept whole", mg.name))
+            }
+            crate::context::CollectionKind::OwnersFolder => {
+                let to = if !mg.left_as_is && choice == BlueprintChoice::Fresh && !mg.hint.is_empty() {
+                    bases
+                        .of("Documents")
+                        .map(|db| mg.hint.split('/').fold(db, |p, s| p.join(s)).join(&mg_leaf))
+                        .filter(|dest| !same_path(dest, Path::new(&mg.path)))
+                } else {
+                    None
+                };
+                (false, to, format!("Your folder ({}): kept whole", mg.name))
+            }
+            crate::context::CollectionKind::Resource => {
+                let to = if !mg.left_as_is && choice == BlueprintChoice::Fresh {
+                    bases.of("Documents").and_then(|db| {
+                        let res_root = db.join("Resources");
+                        if path_is_within(&mg.path, &res_root.to_string_lossy(), false) {
+                            None
+                        } else if mg.hint.is_empty() {
+                            Some(res_root.join(&mg_leaf))
+                        } else {
+                            Some(res_root.join(&mg.hint).join(&mg_leaf))
+                        }
+                    })
+                } else {
+                    None
+                };
+                (false, to, format!("Resource ({}): kept whole", mg.name))
+            }
+            _ => continue,
+        };
+        groups.push(Group { path: mg.path, code, keep_whole: true, to, reason, confidence: mg.confidence });
     }
     // Per-folder counts of videos, subtitles and photos.
     let mut dirs: HashMap<PathBuf, (usize, usize, usize, usize, Vec<i64>)> = HashMap::new(); // videos, course-named, srt, photos, photo years
@@ -509,17 +583,31 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
         .cloned()
         .collect();
     for c in outer {
+        let c_str = c.to_string_lossy().to_string();
+        if groups
+            .iter()
+            .any(|g| path_is_within(&c_str, &g.path, false) || (g.keep_whole && !g.code && path_is_within(&g.path, &c_str, false)))
+        {
+            continue;
+        }
         let name = c.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let to = match choice {
             BlueprintChoice::Fresh => bases.of("Videos").map(|b| b.join("Courses").join(&name)),
             BlueprintChoice::Tidy => None,
         };
-        groups.push(Group { path: c.to_string_lossy().to_string(), code: false, to, reason: format!("Course: {name}"), confidence: 0.9 });
+        groups.push(Group { path: c_str, code: false, keep_whole: false, to, reason: format!("Course: {name}"), confidence: 0.9 });
     }
     // Named photo events ("Cape Town Dec 2023").
     for (d, (_, _, _, photos, years)) in &dirs {
         let name = d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        if *photos < 10 || depth(d) == 0 || generic_photo_folder(&name) || groups.iter().any(|g| path_is_within(&d.to_string_lossy(), &g.path, false)) {
+        let d_str = d.to_string_lossy().to_string();
+        if *photos < 10
+            || depth(d) == 0
+            || generic_photo_folder(&name)
+            || groups
+                .iter()
+                .any(|g| path_is_within(&d_str, &g.path, false) || (g.keep_whole && !g.code && path_is_within(&g.path, &d_str, false)))
+        {
             continue;
         }
         let mut ys = years.clone();
@@ -529,7 +617,7 @@ fn find_groups(store: &SqliteStore, rows: &[&Row], root: &str, choice: Blueprint
             BlueprintChoice::Fresh => bases.of("Photos").map(|b| b.join(&year).join(&name)),
             BlueprintChoice::Tidy => None,
         };
-        groups.push(Group { path: d.to_string_lossy().to_string(), code: false, to, reason: format!("Photo album: {name}"), confidence: 0.9 });
+        groups.push(Group { path: d_str, code: false, keep_whole: false, to, reason: format!("Photo album: {name}"), confidence: 0.9 });
     }
     // Courses and albums inside a project are part of the project, not groups of their own.
     groups.retain(|g| g.code || !projects.iter().any(|(p, _)| path_is_within(&g.path, p, false)));
@@ -653,6 +741,7 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
     } else {
         HashMap::new()
     };
+    let series = crate::context::series_episodes(store, &all_roots)?;
     let mut out = Vec::new();
     for (root, _) in &roots {
         let root_rows: Vec<&Row> = rows.iter().filter(|r| path_is_within(&r.path, root, false)).collect();
@@ -725,8 +814,10 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                     let letters: Vec<char> = t.chars().filter(|c| c.is_alphabetic()).collect();
                     // Renaming a folder that holds code would break every path inside it.
                     let top_path = root_p.join(t).to_string_lossy().to_string();
-                    let holds_code = groups.iter().any(|g| g.code && path_is_within(&g.path, &top_path, false));
-                    if !holds_code && !letters.is_empty() && letters.iter().all(|c| c.is_lowercase()) {
+                    let holds_protected = groups
+                        .iter()
+                        .any(|g| (g.code || g.keep_whole) && path_is_within(&g.path, &top_path, false));
+                    if !holds_protected && !letters.is_empty() && letters.iter().all(|c| c.is_lowercase()) {
                         let files = root_rows.iter().filter(|r| path_is_within(&r.path, &root_p.join(t).to_string_lossy(), false)).count();
                         out.push(Placement {
                             target: Target::Group { path: root_p.join(t).to_string_lossy().to_string(), files },
@@ -753,6 +844,25 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
             }
             if let Some(name) = design_files.get(&r.path.to_lowercase()) {
                 out.push(stays(r, &format!("Part of design project {name}: it stays together")));
+                continue;
+            }
+            if let Some((show, season)) = series.get(&r.path.to_lowercase()) {
+                let mut p = match choice {
+                    BlueprintChoice::Fresh => match bases.of("Videos") {
+                        Some(base) => {
+                            let dir = base.join("Shows").join(sanitize(show)).join(season);
+                            file_placement(r, Some(dir), None, false)
+                        }
+                        None => stays(r, &format!("TV series ({show} · {season}): add your Videos folder to file it")),
+                    },
+                    BlueprintChoice::Tidy => stays(r, &format!("TV series ({show} · {season}): stays where it is")),
+                };
+                p.confidence = p.confidence.max(0.90);
+                if p.to.is_some() {
+                    p.reason = format!("TV series: {show} · {season}");
+                    p.rule_key = Some(format!("series|{}", sanitize(show).to_lowercase()));
+                }
+                out.push(p);
                 continue;
             }
             let photo_subj = subjects.get(&r.path.to_lowercase()).map(String::as_str);

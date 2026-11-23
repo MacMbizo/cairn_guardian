@@ -612,17 +612,19 @@ pub fn recheck_open_batch(store: &mut SqliteStore, scope: &Scope) -> Result<usiz
     let roots: Vec<String> = scope_roots(store, scope)?.into_iter().map(|(p, _)| p).collect();
     let projects = crate::context::protected_roots(store, &roots)?;
     let design_files = crate::context::protected_files(store, &roots)?;
-    if projects.is_empty() && design_files.is_empty() {
+    let modules = crate::context::module_folder_groups(store, &roots)?;
+    if projects.is_empty() && design_files.is_empty() && modules.is_empty() {
         return Ok(0);
     }
-    let waiting: Vec<(String, String)> = {
-        let mut stmt =
-            store.conn().prepare("SELECT id, from_path FROM actions WHERE batch_id = ?1 AND status IN ('proposed', 'approved')")?;
-        stmt.query_map([&open], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    let waiting: Vec<(String, String, String)> = {
+        let mut stmt = store
+            .conn()
+            .prepare("SELECT id, target_kind, from_path FROM actions WHERE batch_id = ?1 AND status IN ('proposed', 'approved')")?;
+        stmt.query_map([&open], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?
     };
     let retire: Vec<(String, String)> = waiting
         .into_iter()
-        .filter_map(|(id, from)| {
+        .filter_map(|(id, target_kind, from)| {
             projects
                 .iter()
                 .find(|(p, _)| path_is_within(&from, p, false) || path_is_within(p, &from, false))
@@ -630,7 +632,23 @@ pub fn recheck_open_batch(store: &mut SqliteStore, scope: &Scope) -> Result<usiz
                 .or_else(|| {
                     design_files
                         .get(&from.to_lowercase())
-                        .map(|name| (id, format!("Part of design project {name}: it stays together")))
+                        .map(|name| (id.clone(), format!("Part of design project {name}: it stays together")))
+                })
+                .or_else(|| {
+                    if target_kind == "file" {
+                        modules
+                            .iter()
+                            .find(|mg| path_is_within(&from, &mg.path, false))
+                            .map(|mg| (id, format!("{} ({}): stays together", match mg.kind {
+                                crate::context::CollectionKind::SoftwarePackage => "Software package",
+                                crate::context::CollectionKind::OwnersFolder => "Your folder",
+                                crate::context::CollectionKind::Resource => "Resource",
+                                crate::context::CollectionKind::OldCopy => "Old copy",
+                                _ => "Collection",
+                            }, mg.name)))
+                    } else {
+                        None
+                    }
                 })
         })
         .collect();

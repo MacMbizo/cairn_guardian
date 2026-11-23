@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, CircleCheck, Code2, Copy, FileText, Folder, GitBranch, HardDrive, History, House, Layers, Loader2, Palette, RefreshCw, SearchCheck } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRight, BookOpen, CircleCheck, Code2, Copy, FileText, Folder, GitBranch, HardDrive, History, House, Layers, Loader2, Palette, RefreshCw, SearchCheck } from "lucide-react";
 import {
   aegis,
   errorMessage,
@@ -67,8 +67,16 @@ const KIND_META: Record<ProjectKind, { label: string; tone: string; pill: string
   },
 };
 
-function KindBadge({ kind }: { kind: ProjectKind | null | undefined }) {
-  const m = KIND_META[kind ?? "other"];
+function KindBadge({ c }: { c: Collection }) {
+  if (c.kind === "old_copy") {
+    return (
+      <Chip tone="bg-amber-500/15 text-amber-300 inline-flex items-center gap-1">
+        <Archive className="h-3 w-3 shrink-0" aria-hidden="true" />
+        Old copy
+      </Chip>
+    );
+  }
+  const m = KIND_META[c.project_kind ?? "other"];
   return (
     <Chip tone={`${m.tone} inline-flex items-center gap-1`}>
       {m.icon}
@@ -78,6 +86,7 @@ function KindBadge({ kind }: { kind: ProjectKind | null | undefined }) {
 }
 
 function KindSelect({ c, ans }: { c: Collection; ans: Answering }) {
+  if (c.kind === "old_copy") return null;
   const val = c.project_kind ?? "other";
   return (
     <select
@@ -150,10 +159,13 @@ function formatBytes(b: number): string {
 /** A project's plan on one drive. */
 const planOn = (plans: ProjectPlan[], c: Collection, volumeId: string) => plans.find((p) => p.collection_id === c.id && p.volume_id === volumeId);
 
-/** The plan on the main copy's drive: the one the card approves. */
+/** The primary plan for the card: prefers the main copy's drive, or another drive if that one has steps or is waiting. */
 function planOf(plans: ProjectPlan[], c: Collection): ProjectPlan | undefined {
   const home = c.locations.find((l) => l.relationship === "home") ?? c.locations[0];
-  return home ? planOn(plans, c, home.volume_id) : undefined;
+  const primary = home ? planOn(plans, c, home.volume_id) : undefined;
+  if (primary && (primary.steps.length > 0 || primary.waits_for)) return primary;
+  const other = plans.find((p) => p.collection_id === c.id && (p.steps.length > 0 || p.waits_for));
+  return other ?? primary;
 }
 
 /** The step that decides where a place ends up (a copy moved aside first has two). */
@@ -165,6 +177,8 @@ function lineOf(s: PlanStep): string {
       const inDesign = /[\\/]design[\\/][^\\/]+$/i.test(s.to);
       return `moves whole to ${s.to} (${inDesign ? "your design projects folder" : "your projects home"})`;
     }
+    case "to_archive":
+      return `moves whole to archive at ${s.to}`;
     case "quarantine":
       return "to quarantine for 30 days: all of it is in the main copy";
     case "to_versions":
@@ -183,7 +197,6 @@ function keptNote(plan: ProjectPlan | undefined, l: Location): string | null {
   if (l.keep_here && l.relationship !== "home") return "stays here, as you asked";
   const note = plan?.notes.find((n) => n.toLowerCase().startsWith(l.root_path.toLowerCase()));
   if (note) return note.slice(l.root_path.length).replace(/^\s*/, "");
-  if (plan && plan.steps.length === 0 && plan.summary.includes("later")) return "stays where it is for now: plans for other drives come later";
   return null;
 }
 
@@ -395,7 +408,7 @@ function ProjectCard({
             <h2 className="text-base font-semibold text-slate-100">{c.name}</h2>
           )}
           <div className="flex flex-wrap items-center gap-1.5">
-            <KindBadge kind={c.project_kind} />
+            <KindBadge c={c} />
             <KindSelect c={c} ans={ans} />
             <SureChip c={c} />
             <Chip tone="bg-slate-800 text-slate-300">
@@ -422,7 +435,7 @@ function ProjectCard({
               {renaming ? "Cancel" : "Rename"}
             </button>
             <button type="button" className={`${btn} flex-1`} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "is_project", yes: false })}>
-              Not a project
+              {c.kind === "old_copy" ? "Not an old copy" : "Not a project"}
             </button>
           </div>
           {c.kind === "project" && otherProjects.length > 0 && (
@@ -497,7 +510,7 @@ function ConfirmList({ items, ans }: { items: Collection[]; ans: Answering }) {
           return (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
               <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
-                <KindBadge kind={c.project_kind} />
+                <KindBadge c={c} />
                 <span className="font-medium text-slate-100">{c.name}</span>
                 <span className="text-slate-400">
                   · {nameOf(parentOf(l.root_path))} · {l.files.toLocaleString()} files · {whyOf(c)[0] ?? ""}
@@ -570,6 +583,11 @@ const REUNITE_KIND_LABEL: Record<CollectionKind, string> = {
   project: "Project",
   design_set: "Design set",
   photo_subject: "Photo subject",
+  software_package: "Software package",
+  owners_folder: "Owner's folder",
+  resource: "Resource",
+  series: "Series",
+  old_copy: "Old copy",
 };
 
 type ReuniteEntry = { plan: ReunitePlan; out?: Outcome };
@@ -700,7 +718,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
   const [settledReunites, setSettledReunites] = useState<Record<string, ReuniteEntry>>({});
   const [running, setRunning] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
-  const [kindFilter, setKindFilter] = useState<ProjectKind | "all">("all");
+  const [kindFilter, setKindFilter] = useState<ProjectKind | "old_copy" | "all">("all");
 
   const load = useCallback(async () => {
     if (preview) {
@@ -877,20 +895,34 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
       const parts = [`${rep.projects.toLocaleString()} projects`];
       if (rep.design_sets > 0) parts.push(`${rep.design_sets.toLocaleString()} design sets`);
       if (rep.photo_subjects > 0) parts.push(`${rep.photo_subjects.toLocaleString()} photo subjects`);
+      if (rep.software_packages > 0) parts.push(`${rep.software_packages.toLocaleString()} software packages`);
+      if (rep.owners_folders > 0) parts.push(`${rep.owners_folders.toLocaleString()} owner's folders`);
+      if (rep.resources > 0) parts.push(`${rep.resources.toLocaleString()} resources`);
+      if (rep.series > 0) parts.push(`${rep.series.toLocaleString()} series`);
+      if (rep.old_copies > 0) parts.push(`${rep.old_copies.toLocaleString()} old copies`);
       setNote(`Found ${parts.join(", ")} in ${(rep.took_ms / 1000).toFixed(0)} s.`);
     });
 
-  const kindCounts = useMemo(() => {
+  const { kindCounts, oldCopyCount } = useMemo(() => {
     const counts: Record<ProjectKind, number> = { software: 0, design: 0, writing: 0, research: 0, other: 0 };
+    let old = 0;
     for (const c of list ?? []) {
+      if (c.kind === "old_copy") {
+        old += 1;
+        continue;
+      }
       const k = c.project_kind ?? "other";
       counts[k] = (counts[k] ?? 0) + 1;
     }
-    return counts;
+    return { kindCounts: counts, oldCopyCount: old };
   }, [list]);
 
   const groups = useMemo(() => {
-    const all = (list ?? []).filter((c) => kindFilter === "all" || (c.project_kind ?? "other") === kindFilter);
+    const all = (list ?? []).filter((c) => {
+      if (kindFilter === "all") return true;
+      if (kindFilter === "old_copy") return c.kind === "old_copy";
+      return c.kind !== "old_copy" && (c.project_kind ?? "other") === kindFilter;
+    });
     const asks = (c: Collection) => c.state === "candidate" && c.confidence < SURE && c.locations.length === 1;
     // Simplest and safest plans first (spec §8.5), then the rest.
     const rank = (c: Collection) => planOf(plans, c)?.rank ?? 9;
@@ -963,6 +995,23 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
               </button>
             );
           })}
+          {(oldCopyCount > 0 || kindFilter === "old_copy") && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={kindFilter === "old_copy"}
+              onClick={() => setKindFilter("old_copy")}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                kindFilter === "old_copy"
+                  ? "border-amber-500/50 bg-amber-500/15 text-amber-200"
+                  : "border-slate-700 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              <Archive className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Old copies
+              <span className="text-[11px] opacity-80">{oldCopyCount}</span>
+            </button>
+          )}
         </div>
       )}
       {err && <p className="text-xs text-rose-300">{err}</p>}
@@ -1002,7 +1051,10 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
           <ul className="mt-2">
             {groups.single.map((c) => {
               const p = planOf(plans, c);
-              const move = p && !p.waits_for && c.state !== "left_as_is" ? p.steps.find((s) => s.kind === "move_home" || s.kind === "gather_files") : undefined;
+              const move =
+                p && !p.waits_for && c.state !== "left_as_is"
+                  ? p.steps.find((s) => s.kind === "move_home" || s.kind === "gather_files" || s.kind === "to_archive" || s.kind === "quarantine")
+                  : undefined;
               const out = outcomes[c.id];
               return (
                 <li
@@ -1013,17 +1065,23 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                 >
                   <span className="min-w-0 text-xs">
                     <span className="inline-flex flex-wrap items-center gap-1.5">
-                      <KindBadge kind={c.project_kind} />
+                      <KindBadge c={c} />
                       <span className="font-medium text-slate-100">{c.name}</span>
                       <span className="text-slate-400" title={c.locations[0].root_path}>
                         · {shortPath(c.locations[0].root_path, 3)}
                       </span>
                       <SureChip c={c} />
                     </span>
+                    {p?.waits_for && (
+                      <span className="mt-0.5 block text-[11px] text-amber-300">
+                        {c.evidence.filter((e) => !e.startsWith("also at ")).slice(0, 1).join("")}
+                        {" · "}The plan waits: {p.waits_for}
+                      </span>
+                    )}
                     {move && !out?.done && (
                       <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-200" title={move.reason}>
                         <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />{" "}
-                        {move.kind === "gather_files" ? `moves matching files into ${move.to}` : `moves whole to ${move.to}`}
+                        {lineOf(move)}
                       </span>
                     )}
                     {out?.done && (
@@ -1041,6 +1099,8 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                           <>
                             <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Moving…
                           </>
+                        ) : move.kind === "quarantine" ? (
+                          "Quarantine"
                         ) : (
                           "Move"
                         )}
@@ -1052,7 +1112,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                       </button>
                     )}
                     <button type="button" className={btn} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "is_project", yes: false })}>
-                      Not a project
+                      {c.kind === "old_copy" ? "Not an old copy" : "Not a project"}
                     </button>
                   </span>
                 </li>
