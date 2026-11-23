@@ -208,6 +208,8 @@ pub enum DecisionKind {
     KeepHere,
     /// Approved set subject remembered for future single-file arrivals (`design:<Name>` or `photo:<Name>`).
     LearnedSubject,
+    /// The owner explicitly reclassified this project's kind (`software`, `design`, `writing`, `research`, `other`).
+    ProjectKind,
 }
 
 impl DecisionKind {
@@ -221,6 +223,7 @@ impl DecisionKind {
             Self::Home => "home",
             Self::KeepHere => "keep_here",
             Self::LearnedSubject => "learned_subject",
+            Self::ProjectKind => "project_kind",
         }
     }
 
@@ -234,6 +237,7 @@ impl DecisionKind {
             "home" => Self::Home,
             "keep_here" => Self::KeepHere,
             "learned_subject" => Self::LearnedSubject,
+            "project_kind" => Self::ProjectKind,
             _ => return None,
         })
     }

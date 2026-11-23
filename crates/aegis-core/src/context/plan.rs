@@ -255,6 +255,16 @@ fn kind_word(k: Option<ProjectKind>) -> &'static str {
     }
 }
 
+/// Where a collection of `kind` should live under the drive's projects home `ph`:
+/// software, writing, research and other projects sit directly in `ph` (`C:\Prj\<Name>`),
+/// while design projects sit together in `C:\Prj\Design\<Name>`.
+pub fn kind_home(ph: &str, kind: Option<ProjectKind>) -> String {
+    match kind {
+        Some(ProjectKind::Design) => join(ph, "Design"),
+        _ => ph.to_string(),
+    }
+}
+
 fn volume_info(store: &SqliteStore, volume_id: &str) -> Result<Option<(String, String, bool)>> {
     Ok(store
         .conn()
@@ -283,7 +293,14 @@ pub fn projects_home(store: &SqliteStore, volume_id: &str) -> Result<Option<Stri
     let locs: Vec<String> = stmt.query_map([volume_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let best = roots
         .iter()
-        .map(|r| (locs.iter().filter(|l| same_path(parent(l), r)).count(), r))
+        .map(|r| {
+            let design_shelf = join(r, "Design");
+            let count = locs
+                .iter()
+                .filter(|l| same_path(parent(l), r) || same_path(parent(l), &design_shelf))
+                .count();
+            (count, r)
+        })
         .filter(|(n, _)| *n > 0)
         .max_by_key(|(n, _)| *n)
         .map(|(_, r)| r.clone());
@@ -500,7 +517,9 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
         }
         d = up;
     }
-    let ph = if in_projects_folder { projects_home(store, volume_id)? } else { None };
+    let ph = projects_home(store, volume_id)?;
+    let already_in_ph = ph.as_deref().is_some_and(|ph| path_is_within(&home.root_path, ph, false));
+    let eligible_home_move = in_projects_folder || already_in_ph;
 
     // Where the home ends up: under its own folder name. A name the owner gives the project on
     // the card is a label; renaming the folder could break paths inside it.
@@ -508,48 +527,63 @@ fn plan_on(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id: &str) 
     let mut steps: Vec<PlanStep> = Vec::new();
     let mut aside: Option<(&Location, String)> = None;
     let mut home_after = home.root_path.clone();
-    if let Some(ph) = ph.as_deref().filter(|ph| !path_is_within(&home.root_path, ph, false)) {
-        let mut target = join(ph, &name);
-        let occupant = here.iter().find(|l| l.id != home.id && same_path(&l.root_path, &target)).copied();
-        let taken_by_other = occupant.is_none() && Path::new(&target).exists();
-        if taken_by_other || occupant.is_some_and(|o| o.keep_here || blocked.contains(&o.id)) {
-            let year = &date_of(home.newest_mtime)[..4];
-            target = join(ph, &format!("{name} ({} {year})", kind_word(c.project_kind)));
-        } else if let Some(o) = occupant {
-            let mut moved = join(ph, &format!("{name} (old copy)"));
-            let mut n = 2;
-            while Path::new(&moved).exists() {
-                moved = join(ph, &format!("{name} (old copy {n})"));
-                n += 1;
+    if eligible_home_move
+        && let Some(ph) = ph.as_deref()
+    {
+        let design_shelf = join(ph, "Design");
+        let already_home = match c.project_kind {
+            Some(ProjectKind::Design) => path_is_within(&home.root_path, &design_shelf, false),
+            _ => path_is_within(&home.root_path, ph, false) && !path_is_within(&home.root_path, &design_shelf, false),
+        };
+        if !already_home {
+            let dest_parent = kind_home(ph, c.project_kind);
+            let mut target = join(&dest_parent, &name);
+            let occupant = here.iter().find(|l| l.id != home.id && same_path(&l.root_path, &target)).copied();
+            let taken_by_other = occupant.is_none() && Path::new(&target).exists();
+            if taken_by_other || occupant.is_some_and(|o| o.keep_here || blocked.contains(&o.id)) {
+                let year = &date_of(home.newest_mtime)[..4];
+                target = join(&dest_parent, &format!("{name} ({} {year})", kind_word(c.project_kind)));
+            } else if let Some(o) = occupant {
+                let mut moved = join(&dest_parent, &format!("{name} (old copy)"));
+                let mut n = 2;
+                while Path::new(&moved).exists() {
+                    moved = join(&dest_parent, &format!("{name} (old copy {n})"));
+                    n += 1;
+                }
+                aside = Some((o, moved.clone()));
+                steps.push(PlanStep {
+                    step: 1,
+                    kind: StepKind::MoveAside,
+                    location_id: o.id.clone(),
+                    from: o.root_path.clone(),
+                    to: moved,
+                    fallback: None,
+                    reason: "Moved aside first, so the main copy can take its name.".into(),
+                    warnings: ctx.repo_warnings(o),
+                });
             }
-            aside = Some((o, moved.clone()));
-            steps.push(PlanStep {
-                step: 1,
-                kind: StepKind::MoveAside,
-                location_id: o.id.clone(),
-                from: o.root_path.clone(),
-                to: moved,
-                fallback: None,
-                reason: "Moved aside first, so the main copy can take its name.".into(),
-                warnings: ctx.repo_warnings(o),
-            });
-        }
-        if Path::new(&target).exists() && !aside.as_ref().is_some_and(|(o, _)| same_path(&o.root_path, &target)) {
-            // Even the disambiguated name is taken: leave the home where it is.
-            target = home.root_path.clone();
-        }
-        if !same_path(&target, &home.root_path) {
-            steps.push(PlanStep {
-                step: 2,
-                kind: StepKind::MoveHome,
-                location_id: home.id.clone(),
-                from: home.root_path.clone(),
-                to: target.clone(),
-                fallback: None,
-                reason: format!("Moves whole to {target} (your projects home)."),
-                warnings: ctx.repo_warnings(home),
-            });
-            home_after = target;
+            if Path::new(&target).exists() && !aside.as_ref().is_some_and(|(o, _)| same_path(&o.root_path, &target)) {
+                // Even the disambiguated name is taken: leave the home where it is.
+                target = home.root_path.clone();
+            }
+            if !same_path(&target, &home.root_path) {
+                let where_label = if c.project_kind == Some(ProjectKind::Design) {
+                    "your design projects folder"
+                } else {
+                    "your projects home"
+                };
+                steps.push(PlanStep {
+                    step: 2,
+                    kind: StepKind::MoveHome,
+                    location_id: home.id.clone(),
+                    from: home.root_path.clone(),
+                    to: target.clone(),
+                    fallback: None,
+                    reason: format!("Moves whole to {target} ({where_label})."),
+                    warnings: ctx.repo_warnings(home),
+                });
+                home_after = target;
+            }
         }
     }
 
@@ -693,8 +727,9 @@ fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id
     let Some(ph) = design_projects_home(ctx, store, volume_id)? else {
         return Ok(nothing("No projects home is set on this drive yet."));
     };
+    let shelf = kind_home(&ph, c.project_kind);
     let base_name = safe_name(&c.name);
-    let mut target = join(&ph, &base_name);
+    let is_design_target = c.project_kind.unwrap_or(ProjectKind::Design) == ProjectKind::Design;
     let matches_existing_design = |dir: &str| {
         ctx.locations.iter().any(|(cid, v, r)| {
             v == volume_id
@@ -704,14 +739,40 @@ fn plan_design_set(ctx: &Planner, store: &SqliteStore, c: &Collection, volume_id
                 })
         })
     };
+    let existing_match = if is_design_target {
+        let norm_c = normalized_name(&c.name);
+        let mut cands: Vec<(&str, bool)> = ctx
+            .locations
+            .iter()
+            .filter_map(|(cid, v, r)| {
+                if v != volume_id || !path_is_within(r, &ph, false) {
+                    return None;
+                }
+                let (pname, pk, is_repo) = ctx.project_info.get(cid)?;
+                if *is_repo || *pk != Some(ProjectKind::Design) {
+                    return None;
+                }
+                if normalized_name(pname) == norm_c || normalized_name(leaf(r)) == norm_c {
+                    Some((r.as_str(), path_is_within(r, &shelf, false)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        cands.sort_by_key(|(r, in_shelf)| (std::cmp::Reverse(*in_shelf), r.to_lowercase()));
+        cands.first().map(|(r, _)| (*r).to_string())
+    } else {
+        None
+    };
+    let mut target = existing_match.unwrap_or_else(|| join(&shelf, &base_name));
     let conflicts = |dir: &str| {
         (Path::new(dir).exists() || ctx.locations.iter().any(|(_, v, r)| v == volume_id && same_path(r, dir)))
-            && !matches_existing_design(dir)
+            && (!is_design_target || !matches_existing_design(dir))
     };
     if conflicts(&target) {
         let newest = here.iter().map(|l| l.newest_mtime).max().unwrap_or_else(now_ms);
         let year = &date_of(newest)[..4];
-        target = join(&ph, &format!("{base_name} (design {year})"));
+        target = join(&shelf, &format!("{base_name} (design {year})"));
         if conflicts(&target) {
             return Ok(nothing("A folder with that name is already in your projects home."));
         }
@@ -1198,14 +1259,19 @@ fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     )?;
     let dest_dirs: HashSet<String> = {
         let mut stmt = store.conn().prepare(
-            "SELECT evidence_json FROM actions WHERE batch_id = ?1 AND status = 'rolled_back'",
+            "SELECT evidence_json, to_path FROM actions WHERE batch_id = ?1 AND status = 'rolled_back'",
         )?;
-        let rows: Vec<String> = stmt.query_map([batch_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let rows: Vec<(String, Option<String>)> = stmt
+            .query_map([batch_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         rows.into_iter()
-            .filter_map(|ev| {
+            .filter_map(|(ev, to_path)| {
                 let v: serde_json::Value = serde_json::from_str(&ev).ok()?;
-                if v.get("kind")?.as_str()? == "gather_files" {
+                let kind = v.get("kind")?.as_str()?;
+                if kind == "gather_files" {
                     v.get("dest_dir")?.as_str().map(str::to_string)
+                } else if kind == "move_home" {
+                    to_path.filter(|p| leaf(parent(p)).eq_ignore_ascii_case("design"))
                 } else {
                     None
                 }
@@ -1214,10 +1280,14 @@ fn after_undo(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
     };
     if !dest_dirs.is_empty() {
         let roots: Vec<String> = store.list_roots()?.into_iter().map(|r| r.path).collect();
+        let strictly_inside = |p: &str| roots.iter().any(|r| !same_path(p, r) && path_is_within(p, r, false));
         for d in dest_dirs {
-            let strictly_inside = roots.iter().any(|r| !same_path(&d, r) && path_is_within(&d, r, false));
-            if strictly_inside && Path::new(&d).is_dir() {
+            if strictly_inside(&d) && Path::new(&d).is_dir() {
                 let _ = std::fs::remove_dir(&d);
+            }
+            let shelf = parent(&d);
+            if leaf(shelf).eq_ignore_ascii_case("design") && strictly_inside(shelf) && Path::new(shelf).is_dir() {
+                let _ = std::fs::remove_dir(shelf);
             }
         }
     }
@@ -1324,7 +1394,16 @@ fn follow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
                 }
             }
             if let (Some(fp), Some(proj)) = (&st.set_fingerprint, &st.project) {
-                learned.insert((fp.clone(), proj.clone()));
+                let is_design = tx
+                    .query_row(
+                        "SELECT COALESCE(NULLIF(project_kind, ''), 'design') = 'design' FROM collections WHERE id = ?1",
+                        [&st.collection_id],
+                        |r| r.get::<_, bool>(0),
+                    )
+                    .unwrap_or(true);
+                if is_design {
+                    learned.insert((fp.clone(), proj.clone()));
+                }
             }
         } else if st.kind != "move_home" {
             tx.execute("DELETE FROM collection_locations WHERE id = ?1", [&st.location_id])?;
@@ -1345,19 +1424,22 @@ fn follow_moves(store: &mut SqliteStore, batch_id: &str) -> Result<()> {
         }
         let remaining: i64 =
             tx.query_row("SELECT COUNT(*) FROM collection_members WHERE collection_id = ?1", [&cid], |r| r.get(0))?;
+        let eff_kind: String = tx
+            .query_row("SELECT COALESCE(NULLIF(project_kind, ''), 'design') FROM collections WHERE id = ?1", [&cid], |r| r.get(0))
+            .unwrap_or_else(|_| "design".to_string());
         let target_cid = if remaining == 0 {
             tx.execute(
-                "UPDATE collections SET kind = 'project', project_kind = 'design', state = 'confirmed', confidence = MAX(confidence, 0.90)
-                 WHERE id = ?1",
-                [&cid],
+                "UPDATE collections SET kind = 'project', project_kind = ?1, state = 'confirmed', confidence = MAX(confidence, 0.90)
+                 WHERE id = ?2",
+                params![eff_kind, cid],
             )?;
             cid
         } else {
             let new_cid = new_id();
             tx.execute(
                 "INSERT INTO collections (id, kind, name, project_kind, confidence, state, evidence_json, sub_projects_json, computed_at, plan_state, fingerprint)
-                 VALUES (?1, 'project', ?2, 'design', 0.90, 'confirmed', '[\"confirmed design project\"]', '[]', ?3, NULL, NULL)",
-                params![new_cid, g.project_name, at],
+                 VALUES (?1, 'project', ?2, ?3, 0.90, 'confirmed', '[\"confirmed project\"]', '[]', ?4, NULL, NULL)",
+                params![new_cid, g.project_name, eff_kind, at],
             )?;
             new_cid
         };

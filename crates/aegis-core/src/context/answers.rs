@@ -4,7 +4,7 @@
 
 use super::recognise::recognise;
 use super::store::{collection_fingerprint, list_collections_in, record_decision};
-use super::{Collection, CollectionKind, Decision, DecisionKind};
+use super::{Collection, CollectionKind, Decision, DecisionKind, ProjectKind};
 use crate::db::SqliteStore;
 use crate::error::{AegisError, Result};
 use crate::{new_id, now_ms};
@@ -29,6 +29,8 @@ pub enum Answer {
     ChangeHome,
     /// Leave the given location where it is (or no longer): the plan gives it no step.
     KeepHere { keep: bool },
+    /// Reclassify what sort of project this is (`software`, `design`, `writing`, `research`, `other`).
+    SetKind { project_kind: ProjectKind },
 }
 
 fn collection(store: &SqliteStore, id: &str) -> Result<Collection> {
@@ -51,7 +53,10 @@ fn answer_set(store: &SqliteStore, c: &Collection, location_id: Option<&str>, a:
         Answer::IsProject { yes } => {
             let v = if *yes { "yes" } else { "no" };
             out.push(decision(DecisionKind::IsProject, &set_fp, None, v, at));
-            if *yes && c.kind == CollectionKind::DesignSet {
+            if *yes
+                && c.kind == CollectionKind::DesignSet
+                && c.project_kind.unwrap_or(ProjectKind::Design) == ProjectKind::Design
+            {
                 out.push(decision(DecisionKind::LearnedSubject, &set_fp, None, &format!("design:{}", c.name), at));
             }
         }
@@ -84,6 +89,9 @@ fn answer_set(store: &SqliteStore, c: &Collection, location_id: Option<&str>, a:
                 .find(|x| x.id == lid)
                 .ok_or_else(|| AegisError::NotFound("That folder is no longer part of this set.".into()))?;
             out.push(decision(DecisionKind::NotSameAs, &loc.fingerprint, Some(&set_fp), "no", at));
+        }
+        Answer::SetKind { project_kind } => {
+            out.push(decision(DecisionKind::ProjectKind, &set_fp, None, project_kind.as_str(), at));
         }
         Answer::ChangeHome | Answer::SameAs { .. } => {
             return Err(AegisError::InvalidInput("Loose sets don't have a main copy to swap.".into()));
@@ -153,6 +161,9 @@ pub fn answer(store: &mut SqliteStore, collection_id: &str, location_id: Option<
                         out.push(decision(DecisionKind::SameAs, &x.fingerprint, Some(&y.fingerprint), "yes", at));
                     }
                 }
+            }
+            Answer::SetKind { project_kind } => {
+                out.extend(targets.iter().map(|fp| decision(DecisionKind::ProjectKind, fp, None, project_kind.as_str(), at)));
             }
         }
         out

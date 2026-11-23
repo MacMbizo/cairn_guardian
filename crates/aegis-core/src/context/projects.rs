@@ -123,9 +123,26 @@ impl<'a> Ctx<'a> {
         p.depth == 0 || self.roots.contains(&key(&p.path))
     }
 
+    /// A child folder named `Design` sitting inside a project root, container, or area shelf
+    /// (`C:\Prj\Design`), never inside a code repo or single strong project (`paperPilot\Design`).
+    fn is_kind_shelf(&self, p: &FolderProfile) -> bool {
+        if !p.name().eq_ignore_ascii_case("design") || self.strong(p) || p.has_git {
+            return false;
+        }
+        let Some(parent) = p.path.rfind(SEP).and_then(|i| self.get(&p.path[..i])) else {
+            return false;
+        };
+        let pn = parent.name().to_lowercase();
+        (!p.child_dirs.is_empty() || matches!(pn.as_str(), "prj" | "projects"))
+            && ((self.is_root(parent) && !self.general.contains(&key(&parent.path)))
+                || AREA_NAMES.contains(&pn.as_str())
+                || pn == "prj"
+                || self.containers.get(&key(&parent.path)).copied().unwrap_or(false))
+    }
+
     /// A root, one of Windows' own folders, or an area of the fresh structure.
     fn is_area(&self, p: &FolderProfile) -> bool {
-        if self.is_root(p) {
+        if self.is_root(p) || self.is_kind_shelf(p) {
             return true;
         }
         let n = p.name().to_lowercase();
@@ -308,11 +325,13 @@ impl<'a> Ctx<'a> {
     fn visit(&mut self, p: &'a FolderProfile, among: Option<String>, out: &mut Vec<ProjectCandidate>) {
         let area = self.is_area(p);
         let container = self.is_container(p);
+        let shelf = self.is_kind_shelf(p);
         if area || container {
-            let lends = container
-                && !self.general.contains(&key(&p.path))
-                && !(area && self.is_root(p) && AREA_NAMES.contains(&p.name().to_lowercase().as_str()))
-                && self.project_share.get(&key(&p.path)).copied().unwrap_or(0.0) >= LENDING_SHARE;
+            let lends = shelf
+                || (container
+                    && !self.general.contains(&key(&p.path))
+                    && !(area && self.is_root(p) && AREA_NAMES.contains(&p.name().to_lowercase().as_str()))
+                    && self.project_share.get(&key(&p.path)).copied().unwrap_or(0.0) >= LENDING_SHARE);
             let here = lends.then(|| p.name().to_string());
             for c in self.children(p) {
                 self.visit(c, here.clone(), out);
@@ -321,12 +340,20 @@ impl<'a> Ctx<'a> {
         }
         let (confidence, evidence) = self.score(p, among.as_deref());
         if confidence >= PROJECT_THRESHOLD {
+            let mut project_kind = kind_of_project(p);
+            if among.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("design"))
+                && !p.has_git
+                && !p.atomic_unit
+                && p.source_files < 3
+            {
+                project_kind = ProjectKind::Design;
+            }
             out.push(ProjectCandidate {
                 root: p.path.clone(),
                 volume_id: p.volume_id.clone(),
                 confidence: (confidence * 100.0).round() / 100.0,
                 evidence,
-                project_kind: kind_of_project(p),
+                project_kind,
                 sub_projects: self.sub_projects(p),
                 is_repo: p.has_git,
                 declared_names: p.manifests.iter().map(|(_, n)| n.clone()).filter(|n| !n.is_empty()).collect(),

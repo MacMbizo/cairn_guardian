@@ -333,6 +333,9 @@ pub fn recognise(store: &mut SqliteStore) -> Result<RecogniseReport> {
                 state = "confirmed";
             }
         }
+        if let Some(d) = any(DecisionKind::ProjectKind) {
+            project_kind = ProjectKind::from_db(&d.value);
+        }
         collections.push(Collection {
             id: collection_id,
             kind: CollectionKind::Project,

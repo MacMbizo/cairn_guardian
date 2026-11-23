@@ -1,40 +1,42 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-23 (Plan 3 built and verified on `feature/sets-and-photo-subjects`; D1 approved). Read this first in a new chat.
+Updated 2026-11-23 (Plan 3 + Design-vs-Software separation built, verified, and fast-forward merged into `master`; D1 approved). Read this first in a new chat.
 
 **The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
 `docs/PROGRESS.md`. Keep it current at the end of each plan.
 
 Current state:
-- `master` (`76708b8`): Projects 1–3, Context-aware filing Plans 1–2, and post-Plan-2 stabilization pass (not pushed).
-- `feature/sets-and-photo-subjects`: **Plan 3 (Sets and photo subjects, spec §10)** implemented and verified (not yet merged to `master`, not pushed).
+- `master`: Projects 1–3, Context-aware filing Plans 1–3 (including Design-vs-Software shelf separation at `C:\Prj\Design\<Name>`, inline `Answer::SetKind` reclassification, Projects UI kind filter bar/badges, and `[features] custom-protocol` in `src-tauri/Cargo.toml`), fast-forward merged from `feature/sets-and-photo-subjects` (not pushed).
+- `feature/sets-and-photo-subjects`: merged into `master` on 2026-11-23 (not pushed).
 - `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`): rollback tag preserving pre-stabilization baseline plus parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`).
 - Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
 
 ## NEXT CHAT: do this first
 
-**Plan 3 (sets and photo subjects) is built on `feature/sets-and-photo-subjects`** (2026-11-23). Not merged or pushed.
-- Plan: `docs/superpowers/plans/2026-11-23-sets-and-photo-subjects.md` (with mandatory North-star rules section and dry-run tuning rulings).
+**Owner-approved roadmap order (2026-11-23):**
+1. **Context-aware filing Plan 4** ("Put back together", spec §11) → Plan 5 / remaining §16 modules (learning/weekly note §12, Software packages, Owner's folders, Old copies, Resources, Series)
+2. **1. D1 Encryption + Embeddings & Hybrid Search** (SQLCipher whole-store + `sqlite-vec` + DPAPI/TPM `R2` + mandatory offline recovery key, then embeddings & FTS5+vector hybrid search inside the 350 MB K5 budget)
+3. **Project 4: System care**
+
+- Plan 3 doc: `docs/superpowers/plans/2026-11-23-sets-and-photo-subjects.md` (with mandatory North-star rules section, dry-run tuning rulings, and Design-vs-Software separation).
 - **Owner Decision D1 approved (2026-11-23):** SQLCipher whole-store encryption + `sqlite-vec` inside the encrypted store (350 MB K5 budget), DPAPI/TPM-sealed engine key (`R2`, Windows Hello for sensitive views only), and mandatory offline 24-word/hex recovery key; owner also confirmed keeping `R1–R11` as written (including `R2` and `R6`).
-- **Orphaned quarantine cleaned:** Deleted all `57` pre-existing orphaned synthetic test folders from `C:\.aegis-quarantine` (`quarantine_entries = 0` in live DB).
-- **Verification gate on `feature/sets-and-photo-subjects`:**
-  - `cargo test --workspace`: **486 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all 10 tests in `crates/aegis-core/tests/sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
-  - Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `254` projects (`87` multi-location), **`3` design sets** (`SmoothLite` 31 -> `C:\Prj\SmoothLite`, `Back Cement` 8 -> `C:\Prj\Back Cement`, `MBIZO 1edited` 3 on `D:`), **`5` photo subjects** (`ipadcover` 12, `Mcgs Splash` 12, `Copilot` 7, `Designer` 4, `fragrances` 5), named album `Pictures\Undated\mugs` preserved intact (`Photo album: 15`), `53` total project/set plans (`4.6s`).
-  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `pnpm build`: clean.
+- **Owner approved `SmoothLite` and `Back Cement`** on live PC (`C:\Prj\SmoothLite` and `C:\Prj\Back Cement` now await one-click Move into `C:\Prj\Design\*`).
+- **Verification gate on `master`:**
+  - `cargo test --workspace`: **487 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **11** tests in `crates/aegis-core/tests/sets.rs`, `recognise_is_fast_on_a_big_catalog`, and `migration_0002_applies_on_fresh_and_v1_databases`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
+  - Live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `256` projects (`87` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects (`ipadcover` 12, `Mcgs Splash` 12, `Copilot` 7, `Designer` 4, `fragrances` 5), `53` project plans (`3.1s`) proposing `Back Cement -> C:\Prj\Design\Back Cement`, `SmoothLite -> C:\Prj\Design\SmoothLite`, and `Disst -> C:\Prj\Design\Disst` with zero software regressions and zero false `C:\Prj\Design` project cards.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `625ms`).
 
 1. **Owner items still open:**
-   - app rename choice (another "eagis" / Aegis app exists);
-   - confirm merging `feature/sets-and-photo-subjects` → `master` and try the Projects screen (`forexTrader` or `SmoothLite`);
-   - choose next track: Plan 4 ("Put back together", spec §11) or D1 SQLCipher migration + Embeddings/hybrid search.
+   - app rename choice (another "eagis" / Aegis app exists).
 2. **Note on `src/bindings/` and `node:sqlite`:**
    - Keep `canonical/D1_Design_System_v1.0.md` parked until core features finish.
    - `cargo test` writes LF line endings into `src/bindings/*.ts`; run `git checkout -f --` on unchanged bindings so only real binding diffs are committed.
 
-**What Plan 3 built:**
+**What Plan 3 & Design-vs-Software differentiation built:**
 - **Schema & Store:** Migration `0008_sets.sql` (`collections.fingerprint`, `collection_members`), `store::save_collections_with_members` (keeping set members out of `collection_locations`), `synthesize_set_locations`, live-path `list_members_with_collection`, `drives::registry::rebase_volume_paths` rebasing `collection_members.path`.
-- **Recogniser (`context::sets`):** Multi-format artwork matching, false-positive filters (software/SDK subtrees, `.9.png`, `<digits>x<digits>`, audio/movie companion folders, boilerplate stopwords, standalone positional filter, distinct filename minimum, concise multi-format stem cohesion), `ASSET_EXTS` expanded to 9 formats, `RecogniseReport::{design_sets, photo_subjects}`.
-- **Plans & Filing:** `StepKind::GatherFiles` in `context::plan` (`plan_design_set`, collision suffixing, TOCTOU digest, immediate destination folder protection in `follow_moves`, clean restore in `unfollow_moves` + `after_undo`), `db/actions.rs` `file_history` for exact-dest `TargetKind::File` moves, `blueprint::plan_files` cross-root hoisted `protected_files`/`photo_subjects` + `mtime` year fallback for unclassified `.png`s, `filing/batches.rs` `collection_members.path` sync & `DecisionKind::LearnedSubject` recording, `recheck_open_batch` retiring waiting `DesignSet` moves, and `answer_set`.
-- **UI & IPC:** `src-tauri/src/commands/context.rs` includes `DesignSet` in `context_projects`, `context_plans`, `context_run_plan`; `src/screens/Projects.tsx` + `src/screens/fixtures/projects.ts` support `set_files`, `gather_files`, inline Move/Undo, and `SmoothLite` fixture.
+- **Recogniser (`context::sets`, `projects`, `recognise`, `answers`):** Multi-format artwork matching, false-positive filters, `DesignSet`/`PhotoSubject` classification, `DecisionKind::ProjectKind` + `Answer::SetKind`, `Ctx::is_kind_shelf` treating `<projects home>\Design` as a Design shelf while leaving nested `<CodeRepo>\Design` folders untouched, `ASSET_EXTS` expanded to 9 formats, `RecogniseReport::{design_sets, photo_subjects}`.
+- **Plans & Filing (`context::plan`, `db::actions`, `filing`):** `StepKind::GatherFiles`, `kind_home` (`C:\Prj\Design\<Name>` for Design vs `C:\Prj\<Name>` for Software/Writing/Research/Other), `eligible_home_move` + kind-aware `already_home`, `follow_moves` preserving explicit `project_kind`, `unfollow_moves` + `after_undo` cleaning empty `Design` shelf parent folders, cross-root hoisted `protected_files`/`photo_subjects`, `LearnedSubject` catch on new single arrivals.
+- **UI & Build (`src-tauri/Cargo.toml`, `Projects.tsx`, `fixtures/projects.ts`):** `[features] custom-protocol = ["tauri/custom-protocol"]` for standalone `dist/` builds, `DesignSet` IPC support, color-coded `KindBadge` icons, Design fuchsia left accent, kind filter pill bar with counts, inline `<select>` reclassification, `SmoothLite` fixture + updated `ts-rs` bindings.
 
 **Earlier baseline (merged to `master` at `76708b8`):**
 - Plan 1, Plan 2 (project plans), and post-Plan-2 stabilization (`c63e967`, `b9899b2`, `6a4afde`, doc reconciliation): `docs/superpowers/plans/2026-11-23-project-plans.md`.

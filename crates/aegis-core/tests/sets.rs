@@ -285,14 +285,14 @@ fn design_set_plan_gathers_files_handles_collisions_and_undo_restores_cleanly() 
     let plan = &plans[0];
     assert_eq!(plan.steps.len(), 3);
     assert!(plan.steps.iter().all(|st| st.kind == StepKind::GatherFiles));
-    assert!(plan.home_after.eq_ignore_ascii_case(&canon(&prj.join("SmoothLite"))));
+    assert!(plan.home_after.eq_ignore_ascii_case(&format!(r"{}\Design\SmoothLite", canon(&prj))));
 
     let batch = propose(&mut s, &smooth, plan).unwrap();
     let out = run(&mut s, &batch).unwrap();
     assert!(out.done, "{out:?}");
     assert_eq!(out.moved_files, 5);
 
-    let dest_dir = prj.join("SmoothLite");
+    let dest_dir = prj.join("Design/SmoothLite");
     assert!(dest_dir.join("SmoothLite-Front.xcf").is_file());
     assert!(dest_dir.join("SmoothLite_QR.pdf").is_file());
     assert!(dest_dir.join("SmoothLite 2.jpg").is_file());
@@ -303,20 +303,21 @@ fn design_set_plan_gathers_files_handles_collisions_and_undo_restores_cleanly() 
     }
     assert!(list_members(s.conn(), &smooth.id).unwrap().is_empty());
 
-    // After gathering into C:\Prj\SmoothLite, recognition promotes it to a confirmed Design project.
+    // After gathering into C:\Prj\Design\SmoothLite, recognition promotes it to a confirmed Design project.
     recognise(&mut s).unwrap();
     let projs = sets_of(&s, CollectionKind::Project);
     let moved_proj = projs.iter().find(|p| p.name == "SmoothLite").unwrap();
     assert_eq!(moved_proj.project_kind, Some(ProjectKind::Design));
     assert_eq!(moved_proj.state, "confirmed");
 
-    // Undo moves all 5 files back to their exact original paths & removes empty Prj\SmoothLite.
+    // Undo moves all 5 files back to their exact original paths & removes empty Prj\Design\SmoothLite and Prj\Design.
     let rb = undo(&mut s, &batch).unwrap();
     assert!(rb.conflicts.is_empty(), "{rb:?}");
     assert_eq!(std::fs::read(&b_pics).unwrap(), b"png-from-pictures");
     assert_eq!(std::fs::read(&b_dl).unwrap(), b"png-from-downloads");
     assert!(a.is_file() && d.is_file() && e.is_file());
     assert!(!dest_dir.exists(), "empty destination folder should be cleaned up on undo");
+    assert!(!prj.join("Design").exists(), "empty Design shelf should be cleaned up on undo");
 
     let hist_left: i64 = s
         .conn()
@@ -440,11 +441,11 @@ fn learned_subjects_match_single_new_arrival_for_design_and_photo_subjects() {
     rescan(&mut s, &[&dl]);
     recognise(&mut s).unwrap();
 
-    // Single stray design file is caught as DesignSet targeting existing Prj\SmoothLite!
+    // Single stray design file is caught as DesignSet targeting existing Prj\Design\SmoothLite!
     let ds_again = sets_of(&s, CollectionKind::DesignSet).into_iter().find(|c| c.name == "SmoothLite").unwrap();
     assert_eq!(ds_again.state, "confirmed");
     let plan_again = plan_for(&s, &ds_again).unwrap().remove(0);
-    assert!(plan_again.home_after.eq_ignore_ascii_case(&canon(&prj.join("SmoothLite"))));
+    assert!(plan_again.home_after.eq_ignore_ascii_case(&canon(&prj.join("Design/SmoothLite"))));
     let _ = stray_design;
 
     // Single new ipadcover photo is caught as PhotoSubject and routed by Fresh to 2026/ipadcover.
@@ -558,4 +559,80 @@ fn sets_ignore_software_bundles_media_art_duplicate_copies_and_ebook_titles() {
     assert_eq!(rep.design_sets, 1, "{rep:?}: {:?}", sets_of(&s, CollectionKind::DesignSet));
     assert_eq!(rep.photo_subjects, 0, "{rep:?}: {:?}", sets_of(&s, CollectionKind::PhotoSubject));
     assert_eq!(sets_of(&s, CollectionKind::DesignSet)[0].name, "Back Cement");
+}
+
+#[test]
+fn design_projects_separate_into_design_shelf_and_reclassify_cleanly() {
+    let (_t, mut s, _pics, _dl, _docs, prj) = setup_pc();
+
+    // A Software repo with its own nested `Design` subfolder stays untouched in Prj\MyApp.
+    put(&prj, "MyApp/.git/HEAD", b"ref: refs/heads/main\n");
+    put(&prj, "MyApp/Cargo.toml", b"[package]\nname = \"my-app\"\nversion = \"0.1.0\"\n");
+    put(&prj, "MyApp/src/main.rs", b"fn main() {}\n");
+    put(&prj, "MyApp/Design/logo.svg", b"<svg/>");
+    put(&prj, "MyApp/Design/palette.png", b"png");
+    put(&prj, "MyApp/Design/screen.psd", b"psd");
+
+    // Two Design projects sitting flat in Prj alongside code projects.
+    put(&prj, "SmoothLite/SmoothLite.svg", b"<svg/>");
+    put(&prj, "SmoothLite/SmoothLite-Box.psd", b"psd");
+    put(&prj, "SmoothLite/SmoothLite-Print.pdf", b"pdf");
+    put(&prj, "Back Cement/Back Cement.ai", b"ai");
+    put(&prj, "Back Cement/Back Cement-Label.png", b"png");
+    put(&prj, "Back Cement/Back Cement-Spec.pdf", b"pdf");
+
+    rescan(&mut s, &[&prj]);
+    recognise(&mut s).unwrap();
+
+    let projs = sets_of(&s, CollectionKind::Project);
+    assert_eq!(projs.len(), 3, "expected MyApp, SmoothLite, Back Cement: {projs:?}");
+    let app = projs.iter().find(|c| c.name == "MyApp").unwrap();
+    let smooth = projs.iter().find(|c| c.name == "SmoothLite").unwrap();
+    let cement = projs.iter().find(|c| c.name == "Back Cement").unwrap();
+    assert_eq!(app.project_kind, Some(ProjectKind::Software));
+    assert_eq!(smooth.project_kind, Some(ProjectKind::Design));
+    assert_eq!(cement.project_kind, Some(ProjectKind::Design));
+
+    let app_plan = plan_for(&s, app).unwrap().remove(0);
+    assert!(app_plan.steps.is_empty(), "software project in Prj stays put: {app_plan:?}");
+
+    let smooth_plan = plan_for(&s, smooth).unwrap().remove(0);
+    assert_eq!(smooth_plan.steps.len(), 1);
+    assert_eq!(smooth_plan.steps[0].kind, StepKind::MoveHome);
+    assert!(smooth_plan.home_after.eq_ignore_ascii_case(&format!(r"{}\Design\SmoothLite", canon(&prj))));
+
+    let cement_plan = plan_for(&s, cement).unwrap().remove(0);
+    assert_eq!(cement_plan.steps.len(), 1);
+    assert_eq!(cement_plan.steps[0].kind, StepKind::MoveHome);
+    assert!(cement_plan.home_after.eq_ignore_ascii_case(&format!(r"{}\Design\Back Cement", canon(&prj))));
+
+    // Execute SmoothLite's move into Prj\Design\SmoothLite.
+    let batch = propose(&mut s, smooth, &smooth_plan).unwrap();
+    assert!(run(&mut s, &batch).unwrap().done);
+    assert!(!prj.join("SmoothLite").exists());
+    assert!(prj.join("Design/SmoothLite/SmoothLite.svg").is_file());
+
+    // Re-scan and confirm Prj\Design is treated as a shelf (not a project) and SmoothLite needs no further move.
+    rescan(&mut s, &[&prj]);
+    recognise(&mut s).unwrap();
+    let after = sets_of(&s, CollectionKind::Project);
+    assert!(!after.iter().any(|c| c.name.eq_ignore_ascii_case("Design")), "Design shelf must not become a project card: {after:?}");
+    let smooth_in_shelf = after.iter().find(|c| c.name == "SmoothLite").unwrap();
+    assert_eq!(smooth_in_shelf.project_kind, Some(ProjectKind::Design));
+    let settled_plan = plan_for(&s, smooth_in_shelf).unwrap().remove(0);
+    assert!(settled_plan.steps.is_empty(), "SmoothLite inside Prj\\Design should be home: {settled_plan:?}");
+
+    // One-click reclassification to Software plans moving it back out to Prj\SmoothLite, and executes cleanly.
+    answer(&mut s, &smooth_in_shelf.id, None, Answer::SetKind { project_kind: ProjectKind::Software }).unwrap();
+    let flipped = sets_of(&s, CollectionKind::Project).into_iter().find(|c| c.name == "SmoothLite").unwrap();
+    assert_eq!(flipped.project_kind, Some(ProjectKind::Software));
+    let out_plan = plan_for(&s, &flipped).unwrap().remove(0);
+    assert_eq!(out_plan.steps.len(), 1);
+    assert_eq!(out_plan.steps[0].kind, StepKind::MoveHome);
+    assert!(out_plan.home_after.eq_ignore_ascii_case(&canon(&prj.join("SmoothLite"))));
+
+    let batch_back = propose(&mut s, &flipped, &out_plan).unwrap();
+    assert!(run(&mut s, &batch_back).unwrap().done);
+    assert!(prj.join("SmoothLite/SmoothLite.svg").is_file());
+    assert!(!prj.join("Design/SmoothLite").exists());
 }

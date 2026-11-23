@@ -746,6 +746,7 @@ pub fn find_sets(
         };
 
         let name_override = answer_for(decisions, DecisionKind::Name, &set_fp).map(|d| d.value.clone());
+        let kind_override = answer_for(decisions, DecisionKind::ProjectKind, &set_fp).map(|d| ProjectKind::from_db(&d.value));
         let leave_as_is = answer_for(decisions, DecisionKind::LeaveAsIs, &set_fp).is_some_and(|d| d.value == "yes");
         let confirmed_yes = is_proj_ans.is_some_and(|d| d.value == "yes");
         let produced_together = has_produced_together(&files);
@@ -827,7 +828,7 @@ pub fn find_sets(
                     id: cid,
                     kind: CollectionKind::DesignSet,
                     name: display,
-                    project_kind: Some(ProjectKind::Design),
+                    project_kind: Some(kind_override.unwrap_or(ProjectKind::Design)),
                     confidence: conf,
                     state: state.into(),
                     evidence,

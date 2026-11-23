@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, CircleCheck, Copy, GitBranch, HardDrive, History, House, Layers, Loader2, RefreshCw, SearchCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CircleCheck, Code2, Copy, FileText, Folder, GitBranch, HardDrive, History, House, Layers, Loader2, Palette, RefreshCw, SearchCheck } from "lucide-react";
 import {
   aegis,
   errorMessage,
@@ -8,6 +8,7 @@ import {
   type Location,
   type PlanOutcome,
   type PlanStep,
+  type ProjectKind,
   type ProjectPlan,
   type Relationship,
 } from "../bindings/client";
@@ -29,13 +30,69 @@ function shortPath(p: string, keep = 4): string {
   return parts.length <= keep ? parts.join("\\") : `…\\${parts.slice(-keep).join("\\")}`;
 }
 
-const KIND_TEXT: Record<string, string> = {
-  software: "Software",
-  design: "Design",
-  writing: "Writing",
-  research: "Research",
-  other: "Other",
+const KIND_ORDER: ProjectKind[] = ["software", "design", "writing", "research", "other"];
+
+const KIND_META: Record<ProjectKind, { label: string; tone: string; pill: string; icon: ReactNode }> = {
+  software: {
+    label: "Software",
+    tone: "bg-sky-500/15 text-sky-300",
+    pill: "border-sky-500/50 bg-sky-500/15 text-sky-200",
+    icon: <Code2 className="h-3 w-3 shrink-0" aria-hidden="true" />,
+  },
+  design: {
+    label: "Design",
+    tone: "bg-fuchsia-500/15 text-fuchsia-300",
+    pill: "border-fuchsia-500/50 bg-fuchsia-500/15 text-fuchsia-200",
+    icon: <Palette className="h-3 w-3 shrink-0" aria-hidden="true" />,
+  },
+  writing: {
+    label: "Writing",
+    tone: "bg-amber-500/15 text-amber-300",
+    pill: "border-amber-500/50 bg-amber-500/15 text-amber-200",
+    icon: <FileText className="h-3 w-3 shrink-0" aria-hidden="true" />,
+  },
+  research: {
+    label: "Research",
+    tone: "bg-violet-500/15 text-violet-300",
+    pill: "border-violet-500/50 bg-violet-500/15 text-violet-200",
+    icon: <BookOpen className="h-3 w-3 shrink-0" aria-hidden="true" />,
+  },
+  other: {
+    label: "Other",
+    tone: "bg-slate-800 text-slate-300",
+    pill: "border-slate-600 bg-slate-800 text-slate-100",
+    icon: <Folder className="h-3 w-3 shrink-0" aria-hidden="true" />,
+  },
 };
+
+function KindBadge({ kind }: { kind: ProjectKind | null | undefined }) {
+  const m = KIND_META[kind ?? "other"];
+  return (
+    <Chip tone={`${m.tone} inline-flex items-center gap-1`}>
+      {m.icon}
+      {m.label}
+    </Chip>
+  );
+}
+
+function KindSelect({ c, ans }: { c: Collection; ans: Answering }) {
+  const val = c.project_kind ?? "other";
+  return (
+    <select
+      aria-label={`Project type for ${c.name}`}
+      value={val}
+      disabled={ans.busy}
+      onChange={(e) => void ans.send(c, { kind: "set_kind", project_kind: e.target.value as ProjectKind })}
+      className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[11px] font-medium text-slate-200 hover:border-slate-500 disabled:opacity-40"
+    >
+      {KIND_ORDER.map((k) => (
+        <option key={k} value={k}>
+          {KIND_META[k].label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 /** How a copy relates to the main copy, in plain words, with its icon and colour. */
 function relation(l: Location): { label: string; detail: string; icon: ReactNode; tone: string } {
@@ -102,8 +159,10 @@ const stepFor = (p: ProjectPlan | undefined, l: Location) => p?.steps.filter((s)
 
 function lineOf(s: PlanStep): string {
   switch (s.kind) {
-    case "move_home":
-      return `moves whole to ${s.to} (your projects home)`;
+    case "move_home": {
+      const inDesign = /[\\/]design[\\/][^\\/]+$/i.test(s.to);
+      return `moves whole to ${s.to} (${inDesign ? "your design projects folder" : "your projects home"})`;
+    }
     case "quarantine":
       return "to quarantine for 30 days: all of it is in the main copy";
     case "to_versions":
@@ -292,8 +351,9 @@ function ProjectCard({ c, ans, pl }: { c: Collection; ans: Answering; pl: Planni
   const [name, setName] = useState(c.name);
   const home = c.kind === "design_set" ? undefined : (c.locations.find((l) => l.relationship === "home") ?? c.locations[0]);
   const others = home ? c.locations.filter((l) => l !== home) : c.locations;
+  const isDesign = c.project_kind === "design";
   return (
-    <section aria-label={c.name} className={`${card} grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]`}>
+    <section aria-label={c.name} className={`${card}${isDesign ? " border-l-2 border-l-fuchsia-500/70" : ""} grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]`}>
       <div className="flex flex-col gap-3 border-b border-slate-800 p-4 md:border-b-0 md:border-r">
         <div className="space-y-1.5">
           {renaming ? (
@@ -320,8 +380,9 @@ function ProjectCard({ c, ans, pl }: { c: Collection; ans: Answering; pl: Planni
           ) : (
             <h2 className="text-base font-semibold text-slate-100">{c.name}</h2>
           )}
-          <div className="flex flex-wrap gap-1.5">
-            <Chip tone="bg-slate-800 text-slate-300">{KIND_TEXT[c.project_kind ?? "other"]}</Chip>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <KindBadge kind={c.project_kind} />
+            <KindSelect c={c} ans={ans} />
             <SureChip c={c} />
             <Chip tone="bg-slate-800 text-slate-300">
               {c.locations.length} {c.locations.length === 1 ? "place" : "places"}
@@ -379,14 +440,15 @@ function ConfirmList({ items, ans }: { items: Collection[]; ans: Answering }) {
           const l = c.locations[0];
           return (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
-              <span className="min-w-0 text-xs">
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+                <KindBadge kind={c.project_kind} />
                 <span className="font-medium text-slate-100">{c.name}</span>
                 <span className="text-slate-400">
-                  {" "}
                   · {nameOf(parentOf(l.root_path))} · {l.files.toLocaleString()} files · {whyOf(c)[0] ?? ""}
                 </span>
               </span>
-              <span className="flex gap-2">
+              <span className="flex flex-wrap items-center gap-2">
+                <KindSelect c={c} ans={ans} />
                 <button type="button" className={primary} disabled={ans.busy} onClick={() => void ans.send(c, { kind: "is_project", yes: true })}>
                   It's a project
                 </button>
@@ -411,6 +473,8 @@ function previewAnswer(list: Collection[], c: Collection, a: Answer, locationId?
       return list.map((x) => (x.id === c.id ? { ...x, state: "left_as_is" } : x));
     case "rename":
       return list.map((x) => (x.id === c.id ? { ...x, name: a.name } : x));
+    case "set_kind":
+      return list.map((x) => (x.id === c.id ? { ...x, project_kind: a.project_kind } : x));
     case "not_same_as": {
       const l = c.locations.find((x) => x.id === locationId);
       if (!l) return list;
@@ -443,6 +507,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
   const [realPlans, setRealPlans] = useState<ProjectPlan[]>([]);
   const [running, setRunning] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
+  const [kindFilter, setKindFilter] = useState<ProjectKind | "all">("all");
 
   const load = useCallback(async () => {
     if (preview) {
@@ -568,8 +633,17 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
       setNote(`Found ${parts.join(", ")} in ${(rep.took_ms / 1000).toFixed(0)} s.`);
     });
 
+  const kindCounts = useMemo(() => {
+    const counts: Record<ProjectKind, number> = { software: 0, design: 0, writing: 0, research: 0, other: 0 };
+    for (const c of list ?? []) {
+      const k = c.project_kind ?? "other";
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    return counts;
+  }, [list]);
+
   const groups = useMemo(() => {
-    const all = list ?? [];
+    const all = (list ?? []).filter((c) => kindFilter === "all" || (c.project_kind ?? "other") === kindFilter);
     const asks = (c: Collection) => c.state === "candidate" && c.confidence < SURE && c.locations.length === 1;
     // Simplest and safest plans first (spec §8.5), then the rest.
     const rank = (c: Collection) => planOf(plans, c)?.rank ?? 9;
@@ -579,7 +653,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
       confirm: all.filter(asks),
       single: all.filter((c) => c.locations.length === 1 && !asks(c)).sort(byRank),
     };
-  }, [list, plans]);
+  }, [list, plans, kindFilter]);
 
   return (
     <div className="space-y-4">
@@ -607,6 +681,43 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
           )}
         </button>
       </header>
+      {list && list.length > 0 && (
+        <div role="tablist" aria-label="Filter projects by kind" className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kindFilter === "all"}
+            onClick={() => setKindFilter("all")}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+              kindFilter === "all"
+                ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+                : "border-slate-700 text-slate-300 hover:bg-slate-800"
+            }`}
+          >
+            All <span className="text-[11px] opacity-80">{list.length}</span>
+          </button>
+          {KIND_ORDER.filter((k) => kindCounts[k] > 0 || kindFilter === k).map((k) => {
+            const m = KIND_META[k];
+            const active = kindFilter === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setKindFilter(k)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  active ? m.pill : "border-slate-700 text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                {m.icon}
+                {m.label}
+                <span className="text-[11px] opacity-80">{kindCounts[k]}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {err && <p className="text-xs text-rose-300">{err}</p>}
       {note && (
         <p role="status" className="text-xs text-slate-300">
@@ -633,13 +744,21 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
               const move = p && !p.waits_for && c.state !== "left_as_is" ? p.steps.find((s) => s.kind === "move_home" || s.kind === "gather_files") : undefined;
               const out = outcomes[c.id];
               return (
-                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
+                <li
+                  key={c.id}
+                  className={`flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0 ${
+                    c.project_kind === "design" ? "border-l-2 border-l-fuchsia-500/60 pl-2" : ""
+                  }`}
+                >
                   <span className="min-w-0 text-xs">
-                    <span className="font-medium text-slate-100">{c.name}</span>{" "}
-                    <span className="text-slate-400" title={c.locations[0].root_path}>
-                      · {shortPath(c.locations[0].root_path, 3)} · {KIND_TEXT[c.project_kind ?? "other"]}
-                    </span>{" "}
-                    <SureChip c={c} />
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <KindBadge kind={c.project_kind} />
+                      <span className="font-medium text-slate-100">{c.name}</span>
+                      <span className="text-slate-400" title={c.locations[0].root_path}>
+                        · {shortPath(c.locations[0].root_path, 3)}
+                      </span>
+                      <SureChip c={c} />
+                    </span>
                     {move && !out?.done && (
                       <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-200" title={move.reason}>
                         <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />{" "}
@@ -653,7 +772,8 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                     )}
                     {out && !out.done && (out.undone ? <span className="mt-0.5 block text-[11px] text-slate-300">Undone: it is back where it was.</span> : <span className="mt-0.5 block text-[11px] text-rose-300">{out.reason}</span>)}
                   </span>
-                  <span className="flex gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <KindSelect c={c} ans={ans} />
                     {move && p && !out?.done && (
                       <button type="button" className={primary} disabled={running !== null || busy} onClick={() => pl.approve(c, p)}>
                         {running === c.id ? (

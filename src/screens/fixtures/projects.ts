@@ -168,7 +168,8 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
   for (const c of list) {
     if (c.state === "left_as_is") continue;
     if (c.kind === "design_set") {
-      const target = `${PRJ}\\${leafOf(c.name)}`;
+      const shelf = c.project_kind === "design" ? `${PRJ}\\Design` : PRJ;
+      const target = `${shelf}\\${leafOf(c.name)}`;
       const active = c.locations.filter((l) => !l.keep_here);
       const steps: PlanStep[] = active.map((l, idx) => ({
         step: idx + 1,
@@ -199,16 +200,21 @@ export function fixturePlans(list: Collection[]): ProjectPlan[] {
     const away = c.locations.filter((l) => l.volume_id !== home.volume_id);
     const steps: PlanStep[] = [];
     let homeAfter = home.root_path;
-    let target = `${PRJ}\\${leafOf(home.root_path)}`;
+    const baseDir = c.project_kind === "design" ? `${PRJ}\\Design` : PRJ;
+    let target = `${baseDir}\\${leafOf(home.root_path)}`;
     const atTarget = onPc.find((l) => l !== home && l.root_path.toLowerCase() === target.toLowerCase());
     // A copy kept where it is keeps its name too: the main copy takes another.
     const occupant = atTarget?.keep_here ? undefined : atTarget;
-    if (atTarget?.keep_here) target = `${target} (app ${new Date(home.newest_mtime).getFullYear()})`;
-    if (home.root_path.startsWith(V2)) {
+    if (atTarget?.keep_here) target = `${target} (${c.project_kind === "design" ? "design" : "app"} ${new Date(home.newest_mtime).getFullYear()})`;
+    const inDesignShelf = home.root_path.toLowerCase().startsWith(`${PRJ}\\design\\`.toLowerCase());
+    const inPrj = home.root_path.toLowerCase().startsWith(`${PRJ}\\`.toLowerCase());
+    const needsShelfFlip = (c.project_kind === "design" && inPrj && !inDesignShelf) || (c.project_kind !== "design" && inDesignShelf);
+    if ((home.root_path.startsWith(V2) || needsShelfFlip) && home.root_path.toLowerCase() !== target.toLowerCase()) {
       if (occupant) {
         steps.push({ step: 0, kind: "move_aside", location_id: occupant.id, from: occupant.root_path, to: `${target} (old copy)`, fallback: null, reason: "Moved aside first.", warnings: [] });
       }
-      steps.push({ step: 0, kind: "move_home", location_id: home.id, from: home.root_path, to: target, fallback: null, reason: `Moves whole to ${target} (your projects home).`, warnings: [] });
+      const whereLabel = c.project_kind === "design" ? "your design projects folder" : "your projects home";
+      steps.push({ step: 0, kind: "move_home", location_id: home.id, from: home.root_path, to: target, fallback: null, reason: `Moves whole to ${target} (${whereLabel}).`, warnings: [] });
       homeAfter = target;
     }
     const versions = `${homeAfter}\\Versions`;
