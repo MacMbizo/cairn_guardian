@@ -298,6 +298,9 @@ pub fn build_policy_context(store: &SqliteStore) -> Result<PolicyContext> {
         active_roots,
         volume_quarantine_dirs,
         dials: HashMap::new(),
+        care_cleanup_roots: crate::care::allowed_cleanup_roots(),
+        care_disposable_dirs: crate::care::allowed_disposable_cache_dirs(),
+        care_leftover_parents: crate::care::allowed_leftover_parents(),
     })
 }
 
@@ -2216,7 +2219,64 @@ pub fn disk_rescue_report(store: &SqliteStore) -> Result<DiskRescueReport> {
 }
 
 pub fn health_breakdown(conn: &Connection) -> Result<HealthBreakdown> {
-    // Count duplicate clusters in SQL instead of building the full dedupe report on every refresh.
+    let now = now_ms();
+    let dead_cutoff = now - 180i64 * 24 * 60 * 60 * 1000;
+    let dead_min_bytes = 100i64 * 1024 * 1024;
+    let expiry_soon = now + 3i64 * 24 * 60 * 60 * 1000;
+
+    // 1. Storage headroom & drive SMART/read health (`North Star §2.2 #5`).
+    let mut low_headroom_vols = 0usize;
+    let mut worst_headroom_penalty = 0.0f64;
+    {
+        let mut st = conn.prepare(
+            "SELECT v.id,
+                    (SELECT used_bytes FROM space_samples s WHERE s.volume_id = v.id ORDER BY day DESC LIMIT 1),
+                    (SELECT total_bytes FROM space_samples s WHERE s.volume_id = v.id ORDER BY day DESC LIMIT 1)
+             FROM volumes v WHERE v.status = 'online'",
+        )?;
+        for row in st.query_map([], |r| Ok((r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?)))? {
+            if let (Some(used), Some(total)) = row?
+                && total > 0
+            {
+                let free_pct = ((total - used).max(0) as f64 / total as f64) * 100.0;
+                if free_pct < 15.0 {
+                    low_headroom_vols += 1;
+                    worst_headroom_penalty = worst_headroom_penalty.max((15.0 - free_pct) * 4.0);
+                }
+            }
+        }
+    }
+    let drive_alerts: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM reminders WHERE kind IN ('drive_smart', 'drive_errors') AND resolved_at IS NULL",
+        [],
+        |r| r.get(0),
+    )?;
+    let storage_score = (100.0 - worst_headroom_penalty - (drive_alerts as f64) * 25.0).clamp(15.0, 100.0);
+    let storage_offenders = low_headroom_vols + drive_alerts.max(0) as usize;
+
+    // 2. Backup coverage & security/integrity posture.
+    let open_sec: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM security_findings WHERE status = 'open'",
+        [],
+        |r| r.get(0),
+    )?;
+    let (backup_shortfalls, unprotected_penalty) = match crate::backup::priority::coverage_summary(conn)? {
+        Some(cov) => {
+            let unprot: i64 = cov.tiers.iter().filter(|t| t.tier == 1 || t.tier == 2).map(|t| t.unprotected_bytes).sum();
+            let total: i64 = cov.tiers.iter().filter(|t| t.tier == 1 || t.tier == 2).map(|t| t.protected_bytes + t.unprotected_bytes).sum();
+            if unprot > 0 && total > 0 {
+                let ratio = (unprot as f64 / total as f64).clamp(0.0, 1.0);
+                (1usize, ratio * 35.0)
+            } else {
+                (0usize, 0.0)
+            }
+        }
+        None => (0usize, 0.0),
+    };
+    let backup_score = (100.0 - unprotected_penalty - (open_sec as f64) * 15.0).clamp(10.0, 100.0);
+    let backup_offenders = backup_shortfalls + open_sec.max(0) as usize;
+
+    // 3. Exact duplicate hygiene (SQL group count).
     let dupe_offenders: i64 = conn.query_row(
         "SELECT COUNT(*) FROM (
             SELECT blake3 FROM files
@@ -2226,40 +2286,61 @@ pub fn health_breakdown(conn: &Connection) -> Result<HealthBreakdown> {
         [],
         |r| r.get(0),
     )?;
+    let dup_score = (100.0 - (dupe_offenders as f64) * 5.0).max(20.0);
+
+    // 4. Build caches & stale unowned large dead files (`North Star §2.2 #4`).
     let cache_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM cache_dirs WHERE state = 'active'",
         [],
         |r| r.get(0),
     )?;
-    let open_findings: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM security_findings WHERE status = 'open'",
-        [],
+    let dead_large_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files f
+         JOIN volumes v ON v.id = f.volume_id
+         WHERE f.deleted_at IS NULL AND f.state = 'active'
+           AND v.role != 'backup' AND f.atomic_unit_id IS NULL
+           AND f.size >= ?1 AND f.mtime <= ?2
+           AND NOT EXISTS (SELECT 1 FROM collection_members cm WHERE cm.file_id = f.id)",
+        params![dead_min_bytes, dead_cutoff],
         |r| r.get(0),
     )?;
-    let unindexed_placeholders: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND cloud_state = 'placeholder_remote'",
-        [],
-        |r| r.get(0),
-    )?;
+    let junk_count = cache_count + dead_large_count;
+    let hygiene_score = (100.0 - (junk_count as f64) * 4.0).max(25.0);
+
+    // 5. Pending actions & soon-to-expire quarantine reviews.
     let pending_actions: i64 = conn.query_row(
         "SELECT COUNT(*) FROM actions WHERE status = 'proposed'",
         [],
         |r| r.get(0),
     )?;
+    let expiring_q: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM quarantine_entries
+         WHERE restored_at IS NULL AND purged_at IS NULL AND expires_at <= ?1",
+        params![expiry_soon],
+        |r| r.get(0),
+    )?;
+    let review_count = pending_actions + expiring_q;
+    let org_score = (100.0 - (review_count as f64) * 2.0).max(35.0);
 
-    let dup_score = (100.0 - (dupe_offenders as f64) * 5.0).max(20.0);
-    let hygiene_score = (100.0 - (cache_count as f64) * 4.0).max(30.0);
-    let sec_score = (100.0 - (open_findings as f64) * 15.0).max(10.0);
-    let cov_score = (100.0 - (unindexed_placeholders as f64) * 0.5).max(50.0);
-    let org_score = (100.0 - (pending_actions as f64) * 2.0).max(40.0);
-
-    let overall = ((dup_score + hygiene_score + sec_score + cov_score + org_score) / 5.0 * 10.0)
+    let overall = ((storage_score + backup_score + dup_score + hygiene_score + org_score) / 5.0 * 10.0)
         .round()
         / 10.0;
 
     Ok(HealthBreakdown {
         overall_score: overall,
         dimensions: vec![
+            HealthDimension {
+                id: "storage".into(),
+                label: "Disk Headroom & Drive Health".into(),
+                score: storage_score,
+                offenders_count: storage_offenders,
+            },
+            HealthDimension {
+                id: "backup".into(),
+                label: "Backup & Integrity Protection".into(),
+                score: backup_score,
+                offenders_count: backup_offenders,
+            },
             HealthDimension {
                 id: "duplication".into(),
                 label: "Duplication Hygiene".into(),
@@ -2268,27 +2349,15 @@ pub fn health_breakdown(conn: &Connection) -> Result<HealthBreakdown> {
             },
             HealthDimension {
                 id: "caches".into(),
-                label: "Build Caches & Junk".into(),
+                label: "Build Caches & Dead Files".into(),
                 score: hygiene_score,
-                offenders_count: cache_count.max(0) as usize,
-            },
-            HealthDimension {
-                id: "security".into(),
-                label: "Secrets & PII Posture".into(),
-                score: sec_score,
-                offenders_count: open_findings.max(0) as usize,
-            },
-            HealthDimension {
-                id: "coverage".into(),
-                label: "Index Coverage".into(),
-                score: cov_score,
-                offenders_count: unindexed_placeholders.max(0) as usize,
+                offenders_count: junk_count.max(0) as usize,
             },
             HealthDimension {
                 id: "organization".into(),
-                label: "Refiling Queue".into(),
+                label: "Pending Reviews & Quarantine".into(),
                 score: org_score,
-                offenders_count: pending_actions.max(0) as usize,
+                offenders_count: review_count.max(0) as usize,
             },
         ],
     })

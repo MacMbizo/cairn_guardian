@@ -457,6 +457,7 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
             Box::new(OnlyCopyWatch),
             Box::new(QuarantineExpiryWatch),
             Box::new(DriveErrorsWatch),
+            Box::new(aegis_core::care::watch::SmartHealthWatch::default()),
             Box::new(SelfCheckWatch::new(vec![("live_index", LIVE_INDEX_EVERY_MS)], Some(db_path.clone()))),
             Box::new(SpaceWatch {
                 volumes: Box::new(move || vols_for_watch.lock().map(|v| v.clone()).unwrap_or_default()),

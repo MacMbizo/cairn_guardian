@@ -75,6 +75,13 @@ pub struct PolicyContext {
     pub active_roots: Vec<PathBuf>,
     pub volume_quarantine_dirs: Vec<PathBuf>,
     pub dials: HashMap<ActionClass, AutonomyDial>,
+    /// Designated child-only cleanup roots allowed for `system_care` quarantine proposals.
+    pub care_cleanup_roots: Vec<PathBuf>,
+    /// Exact disposable cache leaf dirs (`BrowserCache`, `DevCache`) allowed directly for `system_care`.
+    pub care_disposable_dirs: Vec<PathBuf>,
+    /// Designated profile parents (`%LOCALAPPDATA%`, `%APPDATA%`) where direct child leftover dirs
+    /// passing `is_safe_leftover_name` may be proposed by `system_care` for 30-day quarantine.
+    pub care_leftover_parents: Vec<PathBuf>,
 }
 
 impl Default for PolicyContext {
@@ -84,6 +91,9 @@ impl Default for PolicyContext {
             active_roots: Vec::new(),
             volume_quarantine_dirs: Vec::new(),
             dials: HashMap::new(),
+            care_cleanup_roots: Vec::new(),
+            care_disposable_dirs: Vec::new(),
+            care_leftover_parents: Vec::new(),
         }
     }
 }
@@ -216,7 +226,75 @@ impl PolicyContext {
         }
     }
 
+    fn canon_eq(a: &Path, b: &Path) -> bool {
+        let norm = |p: &Path| {
+            let s = p.to_string_lossy();
+            s.strip_prefix(r"\\?\")
+                .unwrap_or(&s)
+                .replace('\\', "/")
+                .trim_end_matches('/')
+                .to_string()
+        };
+        if cfg!(windows) {
+            norm(a).eq_ignore_ascii_case(&norm(b))
+        } else {
+            norm(a) == norm(b)
+        }
+    }
+
+    /// Strict System Care scope allow-list (`K1`/`K2`/`R3`): only `system_care` + `Quarantine` actions
+    /// targeting either a strict child of `care_cleanup_roots` or a safe direct child folder inside
+    /// `care_leftover_parents` may operate outside `active_roots`. Always requires owner approval.
+    pub fn is_care_quarantine_allowed(&self, action: &PolicyAction<'_>) -> bool {
+        if action.agent != Some(crate::care::SYSTEM_CARE_AGENT)
+            || action.action_type != ActionType::Quarantine
+        {
+            return false;
+        }
+        if let Some(to) = action.to_path
+            && !self.is_in_quarantine_dir(to)
+        {
+            return false;
+        }
+        let Some(canon_from) = canonicalize_safe(action.from_path) else {
+            return false;
+        };
+        if crate::care::path_contains_aegis_internal(&canon_from) {
+            return false;
+        }
+
+        let in_disposable_dir = self.care_disposable_dirs.iter().any(|dir| {
+            canonicalize_safe(dir).is_some_and(|cd| path_starts_with_ci(&canon_from, &cd))
+        });
+        if in_disposable_dir {
+            return true;
+        }
+
+        let in_cleanup_child = self.care_cleanup_roots.iter().any(|root| {
+            canonicalize_safe(root).is_some_and(|cr| {
+                path_starts_with_ci(&canon_from, &cr) && !Self::canon_eq(&canon_from, &cr)
+            })
+        });
+        if in_cleanup_child {
+            return true;
+        }
+
+        action.target_kind == TargetKind::Dir
+            && canon_from
+                .file_name()
+                .is_some_and(|n| crate::care::apps::is_safe_leftover_name(&n.to_string_lossy()))
+            && canon_from.parent().is_some_and(|parent| {
+                self.care_leftover_parents.iter().any(|allowed_parent| {
+                    canonicalize_safe(allowed_parent)
+                        .is_some_and(|cp| Self::canon_eq(parent, &cp))
+                })
+            })
+    }
+
     pub fn within_active_roots(&self, action: &PolicyAction<'_>) -> bool {
+        if self.is_care_quarantine_allowed(action) {
+            return true;
+        }
         let from_ok = match action.action_type {
             ActionType::Restore | ActionType::Purge => {
                 self.is_in_quarantine_dir(action.from_path)

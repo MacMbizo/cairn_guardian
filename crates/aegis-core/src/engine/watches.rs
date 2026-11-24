@@ -249,6 +249,7 @@ impl Watch for SelfCheckWatch {
 fn watch_label(name: &str) -> String {
     match name {
         "live_index" => "Live file watching".into(),
+        "smart_health" => "Drive health check".into(),
         other => {
             let mut c = other.replace('_', " ");
             if let Some(f) = c.get(0..1) {

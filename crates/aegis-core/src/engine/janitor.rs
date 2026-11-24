@@ -234,7 +234,7 @@ pub fn installer_matches(file_stem: &str, installed: &[String]) -> bool {
         let n = tokens(name);
         n.first() == Some(first)
             && match (t.get(1), n.get(1)) {
-                (Some(a), Some(b)) => a == b || t.len() > 2,
+                (Some(a), Some(b)) => a == b,
                 _ => true,
             }
     })

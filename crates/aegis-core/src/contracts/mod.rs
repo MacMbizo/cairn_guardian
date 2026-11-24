@@ -1077,6 +1077,18 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <DiscoveredModel as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <EmbedStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <EmbedSyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::CleanupScanReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::InstalledApp as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::LeftoverFolder as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::StartupEntry as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::DriveHealthItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::VolumeTrendPoint as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::VolumeTrend as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::RootTrend as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::care::DiskTrendsReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
 
     let mut stems = Vec::new();
     for entry in std::fs::read_dir(out_dir)? {

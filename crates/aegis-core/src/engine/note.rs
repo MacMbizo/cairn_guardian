@@ -100,6 +100,7 @@ pub fn kind_label(kind: &str) -> &str {
         "quarantine_expiry" => "quarantine about to empty",
         "space" => "running out of space",
         "janitor" => "Downloads tidy-ups",
+        "drive_smart" => "drive health warnings",
         other => other,
     }
 }

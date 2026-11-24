@@ -182,6 +182,7 @@ fn policy_engine_truth_table() {
         active_roots: vec![root.clone()],
         volume_quarantine_dirs: vec![q_root.clone()],
         dials: dials.clone(),
+        ..Default::default()
     };
 
     // 1. Outside configured roots blocked

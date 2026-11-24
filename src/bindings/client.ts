@@ -41,10 +41,14 @@ import type {
   ActionStatus,
   AtomicUnit,
   AuditEntry,
+  CleanupCandidate,
+  CleanupScanReport,
   ConflictResolutionChoice,
   CoverageReport,
   DiskRescueReport,
+  DiskTrendsReport,
   DoctorReport,
+  DriveHealthItem,
   DupeReport,
   EmbedStatus,
   EmbedSyncReport,
@@ -53,6 +57,8 @@ import type {
   HardwareProfile,
   HealthBreakdown,
   IndexStats,
+  InstalledApp,
+  LeftoverFolder,
   LifecycleState,
   QuarantineEntry,
   QuarantineSpaceSummary,
@@ -64,6 +70,7 @@ import type {
   SearchFilters,
   SearchPage,
   Simulation,
+  StartupEntry,
   VaultStatus,
   VolumeInfo,
 } from "./index";
@@ -316,5 +323,19 @@ export const aegis = {
     selectModel: (modelPath: string | null) =>
       call<EmbedStatus>("embed_select_model", { modelPath }),
     unload: () => call<EmbedStatus>("embed_unload"),
+  },
+  care: {
+    scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),
+    proposeCleanup: (items: CleanupCandidate[]) =>
+      call<string>("care_propose_cleanup", { items }),
+    installedApps: () => call<InstalledApp[]>("care_installed_apps"),
+    leftoverFolders: () => call<LeftoverFolder[]>("care_leftover_folders"),
+    launchUninstaller: (appId: string) =>
+      call<void>("care_launch_uninstaller", { appId }),
+    openWindowsApps: () => call<void>("care_open_windows_apps"),
+    startupItems: () => call<StartupEntry[]>("care_startup_items"),
+    openStartupSettings: () => call<void>("care_open_startup_settings"),
+    driveHealth: () => call<DriveHealthItem[]>("care_drive_health"),
+    diskTrends: (days?: number) => call<DiskTrendsReport>("care_disk_trends", { days }),
   },
 };

@@ -6,7 +6,8 @@ Updated 2026-11-24. This is the whole-project view. `HANDOFF.md` covers the work
 
 | Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3, Context-aware filing Plans 1–5, **Plan 6A** (SQLCipher whole-store encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, 24-word/64-hex recovery, `R7`, `R9`), and **Plan 6B** (local `aegis-embed`, encrypted `vec_chunks`, hybrid FTS5+vector RRF search, AC-gated `EmbedWatch`), fast-forward merged 2026-11-24. Not pushed. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–5, **Plan 6A** (SQLCipher encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, recovery, `R7`, `R9`), **Plan 6B** (local `aegis-embed`, encrypted `vec_chunks`, hybrid RRF search, AC-gated `EmbedWatch`), and **Project 4** (Windows System Care: cleanup & dead files, `R3` read-only apps/startup + left-over quarantine, SMART watch, disk trends, 5-dimension health score), fast-forward merged 2026-11-24. Not pushed. |
+| `feature/system-care` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/embeddings-hybrid-search` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/d1-encryption-and-vec` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/context-modules-step7` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
@@ -15,11 +16,11 @@ Updated 2026-11-24. This is the whole-project view. `HANDOFF.md` covers the work
 | `feature/project-plans` | Tip matching pre-Plan-3 `master`. Not pushed. |
 | `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification on `master` (fast-forward from `feature/embeddings-hybrid-search`):
-- `cargo test --workspace`: **525 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/hybrid_search.rs` (`0.12s`), **6** in `crates/aegis-core/tests/d1_encryption.rs` (`0.64s`), **5** in `crates/aegis-embed` (`8.46s`, incl. live `nomic_gguf_live_semantic_check`), **11** in `aegis-desktop`, **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/context_modules.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.16s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
+Verification on `master` (fast-forward from `feature/system-care`):
+- `cargo test --workspace`: **543 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/system_care.rs` (`0.09s`), **6** in `crates/aegis-core/tests/hybrid_search.rs` (`0.19s`), **6** in `crates/aegis-core/tests/d1_encryption.rs` (`0.77s`), **5** in `crates/aegis-embed` (`10.50s`, incl. live `nomic_gguf_live_semantic_check`), **11** in `aegis-desktop`, **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/context_modules.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.18s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
 - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings).
 - `cargo check -p aegis-desktop --features custom-protocol`: clean.
-- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `808ms`).
+- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `796ms`).
 - Prior Plan 5 live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **239** projects (`84` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **18** software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), **9** owner's folders, **4** resources, **52** series seasons, **2** old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **249** project/set/old-copy plans in `18.8s` debug (including `New Volume` offline waits & same-drive plans), `"Old copy": 9747` kept whole on `New Volume` Fresh/Tidy, **1** `put back together` proposal (`ipadcover`), and weekly-note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
 
 ## 2. Done
@@ -38,8 +39,12 @@ Verification on `master` (fast-forward from `feature/embeddings-hybrid-search`):
 | 3e | Context-aware filing, Plan 5 (§16 step 7): Software packages, Owner's folders, Resources, Series, Old copies & external drive plans | Done, merged 2026-11-24 |
 | 3f | D1 Encryption & `sqlite-vec` foundation (Plan 6A): SQLCipher whole-store, DPAPI `R2`, 24-word/hex recovery, `R7` sensitive views, `R9` guard | Done, merged 2026-11-24 |
 | 3g | Local embeddings & Context-aware hybrid search (Plan 6B): pure-Rust `aegis-embed`, encrypted `vec_chunks`, RRF hybrid search, AC-gated `EmbedWatch` | Done, merged 2026-11-24 |
-| 4 | System care | Next active |
+| 4 | System care (temp/caches/dead files, `R3` read-only apps/startup + leftover quarantine, SMART watch, trends, health score) | Done, merged 2026-11-24 |
 | 5 | Visual app (grows alongside the others) | Ongoing |
+
+### Project 4 (System care) in one paragraph
+
+Delivers calm, non-destructive Windows System Care under every North Star guardrail (`K1`, `K2`, `K3`, `K5`, `R1`, `R3`, `R8`, `R9`). `crates/aegis-core/src/care/` scans aged temporary files, Windows CrashDumps/WER reports, disposable browser/dev caches (`Edge`, `Chrome`, `Brave`, `Vivaldi`, `Firefox`, `pip`, `npm`, `uv`, `NuGet`), active `cache_dirs`, Downloads janitor items, stale unowned leftover folders inside `%LOCALAPPDATA%`/`%APPDATA%`, and large stale untracked dead files (`DeadFiles`, >=100 MiB & >=180d outside projects/backups/atomic units) — proposing every removal exclusively into 30-day per-volume quarantine via strict `PolicyContext` allow-lists (`care_cleanup_roots`, `care_disposable_dirs`, `care_leftover_parents`, blocking protected vendor/Aegis dirs and auto-indexing uncatalogued files safely). Registry inspection (`care::apps`, `care::startup`) is strictly `KEY_READ`-only (`R3`): **Uninstall** invokes each app's own interactive `UninstallString` via backend registry lookup (`lookup_uninstall_command`), and Windows Apps / Startup Apps links open `ms-settings:appsfeatures` / `ms-settings:startupapps`. Non-admin Windows Storage CIM + `SmartHealthWatch` (`care::smart`, `care::watch`) monitors physical disk health without MFT/elevation (`R1`), `care::trends` computes 30d/90d volume and `root_samples` folder growth, `health_breakdown` scores the 5 storage-and-integrity dimensions (`storage`, `backup`, `duplication`, `caches`, `organization`), `janitor::installer_matches` fixes the deferred 3+ word false-match bug, and `src/screens/SystemCare.tsx` surfaces all 6 sub-tabs.
 
 ### Plan 6B in one paragraph
 
@@ -89,7 +94,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 **Still waiting on the owner:**
 1. Choose a new app name (another "eagis" / Aegis app already exists).
-2. Next active roadmap sequence (owner-approved 2026-11-23): **1. D1 Encryption + Embeddings & Hybrid Search** (now active after Plan 5 merge) → **Project 4: System care**.
+2. Next active roadmap sequence: **Capability #3 (Local RAG engine)** (built on merged Plan 6B hybrid search) or **owner live-PC checks / Project 5 UI polish**, per owner choice.
 
 ## 4. What remains
 
@@ -105,12 +110,6 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 ### Programme
 
-- **Project 4, System care:**
-  - temp files, caches, installers;
-  - unused apps (uninstall through Windows' own uninstaller only; **no registry cleaning**);
-  - startup items;
-  - SMART drive health;
-  - disk-space trends (daily space history is already recorded).
 - **Owner checks that need the installed build:**
   - `pnpm tauri build` and install;
   - notifications under "Aegis Guardian" open the right screen;
@@ -127,9 +126,9 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 ### Vision (north-star order, each with its own short design)
 
-1. Embeddings + hybrid search (FTS5 + vectors). Needs D1 first.
-2. Local RAG over it (models on demand only).
-3. Dead files and workspace health score (largely in System care).
+1. ~~Embeddings + hybrid search (FTS5 + vectors, after D1).~~ **Done** (Plan 6A & Plan 6B merged 2026-11-24).
+2. Local RAG over it (models on demand only) — **next vision capability**.
+3. ~~Dead files and workspace health score.~~ **Done** (merged 2026-11-24 in Project 4 System care).
 4. Forgotten asset recovery.
 5. Semantic version tracking (builds on the `Versions` folders).
 6. Knowledge extraction.
@@ -158,7 +157,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 - The hard-coded shortcut label.
 - Saving an invalid shortcut unregisters the working one.
 - The `mark_interrupted_jobs` race at startup.
-- The installer-name first-word match.
+- ~~The installer-name first-word match.~~ **Resolved (Project 4, 2026-11-24):** `installer_matches` now requires the second meaningful word to match whenever both the installer and installed app have two or more words.
 - Rename events counted twice by the tripwire.
 - Copy fixes: the pause day, the janitor title, where only-copy files are.
 - Halt cards "(0 of N)".

@@ -52,6 +52,7 @@ pub enum Screen {
     Week,
     Settings,
     Filing,
+    Care,
 }
 
 /// What acting on a finding does.
