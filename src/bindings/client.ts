@@ -55,6 +55,9 @@ import type {
   ExecuteResult,
   FileDetail,
   HardwareProfile,
+  AssetRecoverItem,
+  AssetScanOptions,
+  ForgottenAssetsReport,
   HealthBreakdown,
   IndexStats,
   InstalledApp,
@@ -335,6 +338,31 @@ export const aegis = {
     cancel: () => call<void>("rag_cancel"),
     ask: (question: string, options?: RagAskOptions) =>
       call<RagAnswer>("rag_ask", { question, options }),
+  },
+  assets: {
+    scan: (options?: Partial<AssetScanOptions>) =>
+      call<ForgottenAssetsReport>("assets_scan", {
+        options: options
+          ? {
+              min_dormancy_days: options.min_dormancy_days ?? null,
+              families: options.families ?? null,
+              reasons: options.reasons ?? null,
+              drive_status: options.drive_status ?? null,
+              volume_id: options.volume_id ?? null,
+              query: options.query ?? null,
+              include_dismissed: options.include_dismissed ?? null,
+              limit: options.limit ?? null,
+            }
+          : undefined,
+      }),
+    enrichMetadata: (fileIds: string[]) =>
+      call<number>("assets_enrich_metadata", { fileIds }),
+    dismiss: (fileId: string, reason?: string) =>
+      call<void>("assets_dismiss", { fileId, reason }),
+    undismiss: (fileId: string) =>
+      call<void>("assets_undismiss", { fileId }),
+    proposeRecovery: (items: AssetRecoverItem[]) =>
+      call<string>("assets_propose_recovery", { items }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

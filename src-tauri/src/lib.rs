@@ -310,6 +310,11 @@ pub fn run() {
             commands::rag::rag_unload,
             commands::rag::rag_cancel,
             commands::rag::rag_ask,
+            commands::assets::assets_scan,
+            commands::assets::assets_enrich_metadata,
+            commands::assets::assets_dismiss,
+            commands::assets::assets_undismiss,
+            commands::assets::assets_propose_recovery,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

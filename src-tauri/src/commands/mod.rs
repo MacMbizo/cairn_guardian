@@ -1,5 +1,6 @@
 //! Tauri 2 IPC command handlers aligned with `C1_IPC_Action_Contracts.md` (v1.2).
 
+pub mod assets;
 pub mod care;
 pub mod context;
 pub mod drives;

@@ -54,6 +54,7 @@ pub enum Screen {
     Filing,
     Care,
     Ask,
+    Assets,
 }
 
 /// What acting on a finding does.

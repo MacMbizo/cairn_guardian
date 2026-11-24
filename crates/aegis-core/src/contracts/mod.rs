@@ -1089,6 +1089,14 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::rag::RagCitation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::rag::RagAskOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::rag::RagAnswer as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::AssetFamily as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::ForgottenReason as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::AssetScanOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::ForgottenAsset as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::AssetFamilyCount as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::AssetDriveSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::ForgottenAssetsReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::assets::AssetRecoverItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
