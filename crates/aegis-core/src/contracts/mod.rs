@@ -1097,6 +1097,16 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::assets::AssetDriveSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::assets::ForgottenAssetsReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::assets::AssetRecoverItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionLinkReason as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionScanOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionNode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionChain as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionScanReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::DiffLineKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::DiffLine as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::DiffHunk as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionDiffSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::versions::VersionDiffReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

@@ -9,6 +9,7 @@ pub mod engine;
 pub mod filing;
 pub mod rag;
 pub mod vault;
+pub mod versions;
 
 use aegis_core::contracts::{
     ActionItem, ActionStatus, AegisEvent, AtomicUnit, AuditEntry, ConflictResolutionChoice,

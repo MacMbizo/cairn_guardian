@@ -78,6 +78,10 @@ import type {
   Simulation,
   StartupEntry,
   VaultStatus,
+  VersionDiffReport,
+  VersionDiffSummary,
+  VersionScanOptions,
+  VersionScanReport,
   VolumeInfo,
 } from "./index";
 
@@ -363,6 +367,38 @@ export const aegis = {
       call<void>("assets_undismiss", { fileId }),
     proposeRecovery: (items: AssetRecoverItem[]) =>
       call<string>("assets_propose_recovery", { items }),
+  },
+  versions: {
+    scan: (options?: Partial<VersionScanOptions>) =>
+      call<VersionScanReport>("versions_scan", {
+        options: options
+          ? {
+              query: options.query ?? null,
+              collection_id: options.collection_id ?? null,
+              volume_id: options.volume_id ?? null,
+              signal: options.signal ?? null,
+              min_similarity: options.min_similarity ?? null,
+              only_with_dupes: options.only_with_dupes ?? null,
+              include_dismissed: options.include_dismissed ?? null,
+              limit: options.limit ?? null,
+            }
+          : undefined,
+      }),
+    diff: (olderFileId: string, newerFileId: string) =>
+      call<VersionDiffReport>("versions_diff", { olderFileId, newerFileId }),
+    summarizeDiff: (olderFileId: string, newerFileId: string) =>
+      call<VersionDiffSummary>("versions_summarize_diff", { olderFileId, newerFileId }),
+    pinLatest: (chainKey: string, fileId: string) =>
+      call<void>("versions_pin_latest", { chainKey, fileId }),
+    dismiss: (chainKey: string) => call<void>("versions_dismiss", { chainKey }),
+    undismiss: (chainKey: string) => call<void>("versions_undismiss", { chainKey }),
+    proposeArchive: (fileIds: string[], destDir: string) =>
+      call<string>("versions_propose_archive", { fileIds, destDir }),
+    proposeQuarantineDupes: (keeperFileId: string, duplicateFileIds: string[]) =>
+      call<string>("versions_propose_quarantine_dupes", {
+        keeperFileId,
+        duplicateFileIds,
+      }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

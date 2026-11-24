@@ -17,6 +17,7 @@ pub mod policy;
 pub mod quarantine;
 pub mod rag;
 pub mod scanner;
+pub mod versions;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;

@@ -55,6 +55,7 @@ pub enum Screen {
     Care,
     Ask,
     Assets,
+    Versions,
 }
 
 /// What acting on a finding does.

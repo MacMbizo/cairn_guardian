@@ -4,6 +4,7 @@
 use crate::error::{AegisError, Result};
 use crate::now_ms;
 use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::HashMap;
 
 const MAX_EMBED_TEXT_CHARS: usize = 2_400;
 
@@ -378,9 +379,199 @@ pub fn vec_search_chunks(conn: &Connection, query_vec: &[f32], k: usize) -> Resu
     rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
 }
 
+/// Decodes packed little-endian `f32` bytes read from `vec_chunks` into a float vector.
+pub fn le_bytes_to_f32s(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect()
+}
+
+/// Computes cosine similarity between two float slices, returning `0.0` on mismatch or zero norm.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    if a.is_empty() || a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0.0f64;
+    let mut na = 0.0f64;
+    let mut nb = 0.0f64;
+    for (x, y) in a.iter().zip(b.iter()) {
+        let xf = f64::from(*x);
+        let yf = f64::from(*y);
+        dot += xf * yf;
+        na += xf * xf;
+        nb += yf * yf;
+    }
+    let denom = na.sqrt() * nb.sqrt();
+    if denom <= 0.0 || !denom.is_finite() {
+        0.0
+    } else {
+        (dot / denom).clamp(-1.0, 1.0)
+    }
+}
+
+/// Loads mean-pooled, L2-normalized document vectors from encrypted `vec_chunks` for `file_ids`
+/// using the dominant/latest embedded `(model_id, dim)`. Returns an empty map if no vector index exists.
+pub fn load_file_vectors(conn: &Connection, file_ids: &[String]) -> Result<HashMap<String, Vec<f32>>> {
+    if file_ids.is_empty() || !vec_table_exists(conn)? {
+        return Ok(HashMap::new());
+    }
+    let dominant: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT model_id, dim
+             FROM chunk_embeddings_meta
+             GROUP BY model_id, dim
+             ORDER BY COUNT(*) DESC, MAX(embedded_at) DESC
+             LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((model_id, dim_i64)) = dominant else {
+        return Ok(HashMap::new());
+    };
+    let dim = dim_i64.max(0) as usize;
+    if dim == 0 {
+        return Ok(HashMap::new());
+    }
+    let expected_type = format!("float[{dim}]");
+    let ddl_ok = current_vec_ddl(conn)?
+        .as_deref()
+        .is_some_and(|sql| sql.contains(&expected_type));
+    if !ddl_ok {
+        return Ok(HashMap::new());
+    }
+
+    let mut sums: HashMap<String, (Vec<f64>, usize)> = HashMap::new();
+    for chunk_ids in file_ids.chunks(200) {
+        let mut placeholders = Vec::with_capacity(chunk_ids.len());
+        for i in 0..chunk_ids.len() {
+            placeholders.push(format!("?{}", i + 3));
+        }
+        let sql = format!(
+            "SELECT cem.file_id, vc.embedding
+             FROM chunk_embeddings_meta cem
+             JOIN vec_chunks vc ON vc.rowid = cem.chunk_id
+             WHERE cem.model_id = ?1 AND cem.dim = ?2 AND cem.file_id IN ({})",
+            placeholders.join(", ")
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut bind_vals: Vec<rusqlite::types::Value> = Vec::with_capacity(chunk_ids.len() + 2);
+        bind_vals.push(rusqlite::types::Value::from(model_id.clone()));
+        bind_vals.push(rusqlite::types::Value::from(dim_i64));
+        for fid in chunk_ids {
+            bind_vals.push(rusqlite::types::Value::from(fid.clone()));
+        }
+        let rows = stmt.query_map(rusqlite::params_from_iter(bind_vals), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        for row in rows {
+            let (fid, blob) = row?;
+            let coords = le_bytes_to_f32s(&blob);
+            if coords.len() != dim {
+                continue;
+            }
+            let entry = sums
+                .entry(fid)
+                .or_insert_with(|| (vec![0.0f64; dim], 0usize));
+            for (acc, v) in entry.0.iter_mut().zip(coords.iter()) {
+                *acc += f64::from(*v);
+            }
+            entry.1 += 1;
+        }
+    }
+
+    let mut out = HashMap::with_capacity(sums.len());
+    for (fid, (sum, count)) in sums {
+        if count == 0 {
+            continue;
+        }
+        let inv = 1.0 / (count as f64);
+        let mut mean: Vec<f32> = sum.into_iter().map(|v| (v * inv) as f32).collect();
+        let norm: f64 = mean.iter().map(|v| f64::from(*v) * f64::from(*v)).sum::<f64>().sqrt();
+        if norm > 0.0 && norm.is_finite() {
+            for v in &mut mean {
+                *v = (f64::from(*v) / norm) as f32;
+            }
+            out.insert(fid, mean);
+        }
+    }
+    Ok(out)
+}
+
 fn truncate_chars(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
     }
     s.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::SqliteStore;
+
+    #[test]
+    fn load_file_vectors_roundtrips_sqlite_vec_blobs() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO volumes (id, mount_point, fs_type, status, role, last_seen)
+             VALUES ('v1', 'C:\\', 'ntfs', 'online', 'general', 100)",
+            [],
+        )
+        .unwrap();
+        let h1 = vec![1u8; 32];
+        let h2 = vec![2u8; 32];
+        conn.execute(
+            "INSERT INTO files (id, volume_id, path, path_hash, name, ext, size, mtime, ctime, state, sensitivity, first_seen, last_seen, created_at, updated_at)
+             VALUES ('f1', 'v1', 'C:\\doc.txt', ?1, 'doc.txt', 'txt', 10, 100, 100, 'active', 'internal', 100, 100, 100, 100),
+                    ('f2', 'v1', 'C:\\doc2.txt', ?2, 'doc2.txt', 'txt', 10, 200, 200, 'active', 'internal', 200, 200, 200, 200)",
+            params![h1, h2],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO chunks (chunk_uuid, file_id, seq, text, token_count, created_at)
+             VALUES ('c1', 'f1', 0, 'hello world', 2, 100),
+                    ('c2', 'f2', 0, 'hello world two', 3, 200)",
+            [],
+        )
+        .unwrap();
+        let c1: i64 = conn.query_row("SELECT id FROM chunks WHERE chunk_uuid = 'c1'", [], |r| r.get(0)).unwrap();
+        let c2: i64 = conn.query_row("SELECT id FROM chunks WHERE chunk_uuid = 'c2'", [], |r| r.get(0)).unwrap();
+        upsert_chunk_embeddings(
+            conn,
+            "test-model",
+            3,
+            &[
+                (
+                    PendingChunk {
+                        chunk_id: c1,
+                        chunk_uuid: "c1".into(),
+                        file_id: "f1".into(),
+                        embed_text: "hello world".into(),
+                        content_hash: [1u8; 32],
+                    },
+                    vec![1.0, 0.0, 0.0],
+                ),
+                (
+                    PendingChunk {
+                        chunk_id: c2,
+                        chunk_uuid: "c2".into(),
+                        file_id: "f2".into(),
+                        embed_text: "hello world two".into(),
+                        content_hash: [2u8; 32],
+                    },
+                    vec![0.98, 0.198, 0.0],
+                ),
+            ],
+        )
+        .unwrap();
+        let loaded = load_file_vectors(conn, &["f1".into(), "f2".into()]).unwrap();
+        assert_eq!(loaded.len(), 2);
+        let sim = cosine_similarity(&loaded["f1"], &loaded["f2"]);
+        assert!(sim > 0.97, "expected high similarity, got {sim}");
+    }
 }

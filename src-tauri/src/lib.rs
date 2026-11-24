@@ -315,6 +315,14 @@ pub fn run() {
             commands::assets::assets_dismiss,
             commands::assets::assets_undismiss,
             commands::assets::assets_propose_recovery,
+            commands::versions::versions_scan,
+            commands::versions::versions_diff,
+            commands::versions::versions_summarize_diff,
+            commands::versions::versions_pin_latest,
+            commands::versions::versions_dismiss,
+            commands::versions::versions_undismiss,
+            commands::versions::versions_propose_archive,
+            commands::versions::versions_propose_quarantine_dupes,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

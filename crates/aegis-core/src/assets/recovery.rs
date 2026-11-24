@@ -1315,18 +1315,18 @@ fn build_summary(
     }
 }
 
-fn path_key(p: &Path) -> String {
+pub(crate) fn path_key(p: &Path) -> String {
     normalize_path(p, false).0
 }
 
-fn same_parent_dir(file_path: &str, dest_dir: &str) -> bool {
+pub(crate) fn same_parent_dir(file_path: &str, dest_dir: &str) -> bool {
     let Some(parent) = Path::new(file_path).parent() else {
         return false;
     };
     path_key(parent) == path_key(Path::new(dest_dir))
 }
 
-fn open_batch_paths(conn: &Connection) -> Result<HashSet<String>> {
+pub(crate) fn open_batch_paths(conn: &Connection) -> Result<HashSet<String>> {
     let mut st = conn.prepare(
         "SELECT a.from_path
          FROM actions a
@@ -1342,7 +1342,7 @@ fn open_batch_paths(conn: &Connection) -> Result<HashSet<String>> {
     Ok(out)
 }
 
-fn resolve_unique_dest(dest_dir: &Path, filename: &str, reserved: &mut HashSet<String>) -> PathBuf {
+pub(crate) fn resolve_unique_dest(dest_dir: &Path, filename: &str, reserved: &mut HashSet<String>) -> PathBuf {
     let candidate = dest_dir.join(filename);
     let key = path_key(&candidate);
     if !candidate.exists() && !reserved.contains(&key) {

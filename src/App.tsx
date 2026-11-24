@@ -13,6 +13,7 @@ import {
   FolderGit2,
   FolderOpen,
   FolderTree,
+  GitBranch,
   HardDrive,
   HeartPulse,
   KeyRound,
@@ -42,6 +43,7 @@ import { EngineSettings } from "./screens/EngineSettings";
 import { FilingScreen } from "./screens/Filing";
 import { ForgottenAssets } from "./screens/ForgottenAssets";
 import { SystemCare } from "./screens/SystemCare";
+import { VersionTracking } from "./screens/VersionTracking";
 import { NO_NARROWING, SearchFilterBar, type SearchNarrowing } from "./components/SearchFilterBar";
 import { useFiling } from "./screens/useFiling";
 import { ThisWeek } from "./screens/ThisWeek";
@@ -77,7 +79,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -87,6 +89,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   search: "search",
   ask: "ask",
   assets: "assets",
+  versions: "versions",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -647,6 +650,7 @@ export default function App() {
     { id: "search", label: "Search (Ctrl+K)", icon: Search },
     { id: "ask", label: "Ask Files", icon: MessageSquareText },
     { id: "assets", label: "Forgotten Assets", icon: Compass },
+    { id: "versions", label: "Version Tracking", icon: GitBranch },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -843,6 +847,15 @@ export default function App() {
           )}
           {tab === "assets" && (
             <ForgottenAssets
+              desktop={desktop}
+              onReviewBatches={() => {
+                setTab("simulator");
+                void refreshAll();
+              }}
+            />
+          )}
+          {tab === "versions" && (
+            <VersionTracking
               desktop={desktop}
               onReviewBatches={() => {
                 setTab("simulator");
