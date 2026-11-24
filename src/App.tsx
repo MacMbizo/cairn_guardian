@@ -21,6 +21,7 @@ import {
   KeyRound,
   Lock,
   MessageSquareText,
+  Network,
   NotebookText,
   Play,
   RefreshCw,
@@ -39,6 +40,7 @@ import {
 import { HomeTiles } from "./components/HomeTiles";
 import { PlugBanner } from "./components/PlugBanner";
 import { AskFiles } from "./screens/AskFiles";
+import { CrossProject } from "./screens/CrossProject";
 import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
 import { EngineSettings } from "./screens/EngineSettings";
@@ -83,7 +85,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -96,6 +98,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   versions: "versions",
   knowledge: "knowledge",
   librarian: "librarian",
+  cross_project: "cross_project",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -659,6 +662,7 @@ export default function App() {
     { id: "versions", label: "Version Tracking", icon: GitBranch },
     { id: "knowledge", label: "Knowledge Base", icon: Brain },
     { id: "librarian", label: "Research Librarian", icon: BookOpen },
+    { id: "cross_project", label: "Cross-Project", icon: Network },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -873,6 +877,7 @@ export default function App() {
           )}
           {tab === "knowledge" && <KnowledgeBase desktop={desktop} />}
           {tab === "librarian" && <ResearchLibrarian desktop={desktop} />}
+          {tab === "cross_project" && <CrossProject desktop={desktop} />}
           {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />

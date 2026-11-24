@@ -341,6 +341,9 @@ pub fn run() {
             commands::librarian::librarian_unpin,
             commands::librarian::librarian_dismiss,
             commands::librarian::librarian_undismiss,
+            commands::cross_project::cross_project_scan,
+            commands::cross_project::cross_project_set_insight_status,
+            commands::cross_project::cross_project_synthesize_brief,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

@@ -125,7 +125,7 @@ pub fn extract_distinctive_terms(text: &str, max_terms: usize) -> Vec<String> {
     ranked.into_iter().take(max_terms).map(|(t, _)| t).collect()
 }
 
-fn tokenize_distinctive_set(text: &str) -> HashSet<String> {
+pub(crate) fn tokenize_distinctive_set(text: &str) -> HashSet<String> {
     let stops: HashSet<&'static str> = STOPWORDS.iter().copied().collect();
     let mut out = HashSet::new();
     for raw in text.split(|c: char| !c.is_alphanumeric() && c != '_') {
@@ -140,7 +140,7 @@ fn tokenize_distinctive_set(text: &str) -> HashSet<String> {
     out
 }
 
-fn clean_excerpt(text: &str, max_chars: usize) -> String {
+pub(crate) fn clean_excerpt(text: &str, max_chars: usize) -> String {
     let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if normalized.chars().count() <= max_chars {
         return normalized;
@@ -318,7 +318,7 @@ fn load_file_entities(conn: &Connection, file_id: &str) -> Result<Vec<SharedEnti
     rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
 }
 
-fn dominant_vec_model(conn: &Connection) -> Result<Option<(String, i64)>> {
+pub(crate) fn dominant_vec_model(conn: &Connection) -> Result<Option<(String, i64)>> {
     conn.query_row(
         "SELECT model_id, dim
          FROM chunk_embeddings_meta

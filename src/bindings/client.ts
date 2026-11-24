@@ -45,6 +45,9 @@ import type {
   CleanupScanReport,
   ConflictResolutionChoice,
   CoverageReport,
+  CrossProjectBrief,
+  CrossProjectOptions,
+  CrossProjectReport,
   DiskRescueReport,
   DiskTrendsReport,
   DoctorReport,
@@ -60,6 +63,7 @@ import type {
   ForgottenAssetsReport,
   HealthBreakdown,
   IndexStats,
+  InsightStatus,
   InstalledApp,
   KnowledgeCommitResult,
   KnowledgeDashboard,
@@ -528,6 +532,39 @@ export const aegis = {
       call<boolean>("librarian_dismiss", { sourceFileId, relatedFileId }),
     undismiss: (sourceFileId: string, relatedFileId: string) =>
       call<boolean>("librarian_undismiss", { sourceFileId, relatedFileId }),
+  },
+  crossProject: {
+    scan: (options?: Partial<CrossProjectOptions>) =>
+      call<CrossProjectReport>("cross_project_scan", {
+        options: options
+          ? {
+              project_id: options.project_id ?? null,
+              kind: options.kind ?? null,
+              min_similarity: options.min_similarity ?? null,
+              include_design_sets: options.include_design_sets ?? null,
+              include_dismissed: options.include_dismissed ?? null,
+              include_sensitive: options.include_sensitive ?? null,
+              limit_findings: options.limit_findings ?? null,
+              limit_edges: options.limit_edges ?? null,
+            }
+          : undefined,
+      }),
+    setInsightStatus: (insightKey: string, status: InsightStatus, note?: string) =>
+      call<boolean>("cross_project_set_insight_status", {
+        insightKey,
+        status,
+        note: note ?? null,
+      }),
+    synthesizeBrief: (params?: {
+      projectAId?: string | null;
+      projectBId?: string | null;
+      includeSensitive?: boolean;
+    }) =>
+      call<CrossProjectBrief>("cross_project_synthesize_brief", {
+        projectAId: params?.projectAId ?? null,
+        projectBId: params?.projectBId ?? null,
+        includeSensitive: params?.includeSensitive ?? null,
+      }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

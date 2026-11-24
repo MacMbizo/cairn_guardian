@@ -3,4 +3,4 @@
 /**
  * App screens a finding can open.
  */
-export type Screen = "home" | "drives" | "dupes" | "search" | "rescue" | "simulator" | "week" | "settings" | "filing" | "care" | "ask" | "assets" | "versions" | "knowledge" | "librarian";
+export type Screen = "home" | "drives" | "dupes" | "search" | "rescue" | "simulator" | "week" | "settings" | "filing" | "care" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project";

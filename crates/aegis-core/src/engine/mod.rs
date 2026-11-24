@@ -58,6 +58,7 @@ pub enum Screen {
     Versions,
     Knowledge,
     Librarian,
+    CrossProject,
 }
 
 /// What acting on a finding does.

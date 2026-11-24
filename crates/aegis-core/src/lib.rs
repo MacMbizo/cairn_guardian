@@ -5,6 +5,7 @@ pub mod backup;
 pub mod care;
 pub mod context;
 pub mod contracts;
+pub mod cross_project;
 pub mod db;
 pub mod doctor;
 pub mod drives;

@@ -1130,6 +1130,18 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::librarian::ResearchCompanionReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::librarian::BriefCitation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::librarian::ResearchBrief as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::FindingKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::FindingSeverity as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::InsightStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::DependencyKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::ProjectNodeSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectFileRef as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectFinding as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectEdge as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectBriefCitation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::cross_project::CrossProjectBrief as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
