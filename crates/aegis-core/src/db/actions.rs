@@ -845,11 +845,61 @@ pub fn reject_batch(store: &mut SqliteStore, batch_id: &str, reason: Option<&str
     })
 }
 
+/// Atomically writes `content` to `path` via sibling temp file + `sync_all()` + replace (`MoveFileExW` on Windows).
+fn atomic_write_text_file(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Missing parent directory")
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let fname = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".to_string());
+    let tmp = parent.join(format!(".{fname}.aegis-tmp-{}", new_id()));
+    {
+        let mut out = std::fs::File::create(&tmp)?;
+        out.write_all(content)?;
+        out.sync_all()?;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+        };
+        let src_w: Vec<u16> = tmp.as_os_str().encode_wide().chain(Some(0)).collect();
+        let dst_w: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: Null-terminated UTF-16 buffers outlive synchronous Win32 MoveFileExW.
+        let ok = unsafe {
+            MoveFileExW(
+                src_w.as_ptr(),
+                dst_w.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if ok == 0 {
+            let err = std::io::Error::last_os_error();
+            let _ = std::fs::remove_file(&tmp);
+            return Err(err);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
 /// A disk mutation that has been applied and can be undone if its DB commit fails.
 enum FsOutcome {
     Moved { src: PathBuf, dest: PathBuf },
     Quarantined { src: PathBuf, dest: PathBuf, size_bytes: i64 },
     Copied { dest: PathBuf },
+    PatchedText { path: PathBuf, original_bytes: Vec<u8> },
     MetadataOnly,
 }
 
@@ -859,6 +909,7 @@ impl FsOutcome {
             Self::Moved { dest, .. } | Self::Quarantined { dest, .. } | Self::Copied { dest } => {
                 Some(dest)
             }
+            Self::PatchedText { path, .. } => Some(path),
             Self::MetadataOnly => None,
         }
     }
@@ -869,12 +920,19 @@ impl FsOutcome {
                 std::fs::rename(dest, src)
             }
             Self::Copied { dest } => std::fs::remove_file(dest),
+            Self::PatchedText { path, original_bytes } => {
+                atomic_write_text_file(path, original_bytes)
+            }
             Self::MetadataOnly => Ok(()),
         }
     }
 }
 
-fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOutcome> {
+fn perform_execute_fs(
+    row: &DbActionRow,
+    meta: &PolicyTargetMeta,
+    patch_payload: Option<(Vec<u8>, Vec<u8>)>,
+) -> Result<FsOutcome> {
     let from = Path::new(&row.from_path);
     match row.action_type {
         ActionType::Quarantine => {
@@ -974,6 +1032,19 @@ fn perform_execute_fs(row: &DbActionRow, meta: &PolicyTargetMeta) -> Result<FsOu
             }
             std::fs::rename(&partial, &eff_to)?;
             Ok(FsOutcome::Copied { dest: eff_to })
+        }
+        ActionType::PatchText => {
+            if !from.is_file() {
+                return Err(AegisError::NotFound(row.from_path.clone()));
+            }
+            let (original_bytes, patched_bytes) = patch_payload.ok_or_else(|| {
+                AegisError::NotFound(format!("heal payload for action {}", row.id))
+            })?;
+            atomic_write_text_file(from, &patched_bytes)?;
+            Ok(FsOutcome::PatchedText {
+                path: from.to_path_buf(),
+                original_bytes,
+            })
         }
         ActionType::Archive => Ok(FsOutcome::MetadataOnly),
         ActionType::Purge | ActionType::Restore => Err(AegisError::InvalidInput(
@@ -1143,6 +1214,26 @@ fn record_executed_in_tx(
         FsOutcome::Copied { dest } => {
             if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&row.evidence_json) {
                 crate::backup::record_backup_copy_in_tx(tx, &ev, dest, None, rec.post_blake3.as_deref())?;
+            }
+        }
+        FsOutcome::PatchedText { path, .. } => {
+            if let Some(ref fid) = row.file_id {
+                let (size, mtime) = inspect_path_metadata(path)
+                    .ok()
+                    .flatten()
+                    .map(|st| (st.size, st.mtime))
+                    .unwrap_or_else(|| {
+                        let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+                        (len, now)
+                    });
+                tx.execute(
+                    "UPDATE files
+                     SET size = ?1, mtime = ?2, blake3 = ?3, quick_hash = NULL,
+                         last_seen = ?4, updated_at = ?4
+                     WHERE id = ?5",
+                    params![size, mtime, rec.post_blake3.as_deref(), now, fid],
+                )?;
+                crate::scanner::refresh_text_chunks_if_local(tx, fid, path, "local", size, false)?;
             }
         }
         FsOutcome::MetadataOnly => {
@@ -1351,9 +1442,11 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
         // The file must still be where the action says, on the drive it was catalogued on.
         // Stored paths are absolute: a different drive at the same letter must never be touched.
         let identity = match (row.file_id.as_deref(), row.target_kind, row.action_type) {
-            (Some(fid), TargetKind::File, ActionType::Quarantine | ActionType::Move | ActionType::Rename) => {
-                crate::dupes::safety::confirm_file_at(store.conn(), fid, &row.from_path)
-            }
+            (
+                Some(fid),
+                TargetKind::File,
+                ActionType::Quarantine | ActionType::Move | ActionType::Rename | ActionType::PatchText,
+            ) => crate::dupes::safety::confirm_file_at(store.conn(), fid, &row.from_path),
             _ => Ok(()),
         }
         .and_then(|_| {
@@ -1438,8 +1531,43 @@ pub fn execute_batch(store: &mut SqliteStore, batch_id: &str) -> Result<ExecuteR
             }
         }
 
+        let patch_payload = if row.action_type == ActionType::PatchText {
+            let payload_row: Option<(String, String, Vec<u8>)> = store
+                .conn()
+                .query_row(
+                    "SELECT original_content, patched_content, original_blake3
+                     FROM heal_patch_payloads WHERE action_id = ?1",
+                    params![row.id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            let Some((orig_s, patched_s, expected_blake3)) = payload_row else {
+                failed_count += 1;
+                mark_action(
+                    store,
+                    &row.id,
+                    "failed",
+                    "Missing heal_patch_payloads snapshot for patch_text action.",
+                )?;
+                continue;
+            };
+            if pre_blake3.as_deref() != Some(expected_blake3.as_slice()) {
+                failed_count += 1;
+                mark_action(
+                    store,
+                    &row.id,
+                    "failed",
+                    "File changed on disk since healing proposal was staged; rescan to refresh.",
+                )?;
+                continue;
+            }
+            Some((orig_s.into_bytes(), patched_s.into_bytes()))
+        } else {
+            None
+        };
+
         // 1. Disk first, outside any transaction.
-        let outcome = match perform_execute_fs(row, meta) {
+        let outcome = match perform_execute_fs(row, meta, patch_payload) {
             Ok(o) => o,
             Err(e) => {
                 failed_count += 1;
@@ -1553,6 +1681,33 @@ fn preflight(rows: &[DbActionRow]) -> Vec<RollbackConflictItem> {
 }
 
 fn check_single_action_preflight(row: &DbActionRow, exists: &dyn Fn(&Path) -> bool) -> Option<RollbackConflictItem> {
+    if row.action_type == ActionType::PatchText {
+        let from_path = Path::new(&row.from_path);
+        if !exists(from_path) {
+            return Some(RollbackConflictItem {
+                action_id: row.id.clone(),
+                from_path: row.from_path.clone(),
+                to_path: row.to_path.clone(),
+                conflict: RollbackConflictKind::MissingTarget,
+                detail: format!("Patched file missing at {}", row.from_path),
+                recommended_choice: ConflictResolutionChoice::Skip,
+            });
+        }
+        if let Some(expected) = &row.post_blake3
+            && let Ok(Some(actual)) = hash_file_blake3(from_path)
+            && &actual != expected
+        {
+            return Some(RollbackConflictItem {
+                action_id: row.id.clone(),
+                from_path: row.from_path.clone(),
+                to_path: row.to_path.clone(),
+                conflict: RollbackConflictKind::Modified,
+                detail: format!("File at {} was modified after Aegis healed it", row.from_path),
+                recommended_choice: ConflictResolutionChoice::CopyBackKeepingBoth,
+            });
+        }
+        return None;
+    }
     if !matches!(
         row.action_type,
         ActionType::Move | ActionType::Rename | ActionType::Quarantine | ActionType::Copy
@@ -1624,23 +1779,42 @@ fn db_revert_in_tx(
     let dest_str = display_string(dest);
     if let Some(ref fid) = row.file_id
         && row.action_type != ActionType::Copy
+        && !(row.action_type == ActionType::PatchText && copy_back)
     {
-        let (_, ph) = normalize_path(dest, case_sensitive);
-        let name = dest
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        tx.execute(
-            "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, name = ?3, updated_at = ?4
-             WHERE id = ?5",
-            params![dest_str, ph.as_slice(), name, now, fid],
-        )?;
-        if row.action_type == ActionType::Quarantine {
+        if row.action_type == ActionType::PatchText {
+            let (size, mtime) = inspect_path_metadata(dest)
+                .ok()
+                .flatten()
+                .map(|st| (st.size, st.mtime))
+                .unwrap_or_else(|| {
+                    let len = std::fs::metadata(dest).map(|m| m.len() as i64).unwrap_or(0);
+                    (len, now)
+                });
+            let blake = hash_file_blake3(dest).ok().flatten();
             tx.execute(
-                "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
-                 VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"active\"}', ?2)",
-                params![fid, now],
+                "UPDATE files SET state = 'active', size = ?1, mtime = ?2, blake3 = ?3, quick_hash = NULL, updated_at = ?4
+                 WHERE id = ?5",
+                params![size, mtime, blake.as_deref(), now, fid],
             )?;
+            crate::scanner::refresh_text_chunks_if_local(tx, fid, dest, "local", size, false)?;
+        } else {
+            let (_, ph) = normalize_path(dest, case_sensitive);
+            let name = dest
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            tx.execute(
+                "UPDATE files SET state = 'active', path = ?1, path_hash = ?2, name = ?3, updated_at = ?4
+                 WHERE id = ?5",
+                params![dest_str, ph.as_slice(), name, now, fid],
+            )?;
+            if row.action_type == ActionType::Quarantine {
+                tx.execute(
+                    "INSERT INTO outbox_events (aggregate_type, aggregate_id, op, payload_json, created_at)
+                     VALUES ('file_payload', ?1, 'upsert', '{\"state\":\"active\"}', ?2)",
+                    params![fid, now],
+                )?;
+            }
         }
     }
     if matches!(row.action_type, ActionType::Move | ActionType::Rename)
@@ -1798,6 +1972,53 @@ fn revert_one(store: &mut SqliteStore, row: &DbActionRow, mode: RevertMode) -> R
             // folder) behind, so later steps of the undo find their places free.
             if row.target_kind == TargetKind::Dir && plan_evidence(&row.evidence_json).exact_dest {
                 remove_empty_ancestors(&src, &dest);
+            }
+            Ok(())
+        }
+        ActionType::PatchText => {
+            let (original_content, patched_content): (String, String) = store
+                .conn()
+                .query_row(
+                    "SELECT original_content, patched_content
+                     FROM heal_patch_payloads WHERE action_id = ?1",
+                    params![row.id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| AegisError::NotFound(format!("heal payload for action {}", row.id)))?;
+            let original = PathBuf::from(&row.from_path);
+            let copy_back = matches!(mode, RevertMode::CopyBackKeepingBoth);
+            let (dest, had_prev_dest) = match mode {
+                RevertMode::Normal => (original, true),
+                RevertMode::RestoreAs(p) => {
+                    if p.exists() {
+                        return Err(AegisError::InvalidInput(format!(
+                            "{} is occupied; choose 'restore as rename' or skip",
+                            p.display()
+                        )));
+                    }
+                    (p, false)
+                }
+                RevertMode::CopyBackKeepingBoth => (non_overwriting_dest(&original).0, false),
+            };
+            let live_before_revert = if had_prev_dest {
+                std::fs::read(&dest).ok()
+            } else {
+                None
+            };
+            atomic_write_text_file(&dest, original_content.as_bytes())?;
+            let res =
+                store.with_full_sync_tx(|tx| db_revert_in_tx(tx, row, &dest, copy_back, cs, now));
+            if let Err(e) = res {
+                if had_prev_dest {
+                    let compensate = live_before_revert
+                        .as_deref()
+                        .unwrap_or(patched_content.as_bytes());
+                    let _ = atomic_write_text_file(&dest, compensate);
+                } else {
+                    let _ = std::fs::remove_file(&dest);
+                }
+                return Err(e);
             }
             Ok(())
         }

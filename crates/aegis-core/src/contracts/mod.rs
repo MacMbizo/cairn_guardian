@@ -42,6 +42,7 @@ pub enum ActionType {
     Purge,
     Archive,
     Restore,
+    PatchText,
 }
 
 impl ActionType {
@@ -54,6 +55,7 @@ impl ActionType {
             Self::Purge => "purge",
             Self::Archive => "archive",
             Self::Restore => "restore",
+            Self::PatchText => "patch_text",
         }
     }
 
@@ -66,6 +68,7 @@ impl ActionType {
             "purge" => Some(Self::Purge),
             "archive" => Some(Self::Archive),
             "restore" => Some(Self::Restore),
+            "patch_text" => Some(Self::PatchText),
             _ => None,
         }
     }
@@ -1148,6 +1151,18 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::folderless::FolderlessMatchPreview as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::folderless::FolderlessPreviewReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::folderless::FolderlessBatchSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealLinkKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealResolutionStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealResolutionSource as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::BrokenLinkItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::TagWeedKind as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::TagOccurrence as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::TagWeedCluster as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::RulePathIssue as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealScanOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealScanReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealPatchPreviewFile as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::healing::HealBatchSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

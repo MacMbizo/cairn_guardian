@@ -63,6 +63,10 @@ import type {
   FolderlessRule,
   FolderlessRuleInput,
   HardwareProfile,
+  HealBatchSummary,
+  HealPatchPreviewFile,
+  HealScanOptions,
+  HealScanReport,
   AssetRecoverItem,
   AssetScanOptions,
   ForgottenAssetsReport,
@@ -609,6 +613,48 @@ export const aegis = {
     recentBatches: (limit?: number) =>
       call<FolderlessBatchSummary[]>("folderless_recent_batches", {
         limit: limit ?? null,
+      }),
+  },
+  healing: {
+    scan: (options?: HealScanOptions | null) =>
+      call<HealScanReport>("healing_scan", { options: options ?? null }),
+    previewPatches: (params: {
+      linkIssueKeys: string[];
+      tagIssueKeys: string[];
+      includeSensitive?: boolean;
+    }) =>
+      call<HealPatchPreviewFile[]>("healing_preview_patches", {
+        linkIssueKeys: params.linkIssueKeys,
+        tagIssueKeys: params.tagIssueKeys,
+        includeSensitive: params.includeSensitive ?? false,
+      }),
+    proposeBatch: (params: {
+      linkIssueKeys: string[];
+      tagIssueKeys: string[];
+      includeSensitive?: boolean;
+    }) =>
+      call<string>("healing_propose_batch", {
+        linkIssueKeys: params.linkIssueKeys,
+        tagIssueKeys: params.tagIssueKeys,
+        includeSensitive: params.includeSensitive ?? false,
+      }),
+    dismiss: (issueKey: string, issueKind: string, note?: string | null) =>
+      call<void>("healing_dismiss", {
+        issueKey,
+        issueKind,
+        note: note ?? null,
+      }),
+    undismiss: (issueKey: string) =>
+      call<void>("healing_undismiss", { issueKey }),
+    updateRulePath: (ruleId: string, field: string, newPath: string) =>
+      call<void>("healing_update_rule_path", { ruleId, field, newPath }),
+    recentBatches: (limit?: number) =>
+      call<HealBatchSummary[]>("healing_recent_batches", {
+        limit: limit ?? null,
+      }),
+    runDoctorCheck: (repair?: boolean) =>
+      call<DoctorReport>("healing_run_doctor_check", {
+        repair: repair ?? false,
       }),
   },
   care: {

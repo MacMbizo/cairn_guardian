@@ -44,7 +44,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | 9 | Autonomous research librarian (2.3) | RAG, embeddings | **done** (Autonomous research librarian merged 2026-11-24: `core::librarian` 3-signal vector/FTS/entity cross-referencing, conceptual parallel detection, `R5`/`R11` disk-only, `R7`, `ResearchLibrarian` UI) |
 | 10 | Cross-project intelligence (3.3) | context layer + embeddings | **done** (Cross-project intelligence merged 2026-11-24: `core::cross_project` duplicate effort, decision conflicts, stack version drift, 5-kind dependency mapping, `R5`/`R7`/`R11`, `CrossProject` UI) |
 | 11 | AI Folderless mode (2.1) | filing rules, learn-then-take-over | **done** (AI Folderless Mode merged 2026-11-24: `migrations/0015`, `core::folderless` plain-language intent compiler & visible rules `R6`, content/quarter/org/amount routing, `K1`/`K2`/`K4`/`R7`, `FolderlessMode` UI) |
-| 12 | Self-healing workspace (4.1) | USN journal, batches | after 11; Dynamic Link & Path Healing for Markdown first, strictly under K1 (`propose → approve → batch → undo`) |
+| 12 | Self-healing workspace (4.1) | USN journal, batches | **done** (Self-Healing Workspace merged 2026-11-24: `migrations/0016`, `ActionType::PatchText` `K1` atomic patch/TOCTOU/rollback, `core::healing` Markdown/wikilink + tag consolidation + Folderless rule path audit, `R1`/`R7`, `SelfHealing` UI) |
 | 13 | Personal data governance (5.1) | D1, quarantine | parts land with D1; the rest reshaped (R7–R9) |
 | 14 | AI Chief Digital Officer agent (5.2) | everything above | last |
 | 15 | Digital estate management (5.3) | D1, backup drive | last; reshaped (R10) |

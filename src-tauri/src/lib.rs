@@ -352,6 +352,14 @@ pub fn run() {
             commands::folderless::folderless_preview_rule,
             commands::folderless::folderless_propose_batch,
             commands::folderless::folderless_recent_batches,
+            commands::healing::healing_scan,
+            commands::healing::healing_preview_patches,
+            commands::healing::healing_propose_batch,
+            commands::healing::healing_dismiss,
+            commands::healing::healing_undismiss,
+            commands::healing::healing_update_rule_path,
+            commands::healing::healing_recent_batches,
+            commands::healing::healing_run_doctor_check,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

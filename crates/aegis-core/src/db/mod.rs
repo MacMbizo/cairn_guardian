@@ -52,6 +52,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (13, "0013_research_librarian", include_str!("../../migrations/0013_research_librarian.sql")),
     (14, "0014_cross_project", include_str!("../../migrations/0014_cross_project.sql")),
     (15, "0015_folderless_intents", include_str!("../../migrations/0015_folderless_intents.sql")),
+    (16, "0016_self_healing", include_str!("../../migrations/0016_self_healing.sql")),
 ];
 
 /// Where the installed app keeps its database: `%LOCALAPPDATA%\com.aegis.guardian\aegis.db`.

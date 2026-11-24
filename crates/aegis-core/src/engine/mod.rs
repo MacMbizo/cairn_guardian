@@ -60,6 +60,7 @@ pub enum Screen {
     Librarian,
     CrossProject,
     Folderless,
+    Healing,
 }
 
 /// What acting on a finding does.

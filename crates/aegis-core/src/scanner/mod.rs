@@ -288,7 +288,7 @@ fn is_plain_text_ext(ext: Option<&str>) -> bool {
 
 /// (Re)chunks a local text file. When `content_unchanged` and chunks already exist this is a
 /// no-op; otherwise stale chunks are replaced so search never serves outdated text.
-fn refresh_text_chunks_if_local(
+pub(crate) fn refresh_text_chunks_if_local(
     conn: &Connection,
     file_id: &str,
     path: &Path,

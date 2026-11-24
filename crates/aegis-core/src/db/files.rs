@@ -308,6 +308,11 @@ pub fn upsert_discovered_file(conn: &Connection, input: &DiscoveredFileInput) ->
             }
 
             if let Some(target) = rename_target {
+                let path_changed = if input.case_sensitive {
+                    target.path != display_path
+                } else {
+                    !target.path.eq_ignore_ascii_case(&display_path)
+                };
                 conn.execute(
                     "UPDATE files
                      SET path = ?1, path_hash = ?2, name = ?3, ext = ?4, nlink = ?5,
@@ -333,6 +338,20 @@ pub fn upsert_discovered_file(conn: &Connection, input: &DiscoveredFileInput) ->
                         target.id
                     ],
                 )?;
+                if path_changed {
+                    conn.execute(
+                        "INSERT INTO heal_move_log (id, file_id, volume_id, old_path, new_path, source, detected_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, 'scanner_rename', ?6)",
+                        params![
+                            new_id(),
+                            target.id,
+                            input.volume_id,
+                            target.path,
+                            display_path,
+                            now
+                        ],
+                    )?;
+                }
                 return Ok(target.id);
             }
 

@@ -429,6 +429,23 @@ pub fn rebase_volume_paths(
             )?;
         }
     }
+    let heal_moves: Vec<(String, String, String)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, old_path, new_path FROM heal_move_log WHERE volume_id = ?1",
+        )?;
+        let rows = stmt.query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (id, old_p, new_p) in heal_moves {
+        let ro = rebased(&old_p, old_mount, new_mount, case_sensitive);
+        let rn = rebased(&new_p, old_mount, new_mount, case_sensitive);
+        if ro.is_some() || rn.is_some() {
+            tx.execute(
+                "UPDATE heal_move_log SET old_path = ?2, new_path = ?3 WHERE id = ?1",
+                params![id, ro.unwrap_or(old_p), rn.unwrap_or(new_p)],
+            )?;
+        }
+    }
     let jobs: Vec<(String, String)> = {
         let mut stmt = tx.prepare("SELECT id, root_path FROM scan_jobs")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;

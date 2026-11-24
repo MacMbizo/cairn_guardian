@@ -189,7 +189,9 @@ fn contains_component_ci(path: &Path, target: &str) -> bool {
 impl PolicyContext {
     pub fn dial_for(&self, action_type: ActionType) -> AutonomyDial {
         let class = match action_type {
-            ActionType::Move | ActionType::Copy | ActionType::Rename => ActionClass::Refile,
+            ActionType::Move | ActionType::Copy | ActionType::Rename | ActionType::PatchText => {
+                ActionClass::Refile
+            }
             ActionType::Archive => ActionClass::Archive,
             ActionType::Quarantine | ActionType::Restore => ActionClass::Quarantine,
             ActionType::Purge => ActionClass::Purge,
@@ -413,6 +415,9 @@ pub fn evaluate_policy(action: &PolicyAction<'_>, ctx: &PolicyContext) -> Policy
     }
     if action.action_type == ActionType::Quarantine {
         return PolicyVerdict::RequireApproval("quarantine_never_auto");
+    }
+    if action.action_type == ActionType::PatchText {
+        return PolicyVerdict::RequireApproval("patch_text_requires_approval");
     }
     if ctx.is_agent_capped_suggest(action.agent) {
         return PolicyVerdict::RequireApproval("agent_ceiling_suggest");

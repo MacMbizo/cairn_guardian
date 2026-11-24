@@ -36,6 +36,7 @@ import {
   Unlock,
   Usb,
   Wand2,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import { HomeTiles } from "./components/HomeTiles";
@@ -50,6 +51,7 @@ import { FolderlessMode } from "./screens/FolderlessMode";
 import { ForgottenAssets } from "./screens/ForgottenAssets";
 import { KnowledgeBase } from "./screens/KnowledgeBase";
 import { ResearchLibrarian } from "./screens/ResearchLibrarian";
+import { SelfHealing } from "./screens/SelfHealing";
 import { SystemCare } from "./screens/SystemCare";
 import { VersionTracking } from "./screens/VersionTracking";
 import { NO_NARROWING, SearchFilterBar, type SearchNarrowing } from "./components/SearchFilterBar";
@@ -87,7 +89,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -102,6 +104,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   librarian: "librarian",
   cross_project: "cross_project",
   folderless: "folderless",
+  healing: "healing",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -667,6 +670,7 @@ export default function App() {
     { id: "librarian", label: "Research Librarian", icon: BookOpen },
     { id: "cross_project", label: "Cross-Project", icon: Network },
     { id: "folderless", label: "Folderless Rules", icon: Wand2 },
+    { id: "healing", label: "Self-Healing", icon: Wrench },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -884,6 +888,15 @@ export default function App() {
           {tab === "cross_project" && <CrossProject desktop={desktop} />}
           {tab === "folderless" && (
             <FolderlessMode
+              desktop={desktop}
+              onReviewBatches={() => {
+                setTab("simulator");
+                void refreshAll();
+              }}
+            />
+          )}
+          {tab === "healing" && (
+            <SelfHealing
               desktop={desktop}
               onReviewBatches={() => {
                 setTab("simulator");
