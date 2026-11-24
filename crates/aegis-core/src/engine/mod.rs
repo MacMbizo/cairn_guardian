@@ -56,6 +56,7 @@ pub enum Screen {
     Ask,
     Assets,
     Versions,
+    Knowledge,
 }
 
 /// What acting on a finding does.

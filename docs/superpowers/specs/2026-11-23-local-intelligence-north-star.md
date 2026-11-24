@@ -40,7 +40,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | 5 | Workspace health score (4.4) | space recorder, duplicates, self-check | **done** (Project 4 System care merged 2026-11-24: 5 storage/integrity dimensions in `health_breakdown`) |
 | 6 | Forgotten asset recovery (4.3) | catalog, project matching across drives, offline-drive listing | **done** (Forgotten Asset Recovery merged 2026-11-24: `core::assets` 80+ formats & header enrichment, `K1`/`K2`/`K4`/`R7`, `ForgottenAssets` UI) |
 | 7 | Semantic version tracking (3.4) | project `Versions` folders (Plan 2), `file_history` | **done** (Semantic version tracking merged 2026-11-24: `core::versions` chains/diff/actions, `vec_chunks` similarity, `K1`/`K2`/`K4`/`K5`/`R7`, `VersionTracking` UI) |
-| 8 | Automatic knowledge extraction (2.2) | content reader, local model | after 3 |
+| 8 | Automatic knowledge extraction (2.2) | content reader, local model | **done** (Automatic knowledge extraction merged 2026-11-24: `core::knowledge` typed entities/transcripts, `K1` inbox + undo, `K4` opt-in audio, `R7`, `KnowledgeBase` UI) |
 | 9 | Autonomous research librarian (2.3) | RAG, embeddings | after 8 |
 | 10 | Cross-project intelligence (3.3) | context layer + embeddings | after 8 |
 | 11 | AI Folderless mode (2.1) | filing rules, learn-then-take-over | after 3; reshaped (R6) |

@@ -323,6 +323,16 @@ pub fn run() {
             commands::versions::versions_undismiss,
             commands::versions::versions_propose_archive,
             commands::versions::versions_propose_quarantine_dupes,
+            commands::knowledge::knowledge_dashboard,
+            commands::knowledge::knowledge_extract_scan,
+            commands::knowledge::knowledge_extract_file_llm,
+            commands::knowledge::knowledge_approve_proposal,
+            commands::knowledge::knowledge_approve_all,
+            commands::knowledge::knowledge_undo_proposal,
+            commands::knowledge::knowledge_dismiss_proposal,
+            commands::knowledge::knowledge_reopen_proposal,
+            commands::knowledge::knowledge_set_entity_status,
+            commands::knowledge::knowledge_set_audio_opt_in,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

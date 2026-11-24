@@ -61,9 +61,15 @@ import type {
   HealthBreakdown,
   IndexStats,
   InstalledApp,
+  KnowledgeCommitResult,
+  KnowledgeDashboard,
+  KnowledgeExtractOptions,
+  KnowledgeExtractReport,
+  KnowledgeQueryOptions,
   LeftoverFolder,
   LifecycleState,
   LlmStatus,
+  ProposalEditInput,
   QuarantineEntry,
   QuarantineSpaceSummary,
   RagAnswer,
@@ -399,6 +405,59 @@ export const aegis = {
         keeperFileId,
         duplicateFileIds,
       }),
+  },
+  knowledge: {
+    dashboard: (options?: Partial<KnowledgeQueryOptions>) =>
+      call<KnowledgeDashboard>("knowledge_dashboard", {
+        options: options
+          ? {
+              query: options.query ?? null,
+              entity_type: options.entity_type ?? null,
+              status: options.status ?? null,
+              limit: options.limit ?? null,
+            }
+          : undefined,
+      }),
+    extractScan: (options?: Partial<KnowledgeExtractOptions>) =>
+      call<KnowledgeExtractReport>("knowledge_extract_scan", {
+        options: options
+          ? {
+              file_ids: options.file_ids ?? null,
+              collection_id: options.collection_id ?? null,
+              include_sensitive: options.include_sensitive ?? null,
+              force_rescan: options.force_rescan ?? null,
+              limit_files: options.limit_files ?? null,
+            }
+          : undefined,
+      }),
+    extractFileLlm: (fileId: string) =>
+      call<KnowledgeExtractReport>("knowledge_extract_file_llm", { fileId }),
+    approveProposal: (proposalId: string, edit?: Partial<ProposalEditInput>) =>
+      call<KnowledgeCommitResult>("knowledge_approve_proposal", {
+        proposalId,
+        edit: edit
+          ? {
+              name: edit.name ?? null,
+              entity_type: edit.entity_type ?? null,
+              summary: edit.summary ?? null,
+              assignee: edit.assignee ?? null,
+              due_date: edit.due_date ?? null,
+              project_hint: edit.project_hint ?? null,
+            }
+          : undefined,
+      }),
+    approveAll: (proposalIds: string[]) =>
+      call<KnowledgeCommitResult[]>("knowledge_approve_all", { proposalIds }),
+    undoProposal: (proposalId: string) =>
+      call<void>("knowledge_undo_proposal", { proposalId }),
+    dismissProposal: (proposalId: string) =>
+      call<void>("knowledge_dismiss_proposal", { proposalId }),
+    reopenProposal: (proposalId: string) =>
+      call<void>("knowledge_reopen_proposal", { proposalId }),
+    setEntityStatus: (entityId: string, statusTag: string) =>
+      call<void>("knowledge_set_entity_status", { entityId, statusTag }),
+    setAudioOptIn: (enabled: boolean) =>
+      call<boolean>("knowledge_set_audio_opt_in", { enabled }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

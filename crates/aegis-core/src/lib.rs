@@ -13,6 +13,7 @@ pub mod engine;
 pub mod error;
 pub mod filing;
 pub mod fingerprint;
+pub mod knowledge;
 pub mod policy;
 pub mod quarantine;
 pub mod rag;
