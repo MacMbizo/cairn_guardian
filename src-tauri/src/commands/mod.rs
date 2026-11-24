@@ -8,6 +8,7 @@ pub mod drives;
 pub mod embed;
 pub mod engine;
 pub mod filing;
+pub mod folderless;
 pub mod knowledge;
 pub mod librarian;
 pub mod rag;

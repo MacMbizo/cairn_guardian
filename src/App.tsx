@@ -35,6 +35,7 @@ import {
   Trash2,
   Unlock,
   Usb,
+  Wand2,
   XCircle,
 } from "lucide-react";
 import { HomeTiles } from "./components/HomeTiles";
@@ -45,6 +46,7 @@ import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
 import { EngineSettings } from "./screens/EngineSettings";
 import { FilingScreen } from "./screens/Filing";
+import { FolderlessMode } from "./screens/FolderlessMode";
 import { ForgottenAssets } from "./screens/ForgottenAssets";
 import { KnowledgeBase } from "./screens/KnowledgeBase";
 import { ResearchLibrarian } from "./screens/ResearchLibrarian";
@@ -85,7 +87,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -99,6 +101,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   knowledge: "knowledge",
   librarian: "librarian",
   cross_project: "cross_project",
+  folderless: "folderless",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -663,6 +666,7 @@ export default function App() {
     { id: "knowledge", label: "Knowledge Base", icon: Brain },
     { id: "librarian", label: "Research Librarian", icon: BookOpen },
     { id: "cross_project", label: "Cross-Project", icon: Network },
+    { id: "folderless", label: "Folderless Rules", icon: Wand2 },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -878,6 +882,15 @@ export default function App() {
           {tab === "knowledge" && <KnowledgeBase desktop={desktop} />}
           {tab === "librarian" && <ResearchLibrarian desktop={desktop} />}
           {tab === "cross_project" && <CrossProject desktop={desktop} />}
+          {tab === "folderless" && (
+            <FolderlessMode
+              desktop={desktop}
+              onReviewBatches={() => {
+                setTab("simulator");
+                void refreshAll();
+              }}
+            />
+          )}
           {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />

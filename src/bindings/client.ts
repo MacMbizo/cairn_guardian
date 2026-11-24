@@ -6,6 +6,7 @@ import type {
   Collection,
   BackupCoverage,
   BackupSourceItem,
+  CompiledIntentDraft,
   DecisionOutcome,
   DrivePlan,
   DriveRole,
@@ -57,6 +58,10 @@ import type {
   EmbedSyncReport,
   ExecuteResult,
   FileDetail,
+  FolderlessBatchSummary,
+  FolderlessPreviewReport,
+  FolderlessRule,
+  FolderlessRuleInput,
   HardwareProfile,
   AssetRecoverItem,
   AssetScanOptions,
@@ -564,6 +569,46 @@ export const aegis = {
         projectAId: params?.projectAId ?? null,
         projectBId: params?.projectBId ?? null,
         includeSensitive: params?.includeSensitive ?? null,
+      }),
+  },
+  folderless: {
+    listRules: () => call<FolderlessRule[]>("folderless_list_rules"),
+    compileIntent: (intentText: string, useLlm?: boolean) =>
+      call<CompiledIntentDraft>("folderless_compile_intent", {
+        intentText,
+        useLlm: useLlm ?? null,
+      }),
+    saveRule: (input: FolderlessRuleInput) =>
+      call<FolderlessRule>("folderless_save_rule", { input }),
+    toggleRule: (ruleId: string, enabled: boolean) =>
+      call<FolderlessRule>("folderless_toggle_rule", { ruleId, enabled }),
+    deleteRule: (ruleId: string) =>
+      call<boolean>("folderless_delete_rule", { ruleId }),
+    previewRule: (params: {
+      ruleId?: string | null;
+      draft?: FolderlessRuleInput | null;
+      includeSensitive?: boolean;
+      limit?: number;
+    }) =>
+      call<FolderlessPreviewReport>("folderless_preview_rule", {
+        ruleId: params.ruleId ?? null,
+        draft: params.draft ?? null,
+        includeSensitive: params.includeSensitive ?? null,
+        limit: params.limit ?? null,
+      }),
+    proposeBatch: (params: {
+      ruleId: string;
+      fileIds: string[];
+      includeSensitive?: boolean;
+    }) =>
+      call<string>("folderless_propose_batch", {
+        ruleId: params.ruleId,
+        fileIds: params.fileIds,
+        includeSensitive: params.includeSensitive ?? null,
+      }),
+    recentBatches: (limit?: number) =>
+      call<FolderlessBatchSummary[]>("folderless_recent_batches", {
+        limit: limit ?? null,
       }),
   },
   care: {

@@ -344,6 +344,14 @@ pub fn run() {
             commands::cross_project::cross_project_scan,
             commands::cross_project::cross_project_set_insight_status,
             commands::cross_project::cross_project_synthesize_brief,
+            commands::folderless::folderless_list_rules,
+            commands::folderless::folderless_compile_intent,
+            commands::folderless::folderless_save_rule,
+            commands::folderless::folderless_toggle_rule,
+            commands::folderless::folderless_delete_rule,
+            commands::folderless::folderless_preview_rule,
+            commands::folderless::folderless_propose_batch,
+            commands::folderless::folderless_recent_batches,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

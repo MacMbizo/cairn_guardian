@@ -59,6 +59,7 @@ pub enum Screen {
     Knowledge,
     Librarian,
     CrossProject,
+    Folderless,
 }
 
 /// What acting on a finding does.

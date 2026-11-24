@@ -1142,6 +1142,12 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::cross_project::CrossProjectReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::cross_project::CrossProjectBriefCitation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::cross_project::CrossProjectBrief as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::folderless::FolderlessRule as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::folderless::FolderlessRuleInput as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::folderless::CompiledIntentDraft as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::folderless::FolderlessMatchPreview as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::folderless::FolderlessPreviewReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::folderless::FolderlessBatchSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
