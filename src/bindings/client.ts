@@ -68,6 +68,7 @@ import type {
   KnowledgeQueryOptions,
   LeftoverFolder,
   LifecycleState,
+  LibrarianOptions,
   LlmStatus,
   ProposalEditInput,
   QuarantineEntry,
@@ -76,6 +77,9 @@ import type {
   RagAskOptions,
   RecoveryKeyBundle,
   RefilePlan,
+  ResearchBrief,
+  ResearchCompanionReport,
+  ResearchDocShelf,
   RollbackResult,
   RootConfig,
   ScanStatus,
@@ -458,6 +462,72 @@ export const aegis = {
       call<void>("knowledge_set_entity_status", { entityId, statusTag }),
     setAudioOptIn: (enabled: boolean) =>
       call<boolean>("knowledge_set_audio_opt_in", { enabled }),
+  },
+  librarian: {
+    recentDocs: (params?: {
+      query?: string;
+      collectionId?: string;
+      limit?: number;
+      includeSensitive?: boolean;
+    }) =>
+      call<ResearchDocShelf>("librarian_recent_docs", {
+        query: params?.query ?? null,
+        collectionId: params?.collectionId ?? null,
+        limit: params?.limit ?? null,
+        includeSensitive: params?.includeSensitive ?? null,
+      }),
+    relatedForFile: (fileId: string, options?: Partial<LibrarianOptions>) =>
+      call<ResearchCompanionReport>("librarian_related_for_file", {
+        fileId,
+        options: options
+          ? {
+              limit: options.limit ?? null,
+              min_score: options.min_score ?? null,
+              cross_project_only: options.cross_project_only ?? null,
+              semantic_only_filter: options.semantic_only_filter ?? null,
+              include_dismissed: options.include_dismissed ?? null,
+              include_sensitive: options.include_sensitive ?? null,
+            }
+          : undefined,
+      }),
+    relatedForTopic: (topic: string, options?: Partial<LibrarianOptions>) =>
+      call<ResearchCompanionReport>("librarian_related_for_topic", {
+        topic,
+        options: options
+          ? {
+              limit: options.limit ?? null,
+              min_score: options.min_score ?? null,
+              cross_project_only: options.cross_project_only ?? null,
+              semantic_only_filter: options.semantic_only_filter ?? null,
+              include_dismissed: options.include_dismissed ?? null,
+              include_sensitive: options.include_sensitive ?? null,
+            }
+          : undefined,
+      }),
+    synthesizeBrief: (params: {
+      sourceFileId?: string | null;
+      topic?: string | null;
+      relatedFileIds: string[];
+      includeSensitive?: boolean;
+    }) =>
+      call<ResearchBrief>("librarian_synthesize_brief", {
+        sourceFileId: params.sourceFileId ?? null,
+        topic: params.topic ?? null,
+        relatedFileIds: params.relatedFileIds,
+        includeSensitive: params.includeSensitive ?? null,
+      }),
+    pin: (sourceFileId: string, relatedFileId: string, note?: string) =>
+      call<boolean>("librarian_pin", {
+        sourceFileId,
+        relatedFileId,
+        note: note ?? null,
+      }),
+    unpin: (sourceFileId: string, relatedFileId: string) =>
+      call<boolean>("librarian_unpin", { sourceFileId, relatedFileId }),
+    dismiss: (sourceFileId: string, relatedFileId: string) =>
+      call<boolean>("librarian_dismiss", { sourceFileId, relatedFileId }),
+    undismiss: (sourceFileId: string, relatedFileId: string) =>
+      call<boolean>("librarian_undismiss", { sourceFileId, relatedFileId }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

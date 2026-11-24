@@ -8,6 +8,7 @@ pub mod embed;
 pub mod engine;
 pub mod filing;
 pub mod knowledge;
+pub mod librarian;
 pub mod rag;
 pub mod vault;
 pub mod versions;

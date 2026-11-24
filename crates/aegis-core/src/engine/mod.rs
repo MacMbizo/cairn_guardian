@@ -57,6 +57,7 @@ pub enum Screen {
     Assets,
     Versions,
     Knowledge,
+    Librarian,
 }
 
 /// What acting on a finding does.

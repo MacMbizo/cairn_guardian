@@ -1121,6 +1121,15 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <crate::knowledge::KnowledgeQueryOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::knowledge::KnowledgeDashboard as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::knowledge::KnowledgeCommitResult as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::ResearchDocItem as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::ResearchDocShelf as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::SharedEntityRef as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::AssociationReason as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::RelatedReference as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::LibrarianOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::ResearchCompanionReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::BriefCitation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::librarian::ResearchBrief as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

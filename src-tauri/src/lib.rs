@@ -333,6 +333,14 @@ pub fn run() {
             commands::knowledge::knowledge_reopen_proposal,
             commands::knowledge::knowledge_set_entity_status,
             commands::knowledge::knowledge_set_audio_opt_in,
+            commands::librarian::librarian_recent_docs,
+            commands::librarian::librarian_related_for_file,
+            commands::librarian::librarian_related_for_topic,
+            commands::librarian::librarian_synthesize_brief,
+            commands::librarian::librarian_pin,
+            commands::librarian::librarian_unpin,
+            commands::librarian::librarian_dismiss,
+            commands::librarian::librarian_undismiss,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])
