@@ -2,6 +2,7 @@
 
 pub mod context;
 pub mod drives;
+pub mod embed;
 pub mod engine;
 pub mod filing;
 pub mod vault;
@@ -11,8 +12,8 @@ use aegis_core::contracts::{
     CoverageReport,
     DiskRescueReport, DoctorReport, DupeReport, ExecuteResult, FileDetail, HardwareProfile,
     HealthBreakdown, IndexStats, LifecycleState, QuarantineEntry, QuarantineSpaceSummary,
-    RefilePlan, RollbackResult, RootConfig, ScanStatus, SearchFilters, SearchPage, Simulation,
-    VolumeInfo,
+    RefilePlan, RollbackResult, RootConfig, ScanStatus, SearchFilters, SearchMode, SearchPage,
+    Simulation, VolumeInfo,
 };
 use aegis_core::db::SqliteStore;
 use aegis_core::db::actions::{
@@ -23,8 +24,10 @@ use aegis_core::db::actions::{
 use aegis_core::db::audit::{append_audit, list_audit};
 use aegis_core::db::crypto::DbKey;
 use aegis_core::db::files::{
-    get_file_detail_with_options, search_fts_with_options, set_file_lifecycle, set_file_sensitivity,
+    get_file_detail_with_options, set_file_lifecycle, set_file_sensitivity,
 };
+use aegis_core::db::search::search_hybrid;
+use aegis_core::db::vec::vec_coverage;
 use aegis_core::doctor::run_doctor;
 use aegis_core::error::{AegisError, IpcError};
 use aegis_core::quarantine::{list_quarantine, purge_entries, restore_entries, space_summary};
@@ -53,6 +56,9 @@ pub struct AppState {
     pub sensitive_unlocked_until: std::sync::atomic::AtomicI64,
     /// Receiver parked when startup finds a locked vault; consumed once unlocked.
     pub pending_engine_rx: Mutex<Option<std::sync::mpsc::Receiver<crate::engine_host::EngineMsg>>>,
+    /// On-demand local embedding engine and single-flight indexing lock (`K3`, `K5`, `R4`).
+    pub embedder: std::sync::Arc<aegis_embed::OnDemandEmbedder>,
+    pub embed_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Set to pause the running top-up; it stops cleanly and resumes next time.
     pub topup_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub topup_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -316,14 +322,35 @@ pub fn search_query(
     limit: Option<usize>,
 ) -> Result<SearchPage, IpcError> {
     let reveal = state.is_sensitive_unlocked();
+    let f = filters.unwrap_or_default();
+    let mode = f.mode.unwrap_or(SearchMode::Hybrid);
+    let lim = limit.unwrap_or(20);
+
+    let has_vectors = if mode != SearchMode::Keyword && !q.trim().is_empty() {
+        let desc = state.embedder.active_descriptor();
+        let store = lock_store(&state)?;
+        vec_coverage(store.conn(), &desc.id, desc.dim)
+            .map(|(_, embedded)| embedded > 0)
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let embedded_query = if has_vectors {
+        state.embedder.embed_query(&q).ok()
+    } else {
+        None
+    };
+    let min_sim = embedded_query
+        .as_ref()
+        .map(|(d, _)| if d.backend == "lexical_fallback" { 0.15 } else { 0.45 })
+        .unwrap_or(0.45);
+
     let store = lock_store(&state)?;
-    map_err(search_fts_with_options(
-        store.conn(),
-        &q,
-        &filters.unwrap_or_default(),
-        limit.unwrap_or(20),
-        reveal,
-    ))
+    let vec_arg = embedded_query
+        .as_ref()
+        .map(|(d, v)| (d.id.as_str(), v.as_slice(), min_sim));
+    map_err(search_hybrid(store.conn(), &q, vec_arg, &f, lim, reveal))
 }
 
 #[tauri::command(async)]

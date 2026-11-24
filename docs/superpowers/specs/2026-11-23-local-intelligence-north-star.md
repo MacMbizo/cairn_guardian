@@ -24,9 +24,9 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | Key held by the OS security hardware, opened by biometrics | n/a | Reshaped (rule R2): the engine's key is sealed to the PC; biometrics only open sensitive views |
 | Fast file tracking | USN journal read without admin, live index, catalog | Fits. Direct MFT parsing is avoided (R1) |
 | Background content parsing | Content reader | Fits |
-| Local models, NPU/GPU/CPU | `aegis-embed` crate (not wired in) | On demand only (R4); CPU must work, NPU/GPU are a bonus |
-| Vector index | `sqlite-vec` 0.1.9 registered inside encrypted store (`chunk_embeddings_meta` ready; virtual tables land in Plan 6B) | Comes with the embeddings work (Plan 6B wires local embeddings + FTS5/vector hybrid search inside encrypted `aegis.db`) |
-| Low-priority worker queue, idle- and power-gated | Scheduler thread below normal priority, idle-gated watches, single-flight jobs | Fits. Extend with "on AC power" gating for heavy jobs |
+| Local models, NPU/GPU/CPU | `aegis-embed` (`GgufEmbedder`, `SafetensorsBertEmbedder`, `LexicalHashEmbedder` fallback; `OnDemandEmbedder` wired via Plan 6B) | On demand only (R4); pure-Rust CPU via `candle-core`/`candle-nn` (`K5` <= 350 MB, unloads after batch / 60s idle / window close, AC-gated background indexing) |
+| Vector index | `vec_chunks` (`sqlite-vec` `0.1.9`) + `chunk_embeddings_meta` inside SQLCipher-encrypted `aegis.db` (Plan 6A + 6B merged 2026-11-24) | Live inside encrypted `aegis.db`; excludes deleted/quarantined (`K2`), repairs orphans via Doctor check #4 |
+| Low-priority worker queue, idle- and power-gated | Scheduler thread below normal priority, idle-gated watches, single-flight jobs, AC-power gating (`Watch::needs_ac`) | Implemented with AC-power gating for background `EmbedWatch` |
 | Revert buffer for every automatic change | Batches, `file_history`, rollback, 30-day quarantine | Fits. Already the core of Aegis |
 
 ### 2.2 The fourteen capabilities
@@ -34,7 +34,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | # | Capability (vision §) | Builds on | Order |
 |---|---|---|---|
 | 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **done** (Plans 1–5 merged 2026-11-24: projects, plans, sets/photo subjects, put back together, §16 step 7 modules & external drive plans) |
-| 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **in progress**: Plan 6A (D1 encryption & `sqlite-vec` 0.1.9) merged 2026-11-24; Plan 6B (local embeddings & hybrid search) next |
+| 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **done** (Plan 6A encryption merged; Plan 6B local embeddings & hybrid search merged 2026-11-24) |
 | 3 | Local RAG engine (3.1) | hybrid search | after 2 |
 | 4 | Dead file detection (4.2) | janitor, duplicates, Project 4 System care | with Project 4 |
 | 5 | Workspace health score (4.4) | space recorder, duplicates, self-check | with Project 4; storage and integrity first, taxonomy later |

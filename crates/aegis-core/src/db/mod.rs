@@ -4,6 +4,8 @@ pub mod actions;
 pub mod audit;
 pub mod crypto;
 pub mod files;
+pub mod search;
+pub mod vec;
 
 use crate::contracts::{IndexStats, RootConfig, VolumeInfo};
 use crate::error::{AegisError, Result};

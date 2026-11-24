@@ -20,4 +20,8 @@ years: Array<number>, kinds: Array<Kind>,
 /**
  * `(volume id, label)` for every drive with files in the catalog, plugged in or not.
  */
-drives: Array<[string, string]>, };
+drives: Array<[string, string]>, 
+/**
+ * `(collection id, name, kind)` for active projects, sets, and modules.
+ */
+collections: Array<[string, string, string]>, };

@@ -93,14 +93,44 @@ pub fn run_doctor(store: &mut SqliteStore, repair: bool) -> Result<DoctorReport>
         [],
         |r| r.get(0),
     )?;
+    let live_chunks_vec: i64 = store.conn().query_row(
+        "SELECT COUNT(*) FROM chunks c JOIN files f ON f.id = c.file_id
+         WHERE f.deleted_at IS NULL AND f.state != 'quarantine'",
+        [],
+        |r| r.get(0),
+    )?;
+    let embedded_vec: i64 = store.conn().query_row(
+        "SELECT COUNT(*) FROM chunk_embeddings_meta cem
+         JOIN chunks c ON c.id = cem.chunk_id
+         JOIN files f ON f.id = c.file_id
+         WHERE f.deleted_at IS NULL AND f.state != 'quarantine'",
+        [],
+        |r| r.get(0),
+    )?;
+    let mut vec_orphans = crate::db::vec::count_orphan_vectors(store.conn())?;
+    let mut vec_repaired = false;
+    if vec_orphans > 0 && repair {
+        crate::db::vec::prune_orphan_vectors(store.conn())?;
+        vec_orphans = crate::db::vec::count_orphan_vectors(store.conn())?;
+        vec_repaired = true;
+    }
     let vec_label = if vec_ver.is_empty() { "unavailable" } else { vec_ver.as_str() };
+    let vec_passed = !vec_ver.is_empty() && vec_orphans == 0;
     checks.push(DoctorCheckResult {
         check_id: 4,
         name: "Vector Store & Outbox".into(),
-        passed: !vec_ver.is_empty(),
-        details: format!("sqlite-vec={vec_label}, {outbox_pending} pending vector outbox event(s)"),
-        repaired: false,
-        remediation: vec_ver.is_empty().then(|| "Check sqlite-vec SQLite auto-extension registration.".into()),
+        passed: vec_passed,
+        details: format!(
+            "sqlite-vec={vec_label}, embedded={embedded_vec}/{live_chunks_vec}, orphans={vec_orphans}, outbox_pending={outbox_pending}"
+        ),
+        repaired: vec_repaired,
+        remediation: if vec_ver.is_empty() {
+            Some("Check sqlite-vec SQLite auto-extension registration.".into())
+        } else if vec_orphans > 0 {
+            Some("Run doctor with repair=true to prune orphan vectors.".into())
+        } else {
+            None
+        },
     });
 
     // 5. Quarantine Consistency

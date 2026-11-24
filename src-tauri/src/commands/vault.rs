@@ -165,6 +165,7 @@ pub fn vault_unlock_with_recovery(
     input: String,
 ) -> Result<VaultStatus, IpcError> {
     let (new_store, new_key, _meta) = map_err(recover_vault_with_key(&state.db_path, &input))?;
+    crate::apply_saved_embed_model(&new_store, &state.embedder);
     let shortcut = crate::init_unlocked_settings(&app, &new_store).map_err(|e| {
         IpcError {
             code: "database_error".into(),

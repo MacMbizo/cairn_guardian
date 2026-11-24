@@ -1,30 +1,30 @@
 # Handoff: Aegis Guardian
 
-Updated 2026-11-24 (Plan 6A — D1 SQLCipher encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, 24-word/64-hex recovery, `R7` sensitive views, `R9` guard — built, verified, and fast-forward merged into `master`; Plan 6B next). Read this first in a new chat.
+Updated 2026-11-24 (Plan 6B — Local Embeddings & Context-Aware Hybrid Search — built, verified, and fast-forward merged into `master`; **Project 4: System care** next). Read this first in a new chat.
 
 **The whole-project view** (what is done, what is waiting on the owner, everything that remains) is in
 `docs/PROGRESS.md`. Keep it current at the end of each plan.
 
 Current state:
-- `master`: Projects 1–3, Context-aware filing Plans 1–5, and **Plan 6A** (SQLCipher whole-store encryption, `sqlite-vec` 0.1.9, DPAPI `R2` key sealing, 24-word/64-hex recovery, `R7` sensitive snippet masking + CredUI unlock, `R9` offline dependency guard), fast-forward merged from `feature/d1-encryption-and-vec` (not pushed).
-- `feature/d1-encryption-and-vec`, `feature/context-modules-step7`, `feature/put-back-together-and-learning`, & `feature/sets-and-photo-subjects`: merged into `master` (not pushed).
+- `master`: Projects 1–3, Context-aware filing Plans 1–5, **Plan 6A** (SQLCipher whole-store encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, 24-word/64-hex recovery, `R7`, `R9`), and **Plan 6B** (local pure-Rust `aegis-embed`, encrypted `vec_chunks`, hybrid FTS5+vector RRF search, context collection filtering/enrichment, AC-gated `EmbedWatch`, UI settings/modes), fast-forward merged from `feature/embeddings-hybrid-search` (not pushed).
+- `feature/embeddings-hybrid-search`, `feature/d1-encryption-and-vec`, `feature/context-modules-step7`, `feature/put-back-together-and-learning`, & `feature/sets-and-photo-subjects`: merged into `master` (not pushed).
 - `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`): rollback tag preserving pre-stabilization baseline plus parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`).
 - Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
 
 ## NEXT CHAT: do this first
 
-**Owner-approved roadmap order (2026-11-23, updated after Plan 6A merge 2026-11-24):**
-1. **Plan 6B: Local Embeddings & Context-Aware Hybrid Search** (FTS5 + `sqlite-vec` inside encrypted `aegis.db`, on-demand `aegis-embed` inside the 350 MB K5 budget) — **NEXT ACTIVE**
-2. **Project 4: System care**
+**Owner-approved roadmap order (2026-11-23, updated after Plan 6B merge 2026-11-24):**
+1. **Project 4: System care** (temp/caches/installers + Windows uninstaller; strictly keeping `R3` no registry cleaning / no startup editing / no SMART health) — **NEXT ACTIVE**
 
+- Plan 6B doc: `docs/superpowers/plans/2026-11-24-embeddings-and-hybrid-search.md`.
 - Plan 6A doc: `docs/superpowers/plans/2026-11-24-d1-encryption-and-vec.md`.
 - Plan 5 doc: `docs/superpowers/plans/2026-11-23-context-modules-step7.md`.
 - Plan 4 doc: `docs/superpowers/plans/2026-11-23-put-back-together-and-learning.md`.
 - Plan 3 doc: `docs/superpowers/plans/2026-11-23-sets-and-photo-subjects.md`.
-- **Owner Decision D1 approved (2026-11-23) — encryption/vec part merged:** SQLCipher whole-store encryption + `sqlite-vec` (`=0.1.9`) inside the encrypted store, DPAPI-sealed engine key (`R2`, Windows CredUI for sensitive views & recovery key reveal), and mandatory offline 24-word/64-hex recovery key (`R1–R11` preserved).
+- **Owner Decision D1 approved (2026-11-23) — encryption + hybrid search merged:** SQLCipher whole-store encryption + `sqlite-vec` (`=0.1.9`), DPAPI-sealed engine key (`R2`, Windows CredUI for sensitive views & recovery key reveal), 24-word/64-hex recovery key, pure-Rust on-demand local embeddings (`K3`/`K5`/`R4`/`R9`), and hybrid FTS5+vector search (`K2`/`R7`).
 - **Verification gate on `master`:**
-  - `cargo test --workspace`: **511 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/d1_encryption.rs` (`0.73s`), **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.19s`), **7** in `crates/aegis-core/tests/context_modules.rs`, **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
-  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `932ms`).
+  - `cargo test --workspace`: **525 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/hybrid_search.rs` (`0.12s`), **6** in `crates/aegis-core/tests/d1_encryption.rs` (`0.64s`), **5** in `crates/aegis-embed` (`8.46s`, incl. live `nomic_gguf_live_semantic_check`), **11** in `aegis-desktop`, **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.16s`), **7** in `crates/aegis-core/tests/context_modules.rs`, **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; `0` folders in `C:\.aegis-quarantine` before and `0` after.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings); `cargo check -p aegis-desktop --features custom-protocol`: clean; `pnpm build`: clean (`dist/` built in `808ms`).
   - Prior Plan 5 live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `239` projects (`84` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects, `18` software packages, `9` owner's folders, `4` resources, `52` series seasons, `2` old copies, **`249` plans in `18.8s` debug**.
 
 1. **Owner items still open:**
@@ -32,6 +32,11 @@ Current state:
 2. **Note on `src/bindings/` and `node:sqlite`:**
    - Keep `canonical/D1_Design_System_v1.0.md` parked until core features finish.
    - `cargo test` writes LF line endings into `src/bindings/*.ts`; run `git checkout -f --` on unchanged bindings so only real binding diffs are committed.
+
+**What Plan 6B built:**
+- **Pure-Rust On-Demand Embedder (`Cargo.toml`, `crates/aegis-embed`):** Implements `WordPieceTokenizer` (both HF `##` and GGUF `\u{2581}` conventions), `GgufEmbedder` (`nomic-bert` NeoX RoPE/SwiGLU + standard `bert` via compact `QMatMul` on `candle-core` + `candle-nn`), `SafetensorsBertEmbedder`, `LexicalHashEmbedder` (`384`-d fallback), local model discovery (app `models/` + local `.ollama/models` GGUF headers preferring `<= 350 MB` per `K5`), and `OnDemandEmbedder` unloading immediately after batch embedding or on idle/`unload()`, keeping `r9_forbids_networking_crates_in_engine_and_models` clean.
+- **Encrypted Vector Sync, Hybrid RRF Search & AC Gating (`crates/aegis-core/src/{db/vec.rs,db/search.rs,db/files.rs,doctor/mod.rs,engine/mod.rs,contracts/mod.rs,filing/mod.rs}`):** Manages `vec_chunks` virtual tables (`sqlite-vec` `0.1.9`) inside SQLCipher `aegis.db`, increments `pending_chunks` via BLAKE3 content hashes, marks chunk outbox events processed, prunes deleted/quarantined orphan vectors (Doctor Check #4), fuses FTS5 BM25 + vector KNN + filename + former-name channels (`search_hybrid` with RRF `k = 60`, collection filtering/boost, drive online/offline state, `K2` quarantine exclusion, `R7` masking), adds `Watch::needs_ac()` to gate `EmbedWatch`, and passes all 6 integration tests in `tests/hybrid_search.rs`.
+- **Desktop IPC, Watcher & Search/Settings UI (`src-tauri/src/{lib.rs,engine_host.rs,commands/{embed.rs,mod.rs,vault.rs}}`, `src/{App.tsx,components/SearchFilterBar.tsx,screens/EngineSettings.tsx,bindings/*}`):** Exposes `embed_status`, `embed_sync_now`, `embed_select_model`, and `embed_unload`, schedules AC-gated `EmbedWatch` with `60s` idle unload + `store.shrink_memory()`, unloads weights on `WindowEvent::Destroyed`, restores saved `embed.model_path` on unlock, adds `Project / Set` filtering + `Hybrid`/`Keyword`/`Semantic` toggles + match-reason/unplugged-drive badges to Search, and adds the **Semantic Search & Local Embeddings** card in Settings.
 
 **What Plan 6A built:**
 - **SQLCipher + `sqlite-vec` Foundation (`crates/libsqlite3-sys-sqlcipher`, `Cargo.toml`, `migrations/0009_vault_and_vec_meta.sql`):** Compiles SQLCipher `sqlcipher-src 420.0.0` + `libtomcrypt 1.18.2` with `-DLTC_NO_ASM` directly under MSVC (zero Perl/OpenSSL dependency), registers `sqlite-vec = "=0.1.9"` on every `SqliteStore`, and creates `chunk_embeddings_meta`.

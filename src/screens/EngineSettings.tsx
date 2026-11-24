@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Copy, Eye, EyeOff, KeyRound, Keyboard, Lock, MoonStar, Power, ShieldAlert, ShieldCheck, Undo2, Unlock } from "lucide-react";
-import { aegis, errorMessage, type RecoveryKeyBundle, type VaultStatus } from "../bindings/client";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { CheckCircle2, Copy, Eye, EyeOff, FolderOpen, KeyRound, Keyboard, Lock, MoonStar, Power, ShieldAlert, ShieldCheck, Sparkles, Undo2, Unlock } from "lucide-react";
+import { aegis, errorMessage, type EmbedStatus, type RecoveryKeyBundle, type VaultStatus } from "../bindings/client";
 import { DAY_NAMES } from "./ThisWeek";
 import type { EngineData } from "./useEngine";
 
@@ -28,15 +29,21 @@ export function EngineSettings({
   data,
   vaultStatus: externalVault,
   onVaultChange,
+  embedStatus: externalEmbed,
+  onEmbedChange,
 }: {
   data: EngineData;
   vaultStatus?: VaultStatus | null;
   onVaultChange?: () => Promise<unknown> | unknown;
+  embedStatus?: EmbedStatus | null;
+  onEmbedChange?: () => Promise<unknown> | unknown;
 }) {
   const { status, preview, reload } = data;
   const [msg, setMsg] = useState<string | null>(null);
   const [shortcut, setShortcut] = useState("");
   const [localVault, setLocalVault] = useState<VaultStatus | null>(externalVault ?? null);
+  const [localEmbed, setLocalEmbed] = useState<EmbedStatus | null>(externalEmbed ?? null);
+  const [embedBusy, setEmbedBusy] = useState(false);
   const [bundle, setBundle] = useState<RecoveryKeyBundle | null>(null);
   const [showHex, setShowHex] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -54,6 +61,95 @@ export function EngineSettings({
       setLocalVault(externalVault);
     }
   }, [externalVault]);
+
+  useEffect(() => {
+    if (externalEmbed !== undefined) {
+      setLocalEmbed(externalEmbed);
+    }
+  }, [externalEmbed]);
+
+  const refreshLocalEmbed = useCallback(async () => {
+    if (preview) return;
+    try {
+      setLocalEmbed(await aegis.embed.status());
+    } catch {
+      /* ignore while locked */
+    }
+  }, [preview]);
+
+  useEffect(() => {
+    if (externalEmbed === undefined && !preview) {
+      void refreshLocalEmbed();
+    }
+  }, [externalEmbed, preview, refreshLocalEmbed]);
+
+  const syncEmbed = async (next: EmbedStatus, feedback?: string) => {
+    setLocalEmbed(next);
+    if (feedback) setMsg(feedback);
+    await onEmbedChange?.();
+  };
+
+  const handleSelectModel = async (path: string | null) => {
+    if (preview) {
+      setMsg("Preview only: run the desktop app to configure local embedding models.");
+      return;
+    }
+    setEmbedBusy(true);
+    try {
+      const next = await aegis.embed.selectModel(path);
+      await syncEmbed(next, `Semantic search model switched to ${next.model_name} (${next.dim}-d).`);
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setEmbedBusy(false);
+    }
+  };
+
+  const handleImportModel = async (directory: boolean) => {
+    if (preview) return;
+    try {
+      const picked = await openDialog({
+        directory,
+        multiple: false,
+        filters: directory ? undefined : [{ name: "GGUF embedding model", extensions: ["gguf"] }],
+      });
+      if (typeof picked === "string" && picked) {
+        await handleSelectModel(picked);
+      }
+    } catch (e) {
+      setMsg(errorMessage(e));
+    }
+  };
+
+  const handleSyncEmbeddings = async () => {
+    if (preview) return;
+    setEmbedBusy(true);
+    try {
+      const rep = await aegis.embed.syncNow(200);
+      const next = await aegis.embed.status();
+      await syncEmbed(
+        next,
+        `Indexed ${rep.embedded_count} chunk(s) in ${rep.took_ms}ms (${rep.pending_remaining} pending). Model unloaded.`
+      );
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setEmbedBusy(false);
+    }
+  };
+
+  const handleUnloadEmbed = async () => {
+    if (preview) return;
+    setEmbedBusy(true);
+    try {
+      const next = await aegis.embed.unload();
+      await syncEmbed(next, "Embedding model weights unloaded from memory.");
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setEmbedBusy(false);
+    }
+  };
 
   const refreshLocalVault = useCallback(async () => {
     if (preview) return;
@@ -544,6 +640,140 @@ export function EngineSettings({
                   <Eye className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Unlock sensitive previews (15 min)
                 </button>
               )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section aria-label="Semantic Search & Local Embeddings" className={card}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Semantic Search &amp; Local Embeddings
+          </h2>
+          {localEmbed && (
+            <span
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${
+                localEmbed.loaded
+                  ? "border border-amber-800/60 bg-amber-950/70 text-amber-300"
+                  : "border border-emerald-800/60 bg-emerald-950/70 text-emerald-300"
+              }`}
+            >
+              {localEmbed.loaded ? "Loaded in RAM" : "Unloaded (idle 0 MB)"}
+            </span>
+          )}
+        </div>
+
+        {preview || !localEmbed ? (
+          <p className="text-xs text-slate-400">
+            Local CPU semantic embeddings (Candle GGUF/Safetensors + lexical fallback) run offline inside the encrypted SQLite store.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs sm:grid-cols-2">
+              <div>
+                <span className="text-slate-400">Active model</span>
+                <p className="font-medium text-slate-200">{localEmbed.model_name}</p>
+              </div>
+              <div>
+                <span className="text-slate-400">Backend &amp; dimension</span>
+                <p className="font-mono text-slate-200">{localEmbed.backend} · {localEmbed.dim}-d</p>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-slate-400">Memory &amp; power policy</span>
+                <p className="text-slate-300">{localEmbed.on_demand_policy}</p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between text-slate-300">
+                <span>
+                  Vector coverage:{" "}
+                  <strong>
+                    {localEmbed.embedded_chunks.toLocaleString()} / {localEmbed.total_chunks.toLocaleString()}
+                  </strong>{" "}
+                  chunks
+                </span>
+                <span className="text-slate-400">
+                  {localEmbed.pending_chunks.toLocaleString()} pending
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all"
+                  style={{
+                    width: `${
+                      localEmbed.total_chunks > 0
+                        ? Math.min(100, Math.round((localEmbed.embedded_chunks / localEmbed.total_chunks) * 100))
+                        : 100
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label className="block text-slate-300">
+                Local model selection (auto picks compact models &le; 350 MB first):
+                <select
+                  aria-label="Embedding model"
+                  disabled={embedBusy}
+                  value={localEmbed.selected_path ?? ""}
+                  onChange={(e) => void handleSelectModel(e.target.value ? e.target.value : null)}
+                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                >
+                  <option value="">Auto (best compact local model, else lexical fallback)</option>
+                  {localEmbed.available_models.map((m) => (
+                    <option key={m.path} value={m.path}>
+                      {m.name} · {m.dim}-d
+                      {m.size_bytes > 0 ? ` · ${(m.size_bytes / 1048576).toFixed(0)} MB` : ""}
+                      {!m.within_budget ? " · >350 MB" : ""}
+                    </option>
+                  ))}
+                  {localEmbed.selected_path &&
+                    !localEmbed.available_models.some((m) => m.path === localEmbed.selected_path) && (
+                      <option value={localEmbed.selected_path}>
+                        {localEmbed.model_name} (selected: {localEmbed.selected_path})
+                      </option>
+                    )}
+                </select>
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={embedBusy}
+                  onClick={() => void handleImportModel(false)}
+                  className={btn}
+                >
+                  <FolderOpen className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Choose .gguf file…
+                </button>
+                <button
+                  type="button"
+                  disabled={embedBusy}
+                  onClick={() => void handleImportModel(true)}
+                  className={btn}
+                >
+                  <FolderOpen className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Choose BERT folder…
+                </button>
+                <button
+                  type="button"
+                  disabled={embedBusy}
+                  onClick={() => void handleSyncEmbeddings()}
+                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                >
+                  {embedBusy
+                    ? "Indexing…"
+                    : `Index pending chunks (${localEmbed.pending_chunks.toLocaleString()})`}
+                </button>
+                <button
+                  type="button"
+                  disabled={embedBusy || !localEmbed.loaded}
+                  onClick={() => void handleUnloadEmbed()}
+                  className={btn}
+                >
+                  Unload model now
+                </button>
+              </div>
             </div>
           </div>
         )}

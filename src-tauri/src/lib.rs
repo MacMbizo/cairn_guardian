@@ -20,6 +20,20 @@ fn local_offset_secs(utc_ms: i64) -> i32 {
     Local.timestamp_millis_opt(utc_ms).single().map_or(0, |d| d.offset().fix().local_minus_utc())
 }
 
+/// Restores any owner-selected local embedding model path from `settings` into `embedder`.
+pub(crate) fn apply_saved_embed_model(
+    store: &SqliteStore,
+    embedder: &aegis_embed::OnDemandEmbedder,
+) {
+    let saved = store
+        .get_setting("embed.model_path", "global")
+        .ok()
+        .flatten()
+        .and_then(|j| serde_json::from_str::<Option<String>>(&j).ok())
+        .flatten();
+    embedder.set_selection(aegis_embed::ModelSelection::from_setting(saved.as_deref()));
+}
+
 /// Seeds initial PC roots, records first-run autostart setting, and returns the search shortcut.
 pub(crate) fn init_unlocked_settings(
     app: &tauri::AppHandle,
@@ -64,6 +78,7 @@ pub fn run() {
             let data_dir = std::env::var_os("AEGIS_DATA_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| {
                 app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("aegis-guardian"))
             });
+            let embedder = std::sync::Arc::new(aegis_embed::OnDemandEmbedder::new(data_dir.join("models")));
             let db_path = data_dir.join("aegis.db");
             let open_res = aegis_core::db::crypto::open_or_migrate_encrypted(&db_path)?;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -76,6 +91,7 @@ pub fn run() {
                     meta: _,
                     migrated,
                 } => {
+                    apply_saved_embed_model(&store, &embedder);
                     let shortcut = init_unlocked_settings(&handle, &store)?;
                     app.manage(AppState {
                         store: Mutex::new(store),
@@ -86,6 +102,8 @@ pub fn run() {
                         vault_migrated: std::sync::atomic::AtomicBool::new(migrated),
                         sensitive_unlocked_until: std::sync::atomic::AtomicI64::new(0),
                         pending_engine_rx: Mutex::new(None),
+                        embedder,
+                        embed_running: Default::default(),
                         topup_cancel: Default::default(),
                         topup_running: Default::default(),
                         cataloguing: Default::default(),
@@ -117,6 +135,8 @@ pub fn run() {
                         vault_migrated: std::sync::atomic::AtomicBool::new(false),
                         sensitive_unlocked_until: std::sync::atomic::AtomicI64::new(0),
                         pending_engine_rx: Mutex::new(Some(rx)),
+                        embedder,
+                        embed_running: Default::default(),
                         topup_cancel: Default::default(),
                         topup_running: Default::default(),
                         cataloguing: Default::default(),
@@ -138,6 +158,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::Destroyed = event {
+                window.app_handle().state::<AppState>().embedder.unload();
                 shell::first_close_hint(window.app_handle());
             }
         })
@@ -154,6 +175,10 @@ pub fn run() {
             commands::volumes_list,
             commands::index_stats,
             commands::search_query,
+            commands::embed::embed_status,
+            commands::embed::embed_sync_now,
+            commands::embed::embed_select_model,
+            commands::embed::embed_unload,
             commands::file_get,
             commands::file_set_lifecycle,
             commands::file_set_sensitivity,

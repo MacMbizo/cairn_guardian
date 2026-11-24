@@ -9,9 +9,17 @@ export type SearchNarrowing = {
   year: number | null;
   kind: Kind | null;
   volume_id: string | null;
+  collection_id: string | null;
 };
 
-export const NO_NARROWING: SearchNarrowing = { category: null, who: null, year: null, kind: null, volume_id: null };
+export const NO_NARROWING: SearchNarrowing = {
+  category: null,
+  who: null,
+  year: null,
+  kind: null,
+  volume_id: null,
+  collection_id: null,
+};
 
 const KIND_LABEL: Record<Kind, string> = {
   document: "Documents",
@@ -90,6 +98,14 @@ export function SearchFilterBar({
         {(f?.drives ?? []).map(([id, label]) => (
           <option key={id} value={id}>
             {label}
+          </option>
+        ))}
+      </select>
+      <select aria-label="Project or set" className={select} value={value.collection_id ?? ""} onChange={(e) => set("collection_id", e.target.value || null)}>
+        <option value="">Any project / set</option>
+        {(f?.collections ?? []).map(([id, name]) => (
+          <option key={id} value={id}>
+            {name}
           </option>
         ))}
       </select>

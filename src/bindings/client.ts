@@ -46,6 +46,8 @@ import type {
   DiskRescueReport,
   DoctorReport,
   DupeReport,
+  EmbedStatus,
+  EmbedSyncReport,
   ExecuteResult,
   FileDetail,
   HardwareProfile,
@@ -307,5 +309,12 @@ export const aegis = {
       call<VaultStatus>("vault_unlock_with_recovery", { input }),
     unlockSensitive: () => call<VaultStatus>("vault_unlock_sensitive"),
     lockSensitive: () => call<VaultStatus>("vault_lock_sensitive"),
+  },
+  embed: {
+    status: () => call<EmbedStatus>("embed_status"),
+    syncNow: (limit?: number) => call<EmbedSyncReport>("embed_sync_now", { limit }),
+    selectModel: (modelPath: string | null) =>
+      call<EmbedStatus>("embed_select_model", { modelPath }),
+    unload: () => call<EmbedStatus>("embed_unload"),
   },
 };

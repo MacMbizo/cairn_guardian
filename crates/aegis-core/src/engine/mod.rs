@@ -187,6 +187,10 @@ pub trait Watch: Send {
     fn every_ms(&self) -> i64;
     /// Heavy work: runs only while the PC is calm (or after [`IDLE_GRACE_MS`] past due).
     fn needs_idle(&self) -> bool;
+    /// Heavy neural/model work (`K5`): waits for AC mains power, even beyond `IDLE_GRACE_MS`.
+    fn needs_ac(&self) -> bool {
+        false
+    }
     /// Reminder kinds this watch owns; its open reminders not re-raised on a run are resolved.
     fn kinds(&self) -> &'static [&'static str];
     fn run(&mut self, store: &mut SqliteStore, now: i64) -> Result<Vec<Finding>>;
@@ -229,6 +233,9 @@ impl Engine {
         let calm_now = calm.is_calm();
         for w in self.watches.iter_mut() {
             if paused && w.needs_idle() {
+                continue;
+            }
+            if w.needs_ac() && !calm.on_ac {
                 continue;
             }
             let state = watch_state(store.conn(), w.name())?;

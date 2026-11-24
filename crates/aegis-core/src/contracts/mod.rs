@@ -370,6 +370,17 @@ pub struct IndexStats {
     pub pending_outbox: i64,
 }
 
+/// Retrieval strategy used by desktop search (`Hybrid`, `Keyword`, or `Semantic`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum SearchMode {
+    #[default]
+    Hybrid,
+    Keyword,
+    Semantic,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SearchFilters {
@@ -391,6 +402,12 @@ pub struct SearchFilters {
     pub kind: Option<String>,
     /// Only this drive (works for unplugged drives too: the catalog remembers them).
     pub volume_id: Option<String>,
+    /// Narrow results to files inside a recognised project, design set, or context module.
+    #[serde(default)]
+    pub collection_id: Option<String>,
+    /// Hybrid (default), keyword-only, or semantic-only retrieval mode.
+    #[serde(default)]
+    pub mode: Option<SearchMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -404,10 +421,22 @@ pub struct SearchHit {
     pub cloud_state: String,
     pub snippet: String,
     pub score: f64,
-    /// `"content"`, `"name"` or `"former name"`.
+    /// `"hybrid"`, `"semantic"`, `"content"`, `"name"`, or `"former name"`.
     pub match_reason: String,
     /// Where the file was before Aegis filed it, if it moved.
     pub was: Option<String>,
+    /// Name of the project, design set, or module this file belongs to.
+    #[serde(default)]
+    pub collection_name: Option<String>,
+    /// Kind of the owning collection (`"project"`, `"design_set"`, etc.).
+    #[serde(default)]
+    pub collection_kind: Option<String>,
+    /// Friendly drive label or mount point for display (`"System (C:)"`, `"Seagate"`, etc.).
+    #[serde(default)]
+    pub drive_label: Option<String>,
+    /// True when the volume is currently online.
+    #[serde(default)]
+    pub drive_online: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -900,6 +929,58 @@ pub struct RecoveryKeyBundle {
     pub fingerprint: String,
 }
 
+/// Offline embedding model discovered on disk (GGUF, Safetensors BERT, or built-in lexical fallback).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DiscoveredModel {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub backend: String,
+    #[ts(type = "number")]
+    pub dim: usize,
+    #[ts(type = "number")]
+    pub size_bytes: u64,
+    pub source: String,
+    pub within_budget: bool,
+}
+
+/// Current local embedding engine state, active model metadata, and encrypted `vec_chunks` coverage.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EmbedStatus {
+    pub model_id: String,
+    pub model_name: String,
+    pub backend: String,
+    #[ts(type = "number")]
+    pub dim: usize,
+    pub loaded: bool,
+    pub selected_path: Option<String>,
+    #[ts(type = "number")]
+    pub total_chunks: i64,
+    #[ts(type = "number")]
+    pub embedded_chunks: i64,
+    #[ts(type = "number")]
+    pub pending_chunks: i64,
+    pub available_models: Vec<DiscoveredModel>,
+    pub on_demand_policy: String,
+}
+
+/// Summary returned by an interactive or scheduled vector indexing pass.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EmbedSyncReport {
+    pub model_id: String,
+    #[ts(type = "number")]
+    pub embedded_count: usize,
+    #[ts(type = "number")]
+    pub pruned_orphans: usize,
+    #[ts(type = "number")]
+    pub pending_remaining: i64,
+    #[ts(type = "number")]
+    pub took_ms: u64,
+}
+
 /// Generates TypeScript bindings and barrel file `index.ts` into `out_dir`.
 pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(out_dir)?;
@@ -924,6 +1005,7 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <CoverageReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <IndexStats as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <SearchFilters as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <SearchMode as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <SearchPage as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <FileDetail as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <AtomicUnit as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
@@ -992,6 +1074,9 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <AegisEvent as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <VaultStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <RecoveryKeyBundle as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <DiscoveredModel as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <EmbedStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <EmbedSyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
 
     let mut stems = Vec::new();
     for entry in std::fs::read_dir(out_dir)? {

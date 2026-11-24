@@ -2,10 +2,26 @@
 
 export type SearchHit = { file_id: string, path: string, name: string, state: string, sensitivity: string, cloud_state: string, snippet: string, score: number, 
 /**
- * `"content"`, `"name"` or `"former name"`.
+ * `"hybrid"`, `"semantic"`, `"content"`, `"name"`, or `"former name"`.
  */
 match_reason: string, 
 /**
  * Where the file was before Aegis filed it, if it moved.
  */
-was: string | null, };
+was: string | null, 
+/**
+ * Name of the project, design set, or module this file belongs to.
+ */
+collection_name: string | null, 
+/**
+ * Kind of the owning collection (`"project"`, `"design_set"`, etc.).
+ */
+collection_kind: string | null, 
+/**
+ * Friendly drive label or mount point for display (`"System (C:)"`, `"Seagate"`, etc.).
+ */
+drive_label: string | null, 
+/**
+ * True when the volume is currently online.
+ */
+drive_online: boolean, };

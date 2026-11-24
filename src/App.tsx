@@ -63,8 +63,10 @@ import {
   type RootConfig,
   type ScanStatus,
   type Screen,
+  type SearchMode,
   type SearchPage,
   type Simulation,
+  type EmbedStatus,
   type VaultStatus,
 } from "./bindings/client";
 
@@ -111,6 +113,7 @@ export default function App() {
   const engineData = useEngine();
   const filingData = useFiling(tab === "filing" || tab === "dashboard");
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
+  const [embedStatus, setEmbedStatus] = useState<EmbedStatus | null>(null);
   const [vaultChecked, setVaultChecked] = useState(!desktop);
   const [recoveryInput, setRecoveryInput] = useState("");
   const [recoveryErr, setRecoveryErr] = useState<string | null>(null);
@@ -134,6 +137,7 @@ export default function App() {
 
   // Search
   const [query, setQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>("hybrid");
   const [includeQuarantined, setIncludeQuarantined] = useState(false);
   const [searchPage, setSearchPage] = useState<SearchPage | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -188,10 +192,21 @@ export default function App() {
     }
   }, [desktop]);
 
+  const refreshEmbed = useCallback(async () => {
+    if (!desktop || vaultLocked) return null;
+    try {
+      const es = await aegis.embed.status();
+      setEmbedStatus(es);
+      return es;
+    } catch {
+      return null;
+    }
+  }, [desktop, vaultLocked]);
+
   const refreshAll = useCallback(async () => {
     if (!desktop || vaultLocked) return;
     try {
-      const [prof, rts, stats, latestScan, h, spaces, act, qList] = await Promise.all([
+      const [prof, rts, stats, latestScan, h, spaces, act, qList, es] = await Promise.all([
         aegis.hw.profile(),
         aegis.roots.list(),
         aegis.index.stats(),
@@ -200,6 +215,7 @@ export default function App() {
         aegis.quarantine.spaceSummary(),
         aegis.actions.list(),
         aegis.quarantine.list(),
+        aegis.embed.status().catch(() => null),
       ]);
       setHwProfile(prof);
       setRoots(rts);
@@ -209,6 +225,7 @@ export default function App() {
       setSpaceSummaries(spaces);
       setActions(act);
       setQuarantineEntries(qList);
+      if (es) setEmbedStatus(es);
       if (tabRef.current === "rescue") await refreshRescue();
     } catch (err) {
       setStatusMsg(`Error refreshing state: ${errorMessage(err)}`);
@@ -368,13 +385,14 @@ export default function App() {
         before_ts: null,
         sensitivity: null,
         include_quarantined: includeQuarantined,
+        mode: searchMode,
         ...narrowing,
       },
       30
     );
     setSearchPage(page);
     return page;
-  }, [query, includeQuarantined, narrowing]);
+  }, [query, includeQuarantined, searchMode, narrowing]);
 
   const executeSearch = useCallback(
     () =>
@@ -422,6 +440,22 @@ export default function App() {
         await aegis.file.setSensitivity(fileId, makeSensitive ? "confidential" : "internal");
         await fetchSearchPage();
         return makeSensitive ? "Marked file as sensitive." : "Removed sensitive mark.";
+      },
+      false
+    );
+  };
+
+  const handleIndexPendingSearch = () => {
+    if (!desktop) return;
+    void run(
+      "Semantic Index",
+      async () => {
+        const rep = await aegis.embed.syncNow(200);
+        await refreshEmbed();
+        if (searchPage !== null && query.trim()) {
+          await fetchSearchPage();
+        }
+        return `Indexed ${rep.embedded_count} chunk(s) in ${rep.took_ms}ms (${rep.pending_remaining} remaining).`;
       },
       false
     );
@@ -586,7 +620,7 @@ export default function App() {
     { id: "drives", label: "Drives & Backup", icon: Usb },
     { id: "dupes", label: "Duplicates", icon: CopyCheck },
     { id: "filing", label: "Filing", icon: FolderTree },
-    { id: "search", label: "Keyword Search (Ctrl+K)", icon: Search },
+    { id: "search", label: "Search (Ctrl+K)", icon: Search },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
     { id: "doctor", label: "Aegis Doctor", icon: Stethoscope },
@@ -765,6 +799,8 @@ export default function App() {
               data={engineData}
               vaultStatus={vaultStatus}
               onVaultChange={refreshVault}
+              embedStatus={embedStatus}
+              onEmbedChange={refreshEmbed}
             />
           )}
           {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}
@@ -974,10 +1010,26 @@ export default function App() {
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search indexed files by keyword..."
+                  placeholder="Search files by meaning, content, filename, or former name..."
                   aria-label="Search query"
                   className="min-w-64 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                 />
+                <div role="group" aria-label="Search mode" className="flex overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-xs">
+                  {(["hybrid", "keyword", "semantic"] as SearchMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSearchMode(m)}
+                      className={`px-2.5 py-2 capitalize transition ${
+                        searchMode === m
+                          ? "bg-emerald-600 font-semibold text-white"
+                          : "text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
                 <label className="flex items-center gap-2 text-xs text-slate-300">
                   <input
                     type="checkbox"
@@ -1022,6 +1074,28 @@ export default function App() {
                 )}
               </form>
               <SearchFilterBar value={narrowing} onChange={setNarrowing} enabled={desktop} />
+              {desktop && embedStatus && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-300">
+                  <span>
+                    Semantic index:{" "}
+                    <strong className="text-slate-100">{embedStatus.model_name}</strong>{" "}
+                    · {embedStatus.embedded_chunks.toLocaleString()}/{embedStatus.total_chunks.toLocaleString()} chunks
+                    {embedStatus.pending_chunks > 0
+                      ? ` (${embedStatus.pending_chunks.toLocaleString()} pending)`
+                      : " (up to date)"}
+                  </span>
+                  {embedStatus.pending_chunks > 0 && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={handleIndexPendingSearch}
+                      className="rounded border border-emerald-700/70 bg-emerald-950/50 px-2.5 py-1 font-medium text-emerald-200 hover:bg-emerald-900/60 disabled:opacity-40"
+                    >
+                      Index pending ({embedStatus.pending_chunks.toLocaleString()})
+                    </button>
+                  )}
+                </div>
+              )}
 
               {searchPage && (
                 <div className="space-y-2">
@@ -1038,12 +1112,32 @@ export default function App() {
                           {hit.name}
                         </span>
                         <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          {hit.collection_name && (
+                            <span className="rounded border border-violet-700/60 bg-violet-950/50 px-2 py-0.5 text-violet-200">
+                              {hit.collection_name}
+                            </span>
+                          )}
+                          {!hit.drive_online && hit.drive_label && (
+                            <span className="rounded border border-amber-700/60 bg-amber-950/60 px-2 py-0.5 text-amber-200">
+                              Unplugged · {hit.drive_label}
+                            </span>
+                          )}
                           {isSensitiveLabel(hit.sensitivity) && (
                             <span className="rounded border border-amber-700/60 bg-amber-950/60 px-2 py-0.5 text-amber-200">
                               Sensitive
                             </span>
                           )}
-                          <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
+                          <span
+                            className={`rounded px-2 py-0.5 ${
+                              hit.match_reason === "hybrid"
+                                ? "border border-emerald-700/60 bg-emerald-950/60 text-emerald-200"
+                                : hit.match_reason === "semantic"
+                                  ? "border border-indigo-700/60 bg-indigo-950/60 text-indigo-200"
+                                  : hit.match_reason === "content"
+                                    ? "bg-sky-950/60 text-sky-200"
+                                    : "bg-slate-800 text-slate-300"
+                            }`}
+                          >
                             {hit.match_reason}
                           </span>
                           <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">

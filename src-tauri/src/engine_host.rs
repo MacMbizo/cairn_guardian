@@ -235,6 +235,52 @@ fn lock_with_retry(store: &mut SqliteStore, trip: &Trip) -> bool {
     false
 }
 
+/// Background semantic vector indexer: embeds up to 32 pending chunks on idle + AC power (for
+/// neural models) and immediately unloads model weights after each batch (`K5`, `R4`).
+struct EmbedWatch {
+    app: AppHandle,
+}
+
+impl aegis_core::engine::Watch for EmbedWatch {
+    fn name(&self) -> &'static str {
+        "embed"
+    }
+
+    fn every_ms(&self) -> i64 {
+        5 * 60_000
+    }
+
+    fn needs_idle(&self) -> bool {
+        true
+    }
+
+    fn needs_ac(&self) -> bool {
+        self.app
+            .state::<AppState>()
+            .embedder
+            .active_descriptor()
+            .backend
+            != "lexical_fallback"
+    }
+
+    fn kinds(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn run(
+        &mut self,
+        store: &mut SqliteStore,
+        _now: i64,
+    ) -> aegis_core::error::Result<Vec<aegis_core::engine::Finding>> {
+        let state = self.app.state::<AppState>();
+        let Some(_guard) = crate::commands::embed::AtomicFlagGuard::try_acquire(&state.embed_running) else {
+            return Ok(Vec::new());
+        };
+        let _ = crate::commands::embed::sync_pending_chunks(store, &state.embedder, 32)?;
+        Ok(Vec::new())
+    }
+}
+
 /// Starts the engine. `rx` receives file-system events and wake-ups.
 pub fn spawn(app: AppHandle, rx: Receiver<EngineMsg>) {
     let (sched_tx, sched_rx) = std::sync::mpsc::channel::<()>();
@@ -418,6 +464,7 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
             }),
         ];
         watches.push(Box::new(aegis_core::filing::reader::ReaderWatch));
+        watches.push(Box::new(EmbedWatch { app: app.clone() }));
         // Recognising projects comes before filing, so filing never splits one.
         watches.push(Box::new(aegis_core::context::watch::ContextWatch));
         watches.push(Box::new(aegis_core::filing::watch::FilingWatch::default()));
@@ -453,9 +500,12 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
             let mut changed = woke;
             if let Ok(report) = engine.tick(&mut store, now, &calm, paused) {
                 changed |= report.ran.iter().any(|n| *n != "tripwire_locks");
-                if report.ran.iter().any(|n| matches!(*n, "reader" | "context" | "filing" | "janitor")) {
+                if report.ran.iter().any(|n| matches!(*n, "reader" | "embed" | "context" | "filing" | "janitor")) {
                     store.shrink_memory();
                 }
+            }
+            if state.embedder.unload_if_idle(Duration::from_secs(60)) {
+                store.shrink_memory();
             }
 
             // The weekly note.

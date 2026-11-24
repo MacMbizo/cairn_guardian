@@ -307,6 +307,9 @@ pub struct SearchFacets {
     pub kinds: Vec<Kind>,
     /// `(volume id, label)` for every drive with files in the catalog, plugged in or not.
     pub drives: Vec<(String, String)>,
+    /// `(collection id, name, kind)` for active projects, sets, and modules.
+    #[serde(default)]
+    pub collections: Vec<(String, String, String)>,
 }
 
 pub fn search_facets(conn: &Connection) -> Result<SearchFacets> {
@@ -336,7 +339,22 @@ pub fn search_facets(conn: &Connection) -> Result<SearchFacets> {
          WHERE EXISTS (SELECT 1 FROM files f WHERE f.volume_id = volumes.id) ORDER BY 2",
     )?;
     let drives = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-    Ok(SearchFacets { categories: categories.into_iter().collect(), who, years, kinds, drives })
+    let mut cst = conn.prepare(
+        "SELECT id, name, kind FROM collections
+         WHERE state NOT IN ('dismissed', 'rejected', 'no')
+         ORDER BY name COLLATE NOCASE",
+    )?;
+    let collections = cst
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(SearchFacets {
+        categories: categories.into_iter().collect(),
+        who,
+        years,
+        kinds,
+        drives,
+        collections,
+    })
 }
 
 pub fn blueprint_of(conn: &Connection, scope: &Scope) -> Result<Option<BlueprintChoice>> {
