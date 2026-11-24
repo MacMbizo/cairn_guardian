@@ -35,7 +35,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 |---|---|---|---|
 | 1 | Context layer: projects, sets, modules (not a vision item; its prerequisite) | catalog | **done** (Plans 1–5 merged 2026-11-24: projects, plans, sets/photo subjects, put back together, §16 step 7 modules & external drive plans) |
 | 2 | Context-aware search (3.2) | Search with filters + embeddings + full-text (FTS5) | **done** (Plan 6A encryption merged; Plan 6B local embeddings & hybrid search merged 2026-11-24) |
-| 3 | Local RAG engine (3.1) | hybrid search | after 2 |
+| 3 | Local RAG engine (3.1) | hybrid search | **done** (Local RAG engine merged 2026-11-24: `aegis-llm`, `core::rag` `K2`/`R7`, `AskFiles`) |
 | 4 | Dead file detection (4.2) | janitor, duplicates, Project 4 System care | **done** (Project 4 System care merged 2026-11-24: `DeadFiles` category inside `care::cleanup`) |
 | 5 | Workspace health score (4.4) | space recorder, duplicates, self-check | **done** (Project 4 System care merged 2026-11-24: 5 storage/integrity dimensions in `health_breakdown`) |
 | 6 | Forgotten asset recovery (4.3) | catalog, project matching across drives, offline-drive listing | after 2 (needs search to retrieve them) |

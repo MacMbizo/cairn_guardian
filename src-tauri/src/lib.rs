@@ -34,6 +34,23 @@ pub(crate) fn apply_saved_embed_model(
     embedder.set_selection(aegis_embed::ModelSelection::from_setting(saved.as_deref()));
 }
 
+/// Restores any owner-selected local RAG LLM model path from `settings` into `llm`.
+pub(crate) fn apply_saved_rag_model(store: &SqliteStore, llm: &aegis_llm::OnDemandLlm) {
+    let saved = store
+        .get_setting("rag.model_path", "global")
+        .ok()
+        .flatten()
+        .and_then(|j| serde_json::from_str::<Option<String>>(&j).ok())
+        .flatten();
+    if let Some(ref p) = saved
+        && p != aegis_llm::BUILTIN_EXTRACTIVE_ID
+        && !std::path::Path::new(p).is_file()
+    {
+        return;
+    }
+    let _ = llm.set_selection(aegis_llm::LlmSelection::from_setting(saved.as_deref()));
+}
+
 /// Seeds initial PC roots, records first-run autostart setting, and returns the search shortcut.
 pub(crate) fn init_unlocked_settings(
     app: &tauri::AppHandle,
@@ -79,6 +96,7 @@ pub fn run() {
                 app.path().app_local_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("aegis-guardian"))
             });
             let embedder = std::sync::Arc::new(aegis_embed::OnDemandEmbedder::new(data_dir.join("models")));
+            let llm = std::sync::Arc::new(aegis_llm::OnDemandLlm::for_app_data(data_dir.join("models")));
             let db_path = data_dir.join("aegis.db");
             let open_res = aegis_core::db::crypto::open_or_migrate_encrypted(&db_path)?;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -92,6 +110,7 @@ pub fn run() {
                     migrated,
                 } => {
                     apply_saved_embed_model(&store, &embedder);
+                    apply_saved_rag_model(&store, &llm);
                     let shortcut = init_unlocked_settings(&handle, &store)?;
                     app.manage(AppState {
                         store: Mutex::new(store),
@@ -104,6 +123,9 @@ pub fn run() {
                         pending_engine_rx: Mutex::new(None),
                         embedder,
                         embed_running: Default::default(),
+                        llm,
+                        rag_running: Default::default(),
+                        rag_cancel: Default::default(),
                         topup_cancel: Default::default(),
                         topup_running: Default::default(),
                         cataloguing: Default::default(),
@@ -137,6 +159,9 @@ pub fn run() {
                         pending_engine_rx: Mutex::new(Some(rx)),
                         embedder,
                         embed_running: Default::default(),
+                        llm,
+                        rag_running: Default::default(),
+                        rag_cancel: Default::default(),
                         topup_cancel: Default::default(),
                         topup_running: Default::default(),
                         cataloguing: Default::default(),
@@ -158,7 +183,9 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::Destroyed = event {
-                window.app_handle().state::<AppState>().embedder.unload();
+                let state = window.app_handle().state::<AppState>();
+                state.embedder.unload();
+                state.llm.unload();
                 shell::first_close_hint(window.app_handle());
             }
         })
@@ -278,6 +305,11 @@ pub fn run() {
             commands::filing::filing_rules,
             commands::filing::filing_rule_stop,
             commands::filing::filing_rule_delete,
+            commands::rag::rag_status,
+            commands::rag::rag_select_model,
+            commands::rag::rag_unload,
+            commands::rag::rag_cancel,
+            commands::rag::rag_ask,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

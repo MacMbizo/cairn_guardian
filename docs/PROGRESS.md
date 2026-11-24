@@ -6,7 +6,8 @@ Updated 2026-11-24. This is the whole-project view. `HANDOFF.md` covers the work
 
 | Branch / Tag | State |
 |---|---|
-| `master` | Projects 1–3, Context-aware filing Plans 1–5, **Plan 6A** (SQLCipher encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, recovery, `R7`, `R9`), **Plan 6B** (local `aegis-embed`, encrypted `vec_chunks`, hybrid RRF search, AC-gated `EmbedWatch`), and **Project 4** (Windows System Care: cleanup & dead files, `R3` read-only apps/startup + left-over quarantine, SMART watch, disk trends, 5-dimension health score), fast-forward merged 2026-11-24. Not pushed. |
+| `master` | Projects 1–3, Context-aware filing Plans 1–5, **Plan 6A** (SQLCipher encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, recovery, `R7`, `R9`), **Plan 6B** (local `aegis-embed`, encrypted `vec_chunks`, hybrid RRF search, AC-gated `EmbedWatch`), and **Project 4** (Windows System Care: cleanup & dead files, `R3` read-only apps/startup + left-over quarantine, SMART watch, disk trends, 5-dimension health score), and **Capability #3: Local RAG Engine** (pure-Rust `aegis-llm` GGUF `Llama`/`Qwen2` + extractive fallback, `core::rag` `K2`/`R7`, streaming `Ask Files`), fast-forward merged 2026-11-24. Not pushed. |
+| `feature/local-rag` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/system-care` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/embeddings-hybrid-search` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
 | `feature/d1-encryption-and-vec` | Merged (ff-only) into `master` on 2026-11-24. Not pushed. |
@@ -16,11 +17,12 @@ Updated 2026-11-24. This is the whole-project view. `HANDOFF.md` covers the work
 | `feature/project-plans` | Tip matching pre-Plan-3 `master`. Not pushed. |
 | `checkpoint/pre-stabilization-2026-11-23` | Annotated rollback tag at `084e3d5` (includes parked UI baseline `canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, and `design-system/`). |
 
-Verification on `master` (fast-forward from `feature/system-care`):
-- `cargo test --workspace`: **543 passed, 0 failed, 1 ignored** (`usn_refresh_on_system_temp`), including all **6** tests in `crates/aegis-core/tests/system_care.rs` (`0.09s`), **6** in `crates/aegis-core/tests/hybrid_search.rs` (`0.19s`), **6** in `crates/aegis-core/tests/d1_encryption.rs` (`0.77s`), **5** in `crates/aegis-embed` (`10.50s`, incl. live `nomic_gguf_live_semantic_check`), **11** in `aegis-desktop`, **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/context_modules.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs` (`0.18s`), **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
+Verification on `master` (fast-forward from `feature/local-rag`):
+- `cargo test --workspace`: **557 passed, 0 failed, 2 ignored** (`usn_refresh_on_system_temp`, `live_llama32_grounded_rag_answer`), including all **5** tests in `crates/aegis-core/tests/local_rag.rs` (`0.10s`), **4** unit tests in `crates/aegis-llm`, **139** tests in `aegis-core --lib`, **6** in `crates/aegis-core/tests/system_care.rs`, **6** in `crates/aegis-core/tests/hybrid_search.rs`, **6** in `crates/aegis-core/tests/d1_encryption.rs` (with `R9` checking `["aegis-core", "aegis-embed", "aegis-llm"]`), **5** in `crates/aegis-embed` (`9.64s`, incl. live `nomic_gguf_live_semantic_check`), **11** in `aegis-desktop`, **19** in `crates/aegis-core/tests/drives.rs`, **7** in `crates/aegis-core/tests/context_modules.rs`, **7** in `crates/aegis-core/tests/core_invariants.rs`, **46** in `project_plans.rs`, **97** in `filing.rs`, **35** in `context.rs`, **6** in `reunite_and_learning.rs`, and **11** in `sets.rs`; **0** folders in `C:\.aegis-quarantine` before and **0** after.
+- `cargo test -p aegis-llm --release -- --ignored --nocapture`: passed (`13.37s`, live 1.9 GB Ollama `llama3.2` grounded answer citing `4092` and `[1]`).
 - `cargo clippy --workspace --all-targets -- -D warnings`: clean (`0` warnings).
 - `cargo check -p aegis-desktop --features custom-protocol`: clean.
-- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `796ms`).
+- `pnpm build` (`tsc --noEmit && vite build`): clean (`dist/` built in `862ms`).
 - Prior Plan 5 live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): **239** projects (`84` multi-location), **1** remaining ungathered design set (`MBIZO 1edited` on `D:`), **5** photo subjects, **18** software packages (`Microsoft Office 2024 Pro Plus LTSC...` whole at `102` files), **9** owner's folders, **4** resources, **52** series seasons, **2** old copies (`MSI Documents` `4256` files, `MSI Downloads` `7111` files), **249** project/set/old-copy plans in `18.8s` debug (including `New Volume` offline waits & same-drive plans), `"Old copy": 9747` kept whole on `New Volume` Fresh/Tidy, **1** `put back together` proposal (`ipadcover`), and weekly-note `projects` line `"84 projects have copies in 2–20 places. 1 group has files from earlier batches to put back together."`.
 
 ## 2. Done
@@ -40,7 +42,12 @@ Verification on `master` (fast-forward from `feature/system-care`):
 | 3f | D1 Encryption & `sqlite-vec` foundation (Plan 6A): SQLCipher whole-store, DPAPI `R2`, 24-word/hex recovery, `R7` sensitive views, `R9` guard | Done, merged 2026-11-24 |
 | 3g | Local embeddings & Context-aware hybrid search (Plan 6B): pure-Rust `aegis-embed`, encrypted `vec_chunks`, RRF hybrid search, AC-gated `EmbedWatch` | Done, merged 2026-11-24 |
 | 4 | System care (temp/caches/dead files, `R3` read-only apps/startup + leftover quarantine, SMART watch, trends, health score) | Done, merged 2026-11-24 |
+| 3h | Local RAG Engine (Capability #3): pure-Rust `aegis-llm` (`Llama` / `Qwen2` GGUF + extractive), `core::rag` `K2`/`R7`, streaming `Ask Files` | Done, merged 2026-11-24 |
 | 5 | Visual app (grows alongside the others) | Ongoing |
+
+### Capability #3 (Local RAG Engine) in one paragraph
+
+Adds 100% offline CPU document Q&A (`Ask Files`) over the SQLCipher-encrypted hybrid index (`K1`, `K2`, `K3`, `K5`, `R4`, `R7`, `R9`). `crates/aegis-llm` discovers local GGUF chat models recursively across `%USERPROFILE%\.ollama\models\manifests\` (`registry.ollama.ai` and `hf.co`) plus standalone GGUFs (recommending models `<= 4,500 MB`, defaulting to `1.9 GB` `llama3.2` when present with a `0 MB` `builtin:extractive` fallback), implements quantized pure-Rust `Llama` (interleaved `rope_i` + `rope_freqs.weight` + tied LM head) and `Qwen2` (split `rope` + QKV bias) inference with BPE/SentencePiece tokenizers and UTF-8 streaming, enforces `R9` zero-networking across `["aegis-core", "aegis-embed", "aegis-llm"]`, unloads `> 2.5 GB` models immediately after generation, and unloads compact models on `WindowEvent::Destroyed` or `60s` idle (`OnDemandLlm`). `crates/aegis-core/src/rag/mod.rs` strips question stopwords for natural-language FTS5/hybrid retrieval, enforces `K2` (never quarantined/deleted) and `R7` (excludes sensitive files unless CredUI-unlocked and requested, counting `excluded_sensitive_count` via SQLite IDs without loading chunks), and `src/screens/AskFiles.tsx` + `EngineSettings.tsx` deliver real-time token streaming and clickable file inspection.
 
 ### Project 4 (System care) in one paragraph
 

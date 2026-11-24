@@ -508,6 +508,9 @@ fn spawn_scheduler(app: AppHandle, wake_rx: Receiver<()>) {
             if state.embedder.unload_if_idle(Duration::from_secs(60)) {
                 store.shrink_memory();
             }
+            if state.llm.unload_if_idle(60_000) {
+                store.shrink_memory();
+            }
 
             // The weekly note.
             let local = local_now();

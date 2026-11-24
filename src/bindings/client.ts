@@ -60,8 +60,11 @@ import type {
   InstalledApp,
   LeftoverFolder,
   LifecycleState,
+  LlmStatus,
   QuarantineEntry,
   QuarantineSpaceSummary,
+  RagAnswer,
+  RagAskOptions,
   RecoveryKeyBundle,
   RefilePlan,
   RollbackResult,
@@ -323,6 +326,15 @@ export const aegis = {
     selectModel: (modelPath: string | null) =>
       call<EmbedStatus>("embed_select_model", { modelPath }),
     unload: () => call<EmbedStatus>("embed_unload"),
+  },
+  rag: {
+    status: () => call<LlmStatus>("rag_status"),
+    selectModel: (modelPath: string | null) =>
+      call<LlmStatus>("rag_select_model", { modelPath }),
+    unload: () => call<LlmStatus>("rag_unload"),
+    cancel: () => call<void>("rag_cancel"),
+    ask: (question: string, options?: RagAskOptions) =>
+      call<RagAnswer>("rag_ask", { question, options }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

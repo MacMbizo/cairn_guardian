@@ -14,6 +14,7 @@ pub mod filing;
 pub mod fingerprint;
 pub mod policy;
 pub mod quarantine;
+pub mod rag;
 pub mod scanner;
 
 use std::time::{SystemTime, UNIX_EPOCH};

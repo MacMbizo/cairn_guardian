@@ -900,6 +900,13 @@ pub enum AegisEvent {
         v: u8,
         trip: crate::engine::tripwire::Trip,
     },
+    /// Streaming answer chunk emitted during `rag_ask`.
+    RagToken {
+        v: u8,
+        request_id: String,
+        token: String,
+        done: bool,
+    },
 }
 
 /// Encrypted vault status and timed sensitive-view state surfaced to Settings and Unlock UI (`D1`, `R2`, `R7`).
@@ -1077,6 +1084,11 @@ pub fn write_ts_bindings(out_dir: &std::path::Path) -> std::io::Result<()> {
     <DiscoveredModel as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <EmbedStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <EmbedSyncReport as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::rag::LlmModelInfo as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::rag::LlmStatus as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::rag::RagCitation as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::rag::RagAskOptions as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
+    <crate::rag::RagAnswer as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCategory as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupCandidate as TS>::export_all(&cfg).map_err(std::io::Error::other)?;
     <crate::care::CleanupGroupSummary as TS>::export_all(&cfg).map_err(std::io::Error::other)?;

@@ -13,6 +13,7 @@ tauri-build.workspace = true
 [dependencies]
 aegis-core = { path = "../crates/aegis-core" }
 aegis-embed = { path = "../crates/aegis-embed" }
+aegis-llm = { path = "../crates/aegis-llm" }
 chrono = "0.4"
 notify = "8"
 rusqlite.workspace = true

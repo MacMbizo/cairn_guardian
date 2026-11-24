@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, Copy, Eye, EyeOff, FolderOpen, KeyRound, Keyboard, Lock, MoonStar, Power, ShieldAlert, ShieldCheck, Sparkles, Undo2, Unlock } from "lucide-react";
-import { aegis, errorMessage, type EmbedStatus, type RecoveryKeyBundle, type VaultStatus } from "../bindings/client";
+import { CheckCircle2, Copy, Eye, EyeOff, FolderOpen, KeyRound, Keyboard, Lock, MessageSquareText, MoonStar, Power, ShieldAlert, ShieldCheck, Sparkles, Undo2, Unlock } from "lucide-react";
+import { aegis, errorMessage, type EmbedStatus, type LlmStatus, type RecoveryKeyBundle, type VaultStatus } from "../bindings/client";
 import { DAY_NAMES } from "./ThisWeek";
 import type { EngineData } from "./useEngine";
 
@@ -31,12 +31,16 @@ export function EngineSettings({
   onVaultChange,
   embedStatus: externalEmbed,
   onEmbedChange,
+  llmStatus: externalLlm,
+  onLlmChange,
 }: {
   data: EngineData;
   vaultStatus?: VaultStatus | null;
   onVaultChange?: () => Promise<unknown> | unknown;
   embedStatus?: EmbedStatus | null;
   onEmbedChange?: () => Promise<unknown> | unknown;
+  llmStatus?: LlmStatus | null;
+  onLlmChange?: () => Promise<unknown> | unknown;
 }) {
   const { status, preview, reload } = data;
   const [msg, setMsg] = useState<string | null>(null);
@@ -44,6 +48,8 @@ export function EngineSettings({
   const [localVault, setLocalVault] = useState<VaultStatus | null>(externalVault ?? null);
   const [localEmbed, setLocalEmbed] = useState<EmbedStatus | null>(externalEmbed ?? null);
   const [embedBusy, setEmbedBusy] = useState(false);
+  const [localLlm, setLocalLlm] = useState<LlmStatus | null>(externalLlm ?? null);
+  const [llmBusy, setLlmBusy] = useState(false);
   const [bundle, setBundle] = useState<RecoveryKeyBundle | null>(null);
   const [showHex, setShowHex] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -67,6 +73,78 @@ export function EngineSettings({
       setLocalEmbed(externalEmbed);
     }
   }, [externalEmbed]);
+
+  useEffect(() => {
+    if (externalLlm !== undefined) {
+      setLocalLlm(externalLlm);
+    }
+  }, [externalLlm]);
+
+  const refreshLocalLlm = useCallback(async () => {
+    if (preview) return;
+    try {
+      setLocalLlm(await aegis.rag.status());
+    } catch {
+      /* ignore while locked */
+    }
+  }, [preview]);
+
+  useEffect(() => {
+    if (externalLlm === undefined && !preview) {
+      void refreshLocalLlm();
+    }
+  }, [externalLlm, preview, refreshLocalLlm]);
+
+  const syncLlm = async (next: LlmStatus, feedback?: string) => {
+    setLocalLlm(next);
+    if (feedback) setMsg(feedback);
+    await onLlmChange?.();
+  };
+
+  const handleSelectLlm = async (path: string | null) => {
+    if (preview) {
+      setMsg("Preview only: run the desktop app to configure local RAG models.");
+      return;
+    }
+    setLlmBusy(true);
+    try {
+      const next = await aegis.rag.selectModel(path);
+      await syncLlm(next, `Local RAG model switched to ${next.model_name}.`);
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setLlmBusy(false);
+    }
+  };
+
+  const handleImportLlm = async () => {
+    if (preview) return;
+    try {
+      const picked = await openDialog({
+        directory: false,
+        multiple: false,
+        filters: [{ name: "GGUF LLM model", extensions: ["gguf"] }],
+      });
+      if (typeof picked === "string" && picked) {
+        await handleSelectLlm(picked);
+      }
+    } catch (e) {
+      setMsg(errorMessage(e));
+    }
+  };
+
+  const handleUnloadLlm = async () => {
+    if (preview) return;
+    setLlmBusy(true);
+    try {
+      const next = await aegis.rag.unload();
+      await syncLlm(next, "Local RAG chat model unloaded from memory.");
+    } catch (e) {
+      setMsg(errorMessage(e));
+    } finally {
+      setLlmBusy(false);
+    }
+  };
 
   const refreshLocalEmbed = useCallback(async () => {
     if (preview) return;
@@ -769,6 +847,97 @@ export function EngineSettings({
                   type="button"
                   disabled={embedBusy || !localEmbed.loaded}
                   onClick={() => void handleUnloadEmbed()}
+                  className={btn}
+                >
+                  Unload model now
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section aria-label="Local RAG Chat Model (R4 / K5)" className={card}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <MessageSquareText className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Local RAG Chat Model (R4 / K5)
+          </h2>
+          {localLlm && (
+            <span
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${
+                localLlm.loaded
+                  ? "border border-amber-800/60 bg-amber-950/70 text-amber-300"
+                  : "border border-emerald-800/60 bg-emerald-950/70 text-emerald-300"
+              }`}
+            >
+              {localLlm.loaded ? "Loaded in RAM" : "Unloaded (idle 0 MB)"}
+            </span>
+          )}
+        </div>
+
+        {preview || !localLlm ? (
+          <p className="text-xs text-slate-400">
+            100% offline CPU inference over local Ollama/standalone GGUF chat models with a zero-RAM extractive fallback.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs sm:grid-cols-2">
+              <div>
+                <span className="text-slate-400">Active chat model</span>
+                <p className="font-medium text-slate-200">{localLlm.model_name}</p>
+              </div>
+              <div>
+                <span className="text-slate-400">Architecture &amp; context</span>
+                <p className="font-mono text-slate-200">
+                  {localLlm.architecture} · {localLlm.context_length.toLocaleString()} ctx
+                </p>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-slate-400">Memory &amp; unload policy (`K5`)</span>
+                <p className="text-slate-300">{localLlm.on_demand_policy}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label className="block text-slate-300">
+                Local LLM selection (auto picks recommended GGUF &le; 4.5 GB first):
+                <select
+                  aria-label="Local RAG LLM"
+                  disabled={llmBusy}
+                  value={localLlm.selected_path ?? ""}
+                  onChange={(e) => void handleSelectLlm(e.target.value ? e.target.value : null)}
+                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
+                >
+                  <option value="">Auto (best compact local GGUF &le; 4.5 GB, else Extractive)</option>
+                  {localLlm.available_models.map((m) => (
+                    <option key={m.path} value={m.path}>
+                      {m.name} · {m.architecture}
+                      {m.size_bytes > 0 ? ` · ${(m.size_bytes / 1048576).toFixed(0)} MB` : " · 0 MB"}
+                      {m.recommended && m.size_bytes > 0 ? " (recommended)" : !m.recommended ? " (>4.5 GB)" : ""}
+                    </option>
+                  ))}
+                  {localLlm.selected_path &&
+                    !localLlm.available_models.some((m) => m.path === localLlm.selected_path) && (
+                      <option value={localLlm.selected_path}>
+                        {localLlm.model_name} (selected: {localLlm.selected_path})
+                      </option>
+                    )}
+                </select>
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={llmBusy}
+                  onClick={() => void handleImportLlm()}
+                  className={btn}
+                >
+                  <FolderOpen className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Choose .gguf file…
+                </button>
+                <button
+                  type="button"
+                  disabled={llmBusy || !localLlm.loaded}
+                  onClick={() => void handleUnloadLlm()}
                   className={btn}
                 >
                   Unload model now

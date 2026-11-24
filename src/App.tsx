@@ -16,6 +16,7 @@ import {
   HeartPulse,
   KeyRound,
   Lock,
+  MessageSquareText,
   NotebookText,
   Play,
   RefreshCw,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { HomeTiles } from "./components/HomeTiles";
 import { PlugBanner } from "./components/PlugBanner";
+import { AskFiles } from "./screens/AskFiles";
 import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
 import { EngineSettings } from "./screens/EngineSettings";
@@ -69,10 +71,11 @@ import {
   type SearchPage,
   type Simulation,
   type EmbedStatus,
+  type LlmStatus,
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -80,6 +83,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   drives: "drives",
   dupes: "dupes",
   search: "search",
+  ask: "ask",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -117,6 +121,7 @@ export default function App() {
   const filingData = useFiling(tab === "filing" || tab === "dashboard");
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
   const [embedStatus, setEmbedStatus] = useState<EmbedStatus | null>(null);
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [vaultChecked, setVaultChecked] = useState(!desktop);
   const [recoveryInput, setRecoveryInput] = useState("");
   const [recoveryErr, setRecoveryErr] = useState<string | null>(null);
@@ -206,10 +211,21 @@ export default function App() {
     }
   }, [desktop, vaultLocked]);
 
+  const refreshLlm = useCallback(async () => {
+    if (!desktop || vaultLocked) return null;
+    try {
+      const ls = await aegis.rag.status();
+      setLlmStatus(ls);
+      return ls;
+    } catch {
+      return null;
+    }
+  }, [desktop, vaultLocked]);
+
   const refreshAll = useCallback(async () => {
     if (!desktop || vaultLocked) return;
     try {
-      const [prof, rts, stats, latestScan, h, spaces, act, qList, es] = await Promise.all([
+      const [prof, rts, stats, latestScan, h, spaces, act, qList, es, ls] = await Promise.all([
         aegis.hw.profile(),
         aegis.roots.list(),
         aegis.index.stats(),
@@ -219,6 +235,7 @@ export default function App() {
         aegis.actions.list(),
         aegis.quarantine.list(),
         aegis.embed.status().catch(() => null),
+        aegis.rag.status().catch(() => null),
       ]);
       setHwProfile(prof);
       setRoots(rts);
@@ -229,6 +246,7 @@ export default function App() {
       setActions(act);
       setQuarantineEntries(qList);
       if (es) setEmbedStatus(es);
+      if (ls) setLlmStatus(ls);
       if (tabRef.current === "rescue") await refreshRescue();
     } catch (err) {
       setStatusMsg(`Error refreshing state: ${errorMessage(err)}`);
@@ -624,6 +642,7 @@ export default function App() {
     { id: "dupes", label: "Duplicates", icon: CopyCheck },
     { id: "filing", label: "Filing", icon: FolderTree },
     { id: "search", label: "Search (Ctrl+K)", icon: Search },
+    { id: "ask", label: "Ask Files", icon: MessageSquareText },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -805,6 +824,17 @@ export default function App() {
               onVaultChange={refreshVault}
               embedStatus={embedStatus}
               onEmbedChange={refreshEmbed}
+              llmStatus={llmStatus}
+              onLlmChange={refreshLlm}
+            />
+          )}
+          {tab === "ask" && (
+            <AskFiles
+              desktop={desktop}
+              vaultStatus={vaultStatus}
+              llmStatus={llmStatus}
+              onLlmChange={refreshLlm}
+              onOpenSettings={() => setTab("settings")}
             />
           )}
           {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}

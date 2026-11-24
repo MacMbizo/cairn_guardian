@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/aegis-core",
   "crates/aegis-embed",
+  "crates/aegis-llm",
   "src-tauri",
 ]
 

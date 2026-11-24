@@ -49,6 +49,7 @@ version = "0.1.0"
 dependencies = [
  "aegis-core",
  "aegis-embed",
+ "aegis-llm",
  "chrono",
  "notify",
  "rusqlite",
@@ -78,6 +79,19 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
+]
+
+[[package]]
+name = "aegis-llm"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "candle-core",
+ "candle-nn",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

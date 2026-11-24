@@ -516,7 +516,7 @@ fn r9_forbids_networking_crates_in_engine_and_models() {
 
     let mut queue = VecDeque::new();
     let mut visited_idxs = BTreeSet::new();
-    for root in ["aegis-core", "aegis-embed"] {
+    for root in ["aegis-core", "aegis-embed", "aegis-llm"] {
         let idxs = by_name
             .get(root)
             .unwrap_or_else(|| panic!("missing root crate {root} in Cargo.lock"));

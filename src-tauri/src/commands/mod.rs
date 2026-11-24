@@ -6,6 +6,7 @@ pub mod drives;
 pub mod embed;
 pub mod engine;
 pub mod filing;
+pub mod rag;
 pub mod vault;
 
 use aegis_core::contracts::{
@@ -60,6 +61,10 @@ pub struct AppState {
     /// On-demand local embedding engine and single-flight indexing lock (`K3`, `K5`, `R4`).
     pub embedder: std::sync::Arc<aegis_embed::OnDemandEmbedder>,
     pub embed_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// On-demand local RAG LLM engine and cooperative stream cancellation (`K3`, `K5`, `R4`).
+    pub llm: std::sync::Arc<aegis_llm::OnDemandLlm>,
+    pub rag_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub rag_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Set to pause the running top-up; it stops cleanly and resumes next time.
     pub topup_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub topup_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
