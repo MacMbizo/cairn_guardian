@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { HomeTiles } from "./components/HomeTiles";
 import { HealthBars, StorageClarity } from "./components/HomeHealth";
+import { CommandPalette, type Command } from "./components/CommandPalette";
 import { PageHeader } from "./ui";
 import { PlugBanner } from "./components/PlugBanner";
 import { AskFiles } from "./screens/AskFiles";
@@ -207,6 +208,8 @@ export default function App() {
 
   // Search
   const [query, setQuery] = useState("");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [pendingSearch, setPendingSearch] = useState(false);
   const [searchMode, setSearchMode] = useState<SearchMode>("hybrid");
   const [includeQuarantined, setIncludeQuarantined] = useState(false);
   const [searchPage, setSearchPage] = useState<SearchPage | null>(null);
@@ -383,8 +386,7 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setTab("search");
-        setTimeout(() => searchInputRef.current?.focus(), 0);
+        setPaletteOpen((o) => !o);
       }
       if (e.key === "Escape") {
         setCoverageModal(null);
@@ -517,6 +519,13 @@ export default function App() {
     [fetchSearchPage, run]
   );
 
+  useEffect(() => {
+    if (pendingSearch && tab === "search") {
+      setPendingSearch(false);
+      if (desktop) void executeSearch();
+    }
+  }, [pendingSearch, tab, desktop, executeSearch]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     void executeSearch();
@@ -584,7 +593,7 @@ export default function App() {
         cluster.member_file_ids
       );
       await openInSimulator(batchId);
-      return `Staged ${cluster.member_file_ids.length - 1} duplicate(s) for quarantine in batch ${batchId.slice(0, 8)}. Review, approve, then execute.`;
+      return `${cluster.member_file_ids.length - 1} duplicate(s) are ready to move to quarantine. Review and approve them in the Simulator.`;
     });
 
   const handleStageCacheQuarantine = (cache: CacheDirEntry) =>
@@ -774,6 +783,17 @@ export default function App() {
     },
   ];
 
+  const commands: Command[] = [
+    ...navGroups.flatMap((g) =>
+      g.items.map((it) => ({ id: `go-${it.id}`, label: it.label, group: `Go to · ${g.title}`, icon: it.icon, run: () => setTab(it.id) })),
+    ),
+    { id: "act-scan", label: "Scan my folders now", group: "Actions", icon: Play, keywords: "catalog refresh index", run: () => { if (desktop && roots.length) void handleStartScan(); } },
+    { id: "act-add", label: "Add a folder for Cairn to look after", group: "Actions", icon: FolderOpen, keywords: "root watch browse", run: () => { setTab("dashboard"); if (desktop) void handleBrowseRoot(); } },
+    { id: "act-refresh", label: "Refresh everything", group: "Actions", icon: RefreshCw, keywords: "reload", run: () => { if (desktop) void refreshAll(); } },
+    { id: "act-quarantine", label: "Review what is in quarantine", group: "Actions", icon: Archive, keywords: "restore deleted free space", run: () => setTab("rescue") },
+    { id: "act-simulator", label: "Review changes waiting for approval", group: "Actions", icon: Sparkles, keywords: "approve batch undo simulator", run: () => setTab("simulator") },
+  ];
+
   if (vaultLocked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-slate-100">
@@ -859,9 +879,6 @@ export default function App() {
                       >
                         <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                         <span className="flex-1 truncate">{item.label}</span>
-                        {item.id === "search" && (
-                          <kbd className="rounded border border-slate-700 px-1 font-mono text-xs text-slate-500">Ctrl K</kbd>
-                        )}
                       </button>
                     </li>
                   );
@@ -904,6 +921,15 @@ export default function App() {
             <span>{statusMsg}</span>
           </p>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="hidden items-center gap-2 rounded-md border border-slate-700 bg-slate-950/60 px-2.5 py-1 text-xs text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200 md:inline-flex"
+            >
+              <Search className="h-3.5 w-3.5" aria-hidden="true" />
+              Search or jump to…
+              <kbd className="rounded border border-slate-700 px-1 font-mono text-slate-500">Ctrl K</kbd>
+            </button>
             <button
               type="button"
               disabled={!desktop || busy}
@@ -1248,7 +1274,7 @@ export default function App() {
                     onChange={(e) => setIncludeQuarantined(e.target.checked)}
                     className="rounded border-slate-700 bg-slate-900"
                   />
-                  Include Quarantined (OFF by default)
+                  Include files in quarantine
                 </label>
                 <button
                   type="submit"
@@ -1412,7 +1438,7 @@ export default function App() {
               <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
                   <FolderGit2 className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-                  Detected Build Caches (safe_build_cache carve-out)
+                  Build caches found (safe to rebuild)
                 </h3>
                 {rescue?.cache_dirs.length ? (
                   <div className="space-y-2">
@@ -1446,7 +1472,7 @@ export default function App() {
 
               <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h3 className="mb-3 text-sm font-semibold">
-                  Exact Duplicates (Hardlink-Adjusted)
+                  Exact duplicates
                 </h3>
                 {rescue?.exact_dupe_clusters.length ? (
                   <div className="space-y-2 text-xs">
@@ -1458,9 +1484,7 @@ export default function App() {
                         <span>
                           Cluster {cl.cluster_key} ({cl.member_file_ids.length} files){" "}
                           {cl.hardlink_adjusted && (
-                            <span className="ml-1 rounded bg-slate-800 px-1.5 py-0.5 text-amber-300">
-                              Hardlink-adjusted
-                            </span>
+                            <span className="ml-1 rounded bg-slate-800 px-1.5 py-0.5 text-amber-300"> Shares disk space with a linked copy </span>
                           )}
                         </span>
                         <span className="flex items-center gap-3">
@@ -1778,6 +1802,17 @@ export default function App() {
         </div>
       </main>
 
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={commands}
+        onSearchFiles={(q) => {
+          setQuery(q);
+          setTab("search");
+          setPendingSearch(true);
+        }}
+      />
+
       {/* Coverage Report Modal */}
       {coverageModal && (
         <div
@@ -1908,7 +1943,7 @@ export default function App() {
                       : [
                           {
                             value: "skip",
-                            label: "Skip (mark unrecoverable_missing)",
+                            label: "Skip (mark as missing)",
                           },
                           { value: "abort_batch", label: "Abort entire rollback" },
                         ];
