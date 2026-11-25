@@ -63,6 +63,7 @@ pub enum Screen {
     Healing,
     Governance,
     Cdo,
+    Estate,
 }
 
 /// What acting on a finding does.

@@ -62,6 +62,15 @@ import type {
   DupeReport,
   EmbedStatus,
   EmbedSyncReport,
+  EstateContinuityExport,
+  EstateDashboard,
+  EstateHeartbeatStatus,
+  EstatePacket,
+  EstatePacketInput,
+  EstateShardSetBundle,
+  EstateShardVerifyResult,
+  EstateTrustee,
+  EstateTrusteeInput,
   ExecuteResult,
   FileDetail,
   FolderlessBatchSummary,
@@ -742,6 +751,46 @@ export const aegis = {
       call<CdoExecutiveBriefing[]>("cdo_list_briefings", { limit: limit ?? 10 }),
     listRatifications: (limit?: number) =>
       call<CdoRatificationRecord[]>("cdo_list_ratifications", { limit: limit ?? 15 }),
+  },
+  estate: {
+    dashboard: () => call<EstateDashboard>("estate_dashboard"),
+    saveTrustee: (input: EstateTrusteeInput) =>
+      call<EstateTrustee>("estate_save_trustee", { input }),
+    deleteTrustee: (trusteeId: string) =>
+      call<boolean>("estate_delete_trustee", { trusteeId }),
+    savePacket: (input: EstatePacketInput) =>
+      call<EstatePacket>("estate_save_packet", { input }),
+    deletePacket: (packetId: string) =>
+      call<boolean>("estate_delete_packet", { packetId }),
+    generateShards: (params: {
+      thresholdK: number;
+      totalN: number;
+      trusteeIds: (string | null)[];
+    }) =>
+      call<EstateShardSetBundle>("estate_generate_shards", {
+        thresholdK: params.thresholdK,
+        totalN: params.totalN,
+        trusteeIds: params.trusteeIds,
+      }),
+    markShardDelivered: (shardId: string) =>
+      call<boolean>("estate_mark_shard_delivered", { shardId }),
+    revokeShardSet: (shardSetId: string) =>
+      call<boolean>("estate_revoke_shard_set", { shardSetId }),
+    verifyQuorum: (shardTokens: string[]) =>
+      call<EstateShardVerifyResult>("estate_verify_quorum", { shardTokens }),
+    saveHeartbeat: (params: { enabled: boolean; intervalDays: number; graceDays: number }) =>
+      call<EstateHeartbeatStatus>("estate_save_heartbeat", {
+        enabled: params.enabled,
+        intervalDays: params.intervalDays,
+        graceDays: params.graceDays,
+      }),
+    checkin: (method?: string, note?: string | null) =>
+      call<EstateHeartbeatStatus>("estate_checkin", {
+        method: method ?? "manual",
+        note: note ?? null,
+      }),
+    exportContinuityKit: (outputDir: string) =>
+      call<EstateContinuityExport>("estate_export_continuity_kit", { outputDir }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

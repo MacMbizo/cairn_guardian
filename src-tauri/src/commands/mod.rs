@@ -8,6 +8,7 @@ pub mod cross_project;
 pub mod drives;
 pub mod embed;
 pub mod engine;
+pub mod estate;
 pub mod filing;
 pub mod folderless;
 pub mod governance;

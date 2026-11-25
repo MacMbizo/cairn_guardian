@@ -13,6 +13,7 @@ pub mod drives;
 pub mod dupes;
 pub mod engine;
 pub mod error;
+pub mod estate;
 pub mod filing;
 pub mod fingerprint;
 pub mod folderless;

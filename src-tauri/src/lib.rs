@@ -377,6 +377,18 @@ pub fn run() {
             commands::cdo::cdo_synthesize_briefing,
             commands::cdo::cdo_list_briefings,
             commands::cdo::cdo_list_ratifications,
+            commands::estate::estate_dashboard,
+            commands::estate::estate_save_trustee,
+            commands::estate::estate_delete_trustee,
+            commands::estate::estate_save_packet,
+            commands::estate::estate_delete_packet,
+            commands::estate::estate_generate_shards,
+            commands::estate::estate_mark_shard_delivered,
+            commands::estate::estate_revoke_shard_set,
+            commands::estate::estate_verify_quorum,
+            commands::estate::estate_save_heartbeat,
+            commands::estate::estate_checkin,
+            commands::estate::estate_export_continuity_kit,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

@@ -27,6 +27,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  ScrollText,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -53,6 +54,7 @@ import { FolderlessMode } from "./screens/FolderlessMode";
 import { ForgottenAssets } from "./screens/ForgottenAssets";
 import { KnowledgeBase } from "./screens/KnowledgeBase";
 import { DataGovernance } from "./screens/DataGovernance";
+import { DigitalEstate } from "./screens/DigitalEstate";
 import { ResearchLibrarian } from "./screens/ResearchLibrarian";
 import { SelfHealing } from "./screens/SelfHealing";
 import { SystemCare } from "./screens/SystemCare";
@@ -92,7 +94,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "cdo" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "cdo" | "estate" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -110,6 +112,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   healing: "healing",
   governance: "governance",
   cdo: "cdo",
+  estate: "estate",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -678,6 +681,7 @@ export default function App() {
     { id: "healing", label: "Self-Healing", icon: Wrench },
     { id: "governance", label: "Data Governance", icon: ShieldCheck },
     { id: "cdo", label: "Chief Digital Officer", icon: Gauge },
+    { id: "estate", label: "Digital Estate", icon: ScrollText },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -929,6 +933,7 @@ export default function App() {
               }}
             />
           )}
+          {tab === "estate" && <DigitalEstate desktop={desktop} />}
           {tab === "filing" && <FilingScreen data={filingData} initialView={filingView} />}
           {tab === "dupes" && (
             <DupeReview data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />

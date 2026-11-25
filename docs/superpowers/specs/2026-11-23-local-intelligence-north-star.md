@@ -47,7 +47,7 @@ Written 2026-11-23 from the review given to the owner on 2026-11-22. The owner a
 | 12 | Self-healing workspace (4.1) | USN journal, batches | **done** (Self-Healing Workspace merged 2026-11-24: `migrations/0016`, `ActionType::PatchText` `K1` atomic patch/TOCTOU/rollback, `core::healing` Markdown/wikilink + tag consolidation + Folderless rule path audit, `R1`/`R7`, `SelfHealing` UI) |
 | 13 | Personal data governance (5.1) | D1, quarantine | **done** (Personal Data Governance merged 2026-11-25: `migrations/0017`, `core::governance` detector/posture/engine, reversible `R7` `K1` label batches & 30-day quarantine staging, AI exclusion rules enforced in `core::rag`, non-admin BitLocker telemetry, honest `R8`/`R9`/`R11` posture audit, `DataGovernance` UI) |
 | 14 | AI Chief Digital Officer agent (5.2) | everything above | **done** (AI Chief Digital Officer Agent merged 2026-11-25: `migrations/0018`, `core::cdo` 5-pillar synthesis, code-vs-doc lag & invoice friction diagnosis, reversible `K1` rule/setting ratification + undo, grounded `OnDemandLlm` briefings, `R5`/`R7`/`R11`, `ChiefDigitalOfficer` UI) |
-| 15 | Digital estate management (5.3) | D1, backup drive | last; reshaped (R10) |
+| 15 | Digital estate management (5.3) | D1, backup drive | **done** (Digital Estate Management merged 2026-11-25: `migrations/0019`, `core::estate` GF(256) Shamir $K$-of-$N$ sharding & quorum drill, `D3` trustee directory, `R2`/`R7` CredUI-gated packets & Continuity Kit export, strictly non-destructive `R10` heartbeat, `DigitalEstate` UI) |
 
 The vision's four phases are kept as a direction, but the order above is driven by value on the owner's PC. Encryption comes before any document content is stored (D1). Search comes before the agents that depend on it.
 

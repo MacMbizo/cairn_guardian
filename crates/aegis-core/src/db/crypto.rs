@@ -153,7 +153,7 @@ impl DbKey {
 }
 
 #[cfg(windows)]
-fn fill_random_bytes(buf: &mut [u8]) -> Result<()> {
+pub fn fill_random_bytes(buf: &mut [u8]) -> Result<()> {
     use windows_sys::Win32::Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG};
     // SAFETY: `buf` is a writable byte slice in this stack frame; `pbBuffer` receives `buf.len()` bytes
     // from the Windows system preferred CSPRNG when `hAlgorithm` is NULL.
@@ -174,7 +174,7 @@ fn fill_random_bytes(buf: &mut [u8]) -> Result<()> {
 }
 
 #[cfg(not(windows))]
-fn fill_random_bytes(buf: &mut [u8]) -> Result<()> {
+pub fn fill_random_bytes(buf: &mut [u8]) -> Result<()> {
     let mut f = std::fs::File::open("/dev/urandom")?;
     f.read_exact(buf)?;
     Ok(())
