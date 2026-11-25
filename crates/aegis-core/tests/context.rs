@@ -634,7 +634,9 @@ fn recognise_is_fast_on_a_big_catalog() {
     let rep = recognise(&mut s).unwrap();
     let took = started.elapsed();
     assert_eq!(rep.projects, 400, "{rep:?}");
-    assert!(took.as_secs() < 15, "recognition took {took:?}");
+    // Debug builds run several times slower and share the CPU with the rest of the suite.
+    let limit = if cfg!(debug_assertions) { 30 } else { 15 };
+    assert!(took.as_secs() < limit, "recognition took {took:?} (limit {limit}s)");
 }
 
 #[test]

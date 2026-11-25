@@ -2,7 +2,17 @@
   "name": "cairn-guardian",
   "private": true,
   "version": "0.1.0",
+  "description": "A calm, local-first guardian for the files on your Windows PC and drives.",
   "license": "AGPL-3.0-or-later",
+  "author": "MacDonald Mbizo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MacMbizo/cairn_guardian.git"
+  },
+  "homepage": "https://github.com/MacMbizo/cairn_guardian#readme",
+  "bugs": {
+    "url": "https://github.com/MacMbizo/cairn_guardian/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

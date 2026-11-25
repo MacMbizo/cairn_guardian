@@ -16,7 +16,10 @@ const MAX_LEFTOVER_DEPTH: usize = 5;
 const PROTECTED_VENDOR_DIRS: &[&str] = &[
     ".aegis",
     ".aegis-quarantine",
+    ".cairn-quarantine",
     "aegis",
+    "cairn",
+    "cairn guardian",
     "adobe",
     "amd",
     "anthropic",

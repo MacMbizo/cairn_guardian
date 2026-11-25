@@ -132,6 +132,7 @@ fn protected(rel: &Path) -> bool {
             || n == "windows"
             || n == "appdata"
             || n == "aegis backup"
+            || n == "cairn backup"
             || n.starts_with("program files")
     })
 }

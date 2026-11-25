@@ -549,7 +549,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
                     {generatedBundle.total_n} · Key `{generatedBundle.key_fingerprint}`)
                   </div>
                   <p className="text-[11px] text-amber-300/90">
-                    Distribute these immediately. Raw shards are NEVER stored in `aegis.db`.
+                    Distribute these immediately. Raw shards are NEVER stored in your catalog.
                   </p>
                   <div className="space-y-1.5">
                     {generatedBundle.shards.map((s) => (

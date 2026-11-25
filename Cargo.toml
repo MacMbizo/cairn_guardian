@@ -11,6 +11,9 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
+authors = ["MacDonald Mbizo"]
+repository = "https://github.com/MacMbizo/cairn_guardian"
+rust-version = "1.88"
 
 [workspace.dependencies]
 bip39 = { version = "3.0.0", default-features = false, features = ["std", "zeroize"] }

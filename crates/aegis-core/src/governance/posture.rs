@@ -15,8 +15,14 @@ pub struct VaultPostureContext {
     pub sensitive_expires_at: Option<i64>,
 }
 
-const ZERO_NETWORK_STATUS: &str = "Code-enforced offline engine: aegis-core, aegis-embed, and aegis-llm depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models` (R9).";
-const FIREWALL_COMMAND: &str = r#"New-NetFirewallRule -DisplayName "Cairn Guardian Block Outbound" -Direction Outbound -Program "$env:LOCALAPPDATA\Programs\Cairn Guardian\aegis-desktop.exe" -Action Block"#;
+const ZERO_NETWORK_STATUS: &str = "Code-enforced offline engine: Cairn's engine, search-embedding and local-language-model components depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models` (R9).";
+/// A PowerShell rule blocking outbound traffic for the running Cairn executable.
+fn firewall_command() -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| r"$env:LOCALAPPDATA\Cairn Guardian\cairn-guardian.exe".into());
+    format!(r#"New-NetFirewallRule -DisplayName "Cairn Guardian Block Outbound" -Direction Outbound -Program "{exe}" -Action Block"#)
+}
 const SHREDDING_POLICY: &str = "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.";
 
 /// Probes drive BitLocker protection status using Windows Shell non-admin properties (`R1`),
@@ -317,7 +323,7 @@ pub fn build_privacy_posture_with_drives(
         sensitive_unlocked: ctx.sensitive_unlocked,
         sensitive_expires_at: ctx.sensitive_expires_at,
         zero_network_status: ZERO_NETWORK_STATUS.into(),
-        firewall_command: FIREWALL_COMMAND.into(),
+        firewall_command: firewall_command(),
         shredding_policy: SHREDDING_POLICY.into(),
         drives_encryption,
         opt_in_audits,

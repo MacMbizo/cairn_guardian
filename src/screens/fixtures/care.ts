@@ -146,10 +146,10 @@ export const PREVIEW_STARTUP: StartupEntry[] = [
   {
     id: "hkcu_run:Cairn",
     name: "Cairn Guardian",
-    command: "\"C:\\Program Files\\Cairn Guardian\\aegis-desktop.exe\" --minimized",
+    command: "\"C:\\Program Files\\Cairn Guardian\\cairn-guardian.exe\" --minimized",
     source: "User Run (HKCU)",
     enabled: true,
-    target_path: "C:\\Program Files\\Cairn Guardian\\aegis-desktop.exe",
+    target_path: "C:\\Program Files\\Cairn Guardian\\cairn-guardian.exe",
     target_exists: true,
     orphaned: false,
     impact_hint: "Starts automatically when you sign in.",

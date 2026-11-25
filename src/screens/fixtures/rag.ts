@@ -49,7 +49,7 @@ export function previewRagAnswer(question: string): RagAnswer {
         path: "C:\\Users\\Owner\\Documents\\Architecture\\Local-Intelligence-Notes.md",
         filename: "Local-Intelligence-Notes.md",
         snippet:
-          "All RAG queries read exclusively from SQLCipher aegis.db using hybrid FTS5 + vector retrieval. Sensitive files require active Windows authentication.",
+          "All RAG queries read exclusively from your encrypted catalog using hybrid FTS5 + vector retrieval. Sensitive files require active Windows authentication.",
         score: 0.94,
         sensitivity: "public",
         matched_by: "hybrid",

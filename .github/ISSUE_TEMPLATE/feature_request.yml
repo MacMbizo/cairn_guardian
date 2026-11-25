@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea for Cairn Guardian
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Cairn to do?
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Safety rules
+      options:
+        - label: This idea keeps Cairn local-only, reversible and free of outright deletes.

@@ -70,6 +70,21 @@ pub(crate) fn init_unlocked_settings(
             let _ = app.autolaunch().enable();
         }
     }
+    // Builds named "Aegis Guardian" left a sign-in entry that starts the old executable. Replace
+    // it with this build's own; otherwise re-register so the entry follows a renamed executable.
+    #[cfg(windows)]
+    {
+        let release = !cfg!(debug_assertions);
+        match shell::retire_legacy_autostart() {
+            Some(true) if release => {
+                let _ = app.autolaunch().enable();
+            }
+            None if release && app.autolaunch().is_enabled().unwrap_or(false) => {
+                let _ = app.autolaunch().enable();
+            }
+            _ => {}
+        }
+    }
     Ok(shortcut)
 }
 

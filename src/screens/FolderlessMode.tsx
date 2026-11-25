@@ -225,7 +225,7 @@ export function FolderlessMode({
   const handleSaveRule = async () => {
     if (!desktop) {
       setNotice(
-        "Preview mode: saved rules persist in encrypted SQLCipher aegis.db in desktop mode."
+        "Preview mode: saved rules persist in your encrypted catalog in desktop mode."
       );
       return;
     }

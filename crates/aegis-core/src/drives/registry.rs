@@ -155,7 +155,7 @@ pub fn sync_mounted(store: &mut SqliteStore, provider: &dyn VolumeProvider) -> R
             },
         };
 
-        let qdir = Path::new(&f.mount).join(".aegis-quarantine").to_string_lossy().to_string();
+        let qdir = crate::quarantine::quarantine_dir_for(Path::new(&f.mount)).to_string_lossy().to_string();
         let has_stable_inode = matches!(m.fs_type.as_str(), "ntfs" | "refs");
         let mount = f.mount.clone();
         let passport_id = f.passport_id.clone();
@@ -290,6 +290,12 @@ pub fn sync_mounted(store: &mut SqliteStore, provider: &dyn VolumeProvider) -> R
             Ok(())
         })?;
         report.departed.push(r.id);
+    }
+
+    // A Backup drive filled before the rename to Cairn: rename its folder (best effort; the
+    // legacy folder stays fully usable if this fails, and the next sync tries again).
+    if let Err(e) = crate::backup::adopt_legacy_backup_dir(store) {
+        eprintln!("cairn: could not rename the Backup drive's legacy folder: {e}");
     }
 
     Ok(report)

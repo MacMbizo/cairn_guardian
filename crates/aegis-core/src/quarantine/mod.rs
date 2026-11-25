@@ -11,6 +11,30 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+/// Per-volume quarantine folder name.
+pub const QUARANTINE_DIR: &str = ".cairn-quarantine";
+/// Its name before the rename to Cairn; still recognised everywhere.
+pub const LEGACY_QUARANTINE_DIR: &str = ".aegis-quarantine";
+
+/// True for a quarantine folder's name, current or legacy (any case).
+pub fn is_quarantine_dir_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(QUARANTINE_DIR) || name.eq_ignore_ascii_case(LEGACY_QUARANTINE_DIR)
+}
+
+/// The quarantine folder for a volume mounted at `mount`. A legacy `.aegis-quarantine` that
+/// still holds items stays in use, so stored undo paths keep working; once it has emptied
+/// (items expire after 30 days) it is removed and `.cairn-quarantine` takes over.
+pub fn quarantine_dir_for(mount: &Path) -> PathBuf {
+    let legacy = mount.join(LEGACY_QUARANTINE_DIR);
+    if legacy.is_dir() {
+        let empty = std::fs::read_dir(&legacy).map(|mut d| d.next().is_none()).unwrap_or(false);
+        if !empty || std::fs::remove_dir(&legacy).is_err() {
+            return legacy;
+        }
+    }
+    mount.join(QUARANTINE_DIR)
+}
+
 const DEFAULT_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_SOFT_QUOTA_PCT: f64 = 10.0;
 
@@ -77,7 +101,7 @@ pub fn calculate_reclaimable_bytes(
     (reclaimable, hardlink_adjusted)
 }
 
-/// Computes the `<VolumeRoot>/.aegis-quarantine/<batch_id>/<name>` target path.
+/// Computes the `<VolumeRoot>/.cairn-quarantine/<batch_id>/<name>` target path.
 pub fn build_quarantine_dest(
     quarantine_root: &Path,
     batch_id: &str,
@@ -542,4 +566,25 @@ pub fn restore_entries(store: &mut SqliteStore, entry_ids: &[String]) -> Result<
 
 pub fn default_ttl_ms() -> i64 {
     DEFAULT_TTL_MS
+}
+
+#[cfg(test)]
+mod dir_name_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_quarantine_folder_is_used_until_it_empties() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mount = tmp.path();
+        assert_eq!(quarantine_dir_for(mount), mount.join(QUARANTINE_DIR));
+
+        let legacy = mount.join(LEGACY_QUARANTINE_DIR);
+        std::fs::create_dir_all(legacy.join("b1")).unwrap();
+        assert_eq!(quarantine_dir_for(mount), legacy, "items waiting in the legacy folder keep it in use");
+
+        std::fs::remove_dir(legacy.join("b1")).unwrap();
+        assert_eq!(quarantine_dir_for(mount), mount.join(QUARANTINE_DIR));
+        assert!(!legacy.exists(), "the empty legacy folder is removed");
+        assert!(is_quarantine_dir_name(".AEGIS-QUARANTINE") && is_quarantine_dir_name(".cairn-quarantine"));
+    }
 }

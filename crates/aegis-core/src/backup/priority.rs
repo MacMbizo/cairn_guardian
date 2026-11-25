@@ -164,8 +164,8 @@ pub fn tier_for_file(conn: &Connection, file_id: &str) -> Result<Option<i64>> {
 
 /// Adds (or re-adds) a backup source folder. Pinned folders are always tier 1.
 pub fn add_source(store: &mut SqliteStore, volume_id: &str, rel_path: &str, pinned: bool) -> Result<String> {
-    if rel_path.split(['\\', '/']).next().is_some_and(|c| c.eq_ignore_ascii_case(BACKUP_DIR)) {
-        return Err(AegisError::InvalidInput("The Backup drive's own Aegis Backup folder can't be a source.".into()));
+    if rel_path.split(['\\', '/']).next().is_some_and(super::is_backup_dir_name) {
+        return Err(AegisError::InvalidInput(format!("The Backup drive's own {BACKUP_DIR} folder can't be a source.")));
     }
     let existing: Option<String> = store
         .conn()

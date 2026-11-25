@@ -849,7 +849,7 @@ pub fn export_estate_continuity_kit(
     }
 
     let now = now_ms();
-    let kit_dir = output_dir.join(format!("aegis-continuity-kit-{}", format_date_ms(now)));
+    let kit_dir = output_dir.join(format!("cairn-continuity-kit-{}", format_date_ms(now)));
     fs::create_dir_all(&kit_dir)?;
 
     let trustees = list_trustees(conn)?;

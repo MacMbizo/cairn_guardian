@@ -398,10 +398,7 @@ fn retire_copy(
     now: i64,
 ) -> Result<()> {
     let live = backup_mount.join(live_rel);
-    let under_backup = live_rel
-        .strip_prefix(BACKUP_DIR)
-        .unwrap_or(live_rel)
-        .trim_start_matches(['\\', '/']);
+    let under_backup = super::strip_backup_dir(live_rel);
     let prev = backup_root(backup_mount)
         .join(PREVIOUS_DIR)
         .join(format_date_ms(now))
@@ -585,7 +582,7 @@ pub fn run_topup(
     }
     let backup_mount = PathBuf::from(&mount);
     let area = backup_root(&backup_mount);
-    // Defence in depth: every item must stay inside "Aegis Backup" on this drive.
+    // Defence in depth: every item must stay inside the Backup folder on this drive.
     for it in &plan.items {
         let target = backup_mount.join(&it.backup_rel_path);
         let escapes = it.backup_rel_path.split(['\\', '/']).any(|c| c == "..")
@@ -593,7 +590,7 @@ pub fn run_topup(
         if escapes {
             return Err(AegisError::PolicyBlocked {
                 rule: "backup_scope".into(),
-                detail: format!("{} is outside the Backup drive's Aegis Backup folder", it.backup_rel_path),
+                detail: format!("{} is outside the Backup drive's {BACKUP_DIR} folder", it.backup_rel_path),
             });
         }
     }

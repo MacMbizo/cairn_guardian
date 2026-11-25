@@ -1,14 +1,18 @@
 //! Backup drive: roles and drive plan, mirror top-up, guard and priority fill (spec §7.6–§7.7).
 //!
 //! Layout on the Backup drive (plain files, browsable without Cairn):
-//! `<mount>\Aegis Backup\<source label>\<relative path>` and
-//! `<mount>\Aegis Backup\_Previous versions\<yyyy-mm-dd>\<source label>\<relative path>`.
+//! `<mount>\Cairn Backup\<source label>\<relative path>` and
+//! `<mount>\Cairn Backup\_Previous versions\<yyyy-mm-dd>\<source label>\<relative path>`.
+//!
+//! Drives backed up before the rename to Cairn hold `Aegis Backup` instead. It is still
+//! recognised everywhere, and [`adopt_legacy_backup_dir`] renames it when the drive comes online.
 
 pub mod guard;
 pub mod plan;
 pub mod priority;
 pub mod topup;
 
+use crate::db::SqliteStore;
 use crate::db::files::{normalize_path, path_is_within, resolve_online_volume, upsert_discovered_file};
 use crate::error::Result;
 use crate::now_ms;
@@ -16,12 +20,102 @@ use crate::scanner::os_adapter::inspect_path_metadata;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::{Path, PathBuf};
 
-pub const BACKUP_DIR: &str = "Aegis Backup";
+pub const BACKUP_DIR: &str = "Cairn Backup";
+/// The Backup folder's name before the rename to Cairn (same length as [`BACKUP_DIR`]).
+pub const LEGACY_BACKUP_DIR: &str = "Aegis Backup";
 pub const PREVIOUS_DIR: &str = "_Previous versions";
 
-/// `<mount>\Aegis Backup`.
+/// True for the Backup folder's name, current or legacy (any case).
+pub fn is_backup_dir_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(BACKUP_DIR) || name.eq_ignore_ascii_case(LEGACY_BACKUP_DIR)
+}
+
+/// `rel` (relative to the Backup drive's root) with its leading Backup-folder component removed.
+pub fn strip_backup_dir(rel: &str) -> &str {
+    let first = rel.split(['\\', '/']).next().unwrap_or("");
+    if is_backup_dir_name(first) { rel[first.len()..].trim_start_matches(['\\', '/']) } else { rel }
+}
+
+/// `<mount>\Cairn Backup`, or the legacy `<mount>\Aegis Backup` while only that one exists
+/// (its rename failed or has not run yet), so backups never split across two folders.
 pub fn backup_root(mount: &Path) -> PathBuf {
-    mount.join(BACKUP_DIR)
+    let current = mount.join(BACKUP_DIR);
+    let legacy = mount.join(LEGACY_BACKUP_DIR);
+    if !current.exists() && legacy.is_dir() { legacy } else { current }
+}
+
+/// Renames an online Backup drive's legacy `Aegis Backup` folder to `Cairn Backup` and rewrites
+/// every stored path under it in one transaction. If the catalog update fails, the folder is
+/// renamed back. Returns `true` when the folder was renamed.
+pub fn adopt_legacy_backup_dir(store: &mut SqliteStore) -> Result<bool> {
+    let Some((volume_id, mount, true)) = backup_volume(store.conn())? else { return Ok(false) };
+    let legacy = Path::new(&mount).join(LEGACY_BACKUP_DIR);
+    let current = Path::new(&mount).join(BACKUP_DIR);
+    if !legacy.is_dir() || current.exists() {
+        return Ok(false);
+    }
+    std::fs::rename(&legacy, &current)?;
+    let (old_abs, new_abs) = (legacy.to_string_lossy().to_string(), current.to_string_lossy().to_string());
+    let passport: Option<String> = store
+        .conn()
+        .query_row("SELECT passport_id FROM volumes WHERE id = ?1", [&volume_id], |r| r.get(0))
+        .optional()?
+        .flatten();
+    let res = store.with_full_sync_tx(|tx| {
+        crate::drives::registry::rebase_volume_paths(tx, &volume_id, &old_abs, &new_abs, false)?;
+        // Executed actions (undo history) are not covered by the re-lettering rebase.
+        for col in ["from_path", "to_path"] {
+            tx.execute(
+                &format!(
+                    "UPDATE actions SET {col} = ?2 || substr({col}, length(?1) + 1)
+                     WHERE lower({col}) = lower(?1)
+                        OR lower(substr({col}, 1, length(?1) + 1)) IN (lower(?1) || '\\', lower(?1) || '/')"
+                ),
+                params![old_abs, new_abs],
+            )?;
+        }
+        // Paths stored relative to the Backup drive's root start with the folder name.
+        let rel_where = |col: &str| {
+            format!(
+                "(lower({col}) = lower(?1)
+                  OR lower(substr({col}, 1, length(?1) + 1)) IN (lower(?1) || '\\', lower(?1) || '/'))"
+            )
+        };
+        let set_rel = |col: &str| format!("{col} = ?2 || substr({col}, length(?1) + 1)");
+        tx.execute(
+            &format!(
+                "UPDATE backup_copies SET {} WHERE backup_volume_id = ?3 AND {}",
+                set_rel("backup_rel_path"),
+                rel_where("backup_rel_path")
+            ),
+            params![LEGACY_BACKUP_DIR, BACKUP_DIR, volume_id],
+        )?;
+        for col in ["rel_path", "original_rel_path"] {
+            tx.execute(
+                &format!("UPDATE backup_versions SET {} WHERE backup_volume_id = ?3 AND {}", set_rel(col), rel_where(col)),
+                params![LEGACY_BACKUP_DIR, BACKUP_DIR, volume_id],
+            )?;
+        }
+        if let Some(pp) = &passport {
+            for side in ["a", "b"] {
+                let col = format!("{side}_rel_path");
+                tx.execute(
+                    &format!(
+                        "UPDATE dupe_decisions SET {} WHERE {side}_passport = ?3 AND {}",
+                        set_rel(&col),
+                        rel_where(&col)
+                    ),
+                    params![LEGACY_BACKUP_DIR, BACKUP_DIR, pp],
+                )?;
+            }
+        }
+        Ok(())
+    });
+    if let Err(e) = res {
+        let _ = std::fs::rename(&current, &legacy);
+        return Err(e);
+    }
+    Ok(true)
 }
 
 /// The drive currently holding the Backup role: `(volume id, mount point, online)`.

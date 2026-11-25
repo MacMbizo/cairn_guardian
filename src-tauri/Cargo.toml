@@ -4,6 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "aegis_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cairn-guardian"
+path = "src/main.rs"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 

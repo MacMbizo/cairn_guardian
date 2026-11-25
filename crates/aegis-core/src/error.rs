@@ -127,7 +127,7 @@ impl AegisError {
                 code: "quarantine_unavailable".into(),
                 message: msg.clone(),
                 retryable: true,
-                remediation: Some("Ensure volume is online and writable for .aegis-quarantine.".into()),
+                remediation: Some("Ensure volume is online and writable for its quarantine folder.".into()),
             },
             Self::DriveMismatch(msg) => IpcError {
                 code: "drive_mismatch".into(),
@@ -181,7 +181,7 @@ impl AegisError {
                 code: "database_error".into(),
                 message: e.to_string(),
                 retryable: false,
-                remediation: Some("Run `aegis doctor` to check SQLite integrity.".into()),
+                remediation: Some("Open Settings and run the Doctor checks to verify the catalog.".into()),
             },
             Self::Io(e) => IpcError {
                 code: "io_error".into(),

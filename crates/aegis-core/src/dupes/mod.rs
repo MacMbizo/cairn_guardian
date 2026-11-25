@@ -630,13 +630,14 @@ fn finish_group(
         })
         .unwrap_or(0);
 
-    // A copy already recorded inside "Aegis Backup" on the Backup drive is healthy: no question.
+    // A copy already recorded inside the Backup folder on the Backup drive is healthy: no question.
     let healthy_backup = locations.iter().enumerate().any(|(li, loc)| {
         if !loc.is_backup {
             return false;
         }
         let mount = &vols[&loc.volume_id].mount;
-        let in_backup_area = rel_to_mount(&loc.path, mount).starts_with("aegis backup");
+        let rel = rel_to_mount(&loc.path, mount);
+        let in_backup_area = rel.split(['\\', '/']).next().is_some_and(crate::backup::is_backup_dir_name);
         let at_loc: Vec<&DupeMember> = members.iter().filter(|m| m.location_index == li).collect();
         in_backup_area
             && !at_loc.is_empty()

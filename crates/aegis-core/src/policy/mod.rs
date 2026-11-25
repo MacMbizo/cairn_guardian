@@ -179,6 +179,14 @@ fn path_starts_with_ci(candidate: &Path, root: &Path) -> bool {
     }
 }
 
+/// True when `path` enters a quarantine folder (current or legacy name).
+fn contains_quarantine_component(path: &Path) -> bool {
+    path.components().any(|c| match c {
+        Component::Normal(s) => crate::quarantine::is_quarantine_dir_name(&s.to_string_lossy()),
+        _ => false,
+    })
+}
+
 fn contains_component_ci(path: &Path, target: &str) -> bool {
     path.components().any(|c| match c {
         Component::Normal(s) => s.to_string_lossy().eq_ignore_ascii_case(target),
@@ -224,7 +232,7 @@ impl PolicyContext {
                     .unwrap_or(false)
             })
         } else {
-            contains_component_ci(&canon, ".aegis-quarantine")
+            contains_quarantine_component(&canon)
         }
     }
 
@@ -317,7 +325,7 @@ impl PolicyContext {
         }
     }
 
-    /// Checks BOTH `from_path` and `to_path` against `.aegis` / `.aegis-quarantine` internals (`C4` §3.2).
+    /// Checks BOTH `from_path` and `to_path` against `.aegis` / quarantine-folder internals (`C4` §3.2).
     pub fn is_protected_internal_for(&self, action: &PolicyAction<'_>) -> bool {
         let Some(canon_from) = canonicalize_safe(action.from_path) else {
             return true;
@@ -325,7 +333,7 @@ impl PolicyContext {
         if contains_component_ci(&canon_from, ".aegis") {
             return true;
         }
-        if contains_component_ci(&canon_from, ".aegis-quarantine")
+        if contains_quarantine_component(&canon_from)
             && !matches!(action.action_type, ActionType::Restore | ActionType::Purge)
         {
             return true;
@@ -338,7 +346,7 @@ impl PolicyContext {
             if contains_component_ci(&canon_to, ".aegis") {
                 return true;
             }
-            if contains_component_ci(&canon_to, ".aegis-quarantine")
+            if contains_quarantine_component(&canon_to)
                 && action.action_type != ActionType::Quarantine
             {
                 return true;

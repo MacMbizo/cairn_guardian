@@ -95,10 +95,7 @@ pub fn resolve_online_volume(
         }
         if best.as_ref().is_none_or(|b| mount.len() > b.0) {
             let qdir = qdir_opt.unwrap_or_else(|| {
-                Path::new(&mount)
-                    .join(".aegis-quarantine")
-                    .to_string_lossy()
-                    .to_string()
+                crate::quarantine::quarantine_dir_for(Path::new(&mount)).to_string_lossy().to_string()
             });
             best = Some((mount.len(), vid, qdir, cs));
         }

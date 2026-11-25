@@ -23,7 +23,7 @@ function vol(id: string, label: string, mount: string, role: string, online: boo
     is_readonly: false,
     has_stable_inode: true,
     case_sensitive: false,
-    quarantine_dir: `${mount}.aegis-quarantine`,
+    quarantine_dir: `${mount}.cairn-quarantine`,
     status: online ? "online" : "offline",
     last_seen: online ? now : now - 263 * DAY,
     total_bytes: TB,
@@ -114,5 +114,5 @@ export const fixtureDecisions: DupeDecisionItem[] = [
 ];
 
 export const fixtureVersions: PreviousVersionItem[] = [
-  { id: "v1", rel_path: "Aegis Backup\\_Previous versions\\2026-11-02\\PC (Documents)\\budget.xlsx", original_rel_path: "Aegis Backup\\PC (Documents)\\budget.xlsx", source_path: "C:\\Users\\you\\Documents\\budget.xlsx", reason: "changed", size_bytes: 48_000, moved_at: now - 19 * DAY, prune_after: now + 71 * DAY },
+  { id: "v1", rel_path: "Cairn Backup\\_Previous versions\\2026-11-02\\PC (Documents)\\budget.xlsx", original_rel_path: "Cairn Backup\\PC (Documents)\\budget.xlsx", source_path: "C:\\Users\\you\\Documents\\budget.xlsx", reason: "changed", size_bytes: 48_000, moved_at: now - 19 * DAY, prune_after: now + 71 * DAY },
 ];

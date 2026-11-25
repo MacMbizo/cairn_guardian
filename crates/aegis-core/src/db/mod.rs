@@ -278,10 +278,7 @@ impl SqliteStore {
             return Ok(v);
         }
         let meta = inspect_volume_for_path(path)?;
-        let quarantine_dir = Path::new(&meta.mount_point)
-            .join(".aegis-quarantine")
-            .to_string_lossy()
-            .to_string();
+        let quarantine_dir = crate::quarantine::quarantine_dir_for(Path::new(&meta.mount_point)).to_string_lossy().to_string();
         let ts = now_ms();
         self.conn.execute(
             "INSERT INTO volumes (id, mount_point, fs_type, is_removable, is_readonly, has_stable_inode, case_sensitive, quarantine_dir, status, last_seen)

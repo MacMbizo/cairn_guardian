@@ -36,7 +36,7 @@ pub fn write_passport(root: &Path) -> Result<Passport> {
     let passport = Passport {
         passport_id: new_id(),
         created_at: now_ms(),
-        created_by: format!("aegis {}", env!("CARGO_PKG_VERSION")),
+        created_by: format!("cairn {}", env!("CARGO_PKG_VERSION")),
         schema: 1,
     };
     let tmp = dir.join("volume.json.tmp");

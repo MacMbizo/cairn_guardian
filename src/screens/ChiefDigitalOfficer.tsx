@@ -743,7 +743,7 @@ export function ChiefDigitalOfficer({
               </div>
               <p className="mt-1 text-xs text-slate-400">
                 Click &ldquo;Synthesize Executive Briefing&rdquo; above to run the on-demand local
-                model (`R4`/`K5`) against your disk metrics and save a cited memo inside `aegis.db`.
+                model (`R4`/`K5`) against your disk metrics and save a cited memo in your encrypted catalog.
               </p>
             </div>
           ) : (

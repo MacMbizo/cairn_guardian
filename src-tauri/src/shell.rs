@@ -81,7 +81,7 @@ pub fn open_main(app: &AppHandle, screen: Option<Screen>) {
                 let _ = w.show();
                 let _ = w.set_focus();
             }
-            Err(e) => eprintln!("aegis: could not open the window: {e}"),
+            Err(e) => eprintln!("cairn: could not open the window: {e}"),
         }
         if let Some(s) = screen {
             let _ = handle.emit(AEGIS_EVENT, AegisEvent::Navigate { v: 1, screen: s });
@@ -200,6 +200,55 @@ pub fn register_shortcut(app: &AppHandle, accel: &str) -> bool {
     let ok = gs.register(accel).is_ok();
     app.state::<AppState>().shortcut_ok.store(ok, Ordering::SeqCst);
     ok
+}
+
+/// Removes the "Start with Windows" entry left by builds named "Aegis Guardian" (it launches the
+/// old executable at sign-in). Returns `Some(was_enabled)` when one was found, so the caller can
+/// register the current build in its place.
+#[cfg(windows)]
+pub fn retire_legacy_autostart() -> Option<bool> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_CURRENT_USER, RRF_RT_ANY, RRF_RT_REG_BINARY, RegDeleteKeyValueW, RegGetValueW,
+    };
+    const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    const APPROVED: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+    const LEGACY_NAME: &str = "Aegis Guardian";
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (run, approved, name) = (wide(RUN), wide(APPROVED), wide(LEGACY_NAME));
+    let exists = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            run.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_ANY,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0;
+    if !exists {
+        return None;
+    }
+    // StartupApproved holds 12 bytes; an odd first byte means the owner switched it off in Task Manager.
+    let mut flags = [0u8; 12];
+    let mut size = flags.len() as u32;
+    let rc = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            approved.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_BINARY,
+            std::ptr::null_mut(),
+            flags.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    let enabled = rc != 0 || size == 0 || flags[0] & 1 == 0;
+    unsafe {
+        RegDeleteKeyValueW(HKEY_CURRENT_USER, run.as_ptr(), name.as_ptr());
+        RegDeleteKeyValueW(HKEY_CURRENT_USER, approved.as_ptr(), name.as_ptr());
+    }
+    Some(enabled)
 }
 
 #[cfg(test)]

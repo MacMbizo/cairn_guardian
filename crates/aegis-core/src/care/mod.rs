@@ -250,13 +250,13 @@ pub(crate) fn display_path(p: &Path) -> String {
     normalize_path(p, cfg!(not(windows))).0
 }
 
-/// True when `path` enters any Cairn internal directory (`com.aegis.guardian`, `.aegis`, `.aegis-quarantine`).
+/// True when `path` enters any Cairn internal directory (`com.aegis.guardian`, `.aegis`, quarantine).
 pub fn path_contains_aegis_internal(path: &Path) -> bool {
     path.components().any(|c| match c {
         Component::Normal(seg) => {
             let s = seg.to_string_lossy();
             s.eq_ignore_ascii_case(".aegis")
-                || s.eq_ignore_ascii_case(".aegis-quarantine")
+                || crate::quarantine::is_quarantine_dir_name(&s)
                 || s.eq_ignore_ascii_case("com.aegis.guardian")
         }
         _ => false,

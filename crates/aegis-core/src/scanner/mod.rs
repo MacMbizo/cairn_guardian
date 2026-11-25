@@ -36,12 +36,14 @@ pub struct ScanProgress {
     pub coverage_pct: f64,
 }
 
-/// Builds a `.aegisignore` matcher for a scan root plus optional persisted rules.
+/// Builds a `.cairnignore` (or legacy `.aegisignore`) matcher for a scan root plus optional persisted rules.
 fn build_ignore_matcher(root: &Path, custom_rules: Option<&str>) -> Gitignore {
     let mut builder = GitignoreBuilder::new(root);
-    let ignore_file = root.join(".aegisignore");
-    if ignore_file.is_file() {
-        let _ = builder.add(&ignore_file);
+    for name in [".cairnignore", ".aegisignore"] {
+        let ignore_file = root.join(name);
+        if ignore_file.is_file() {
+            let _ = builder.add(&ignore_file);
+        }
     }
     if let Some(raw) = custom_rules {
         for line in raw.lines() {
@@ -55,7 +57,7 @@ fn build_ignore_matcher(root: &Path, custom_rules: Option<&str>) -> Gitignore {
 }
 
 fn is_immutable_excluded_dir_name(name: &str) -> bool {
-    [".aegis", ".aegis-quarantine", "System Volume Information", "$RECYCLE.BIN"]
+    [".aegis", ".aegis-quarantine", ".cairn-quarantine", "System Volume Information", "$RECYCLE.BIN"]
         .iter()
         .any(|n| name.eq_ignore_ascii_case(n))
 }
@@ -74,7 +76,7 @@ fn is_positional_excluded_dir(dir: &Path, name: &str, canonical_root: &Path) -> 
         && parent
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-            .is_some_and(|n| n.eq_ignore_ascii_case("Aegis Backup"))
+            .is_some_and(crate::backup::is_backup_dir_name)
 }
 
 fn detect_cache_dir_kind(dir: &Path, name: &str) -> Option<&'static str> {
@@ -108,6 +110,7 @@ fn detect_atomic_unit_marker(dir: &Path, names: &[OsString]) -> Option<(&'static
     }
 
     const MARKERS: &[(&str, &str)] = &[
+        (".cairnboundary", "custom"),
         (".aegisboundary", "custom"),
         (".git", "git_repo"),
         ("Cargo.toml", "rust_crate"),
@@ -1014,7 +1017,7 @@ pub fn is_live_excluded_path(path: &Path) -> bool {
                     && a.parent()
                         .and_then(|p| p.file_name())
                         .and_then(|p| p.to_str())
-                        .is_some_and(|p| p.eq_ignore_ascii_case("Aegis Backup")))
+                        .is_some_and(crate::backup::is_backup_dir_name))
                 || detect_cache_dir_kind(a, name).is_some()
         })
     })

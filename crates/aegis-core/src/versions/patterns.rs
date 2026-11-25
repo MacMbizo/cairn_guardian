@@ -82,6 +82,7 @@ pub fn is_excluded_relative_path(path: &str, mount_point: &str) -> bool {
                 | "site-packages"
                 | ".aegis"
                 | ".aegis-quarantine"
+                | ".cairn-quarantine"
                 | "$recycle.bin"
                 | "system volume information"
                 | "windows"

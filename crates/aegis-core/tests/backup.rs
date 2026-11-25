@@ -104,7 +104,7 @@ fn apply_plan_adopts_existing_copies_into_aegis_backup() {
     let batch = applied.adopt_batch.expect("adopt batch");
     run_batch(&mut store, &batch);
 
-    let adopted = b.mount_point.join("Aegis Backup").join("A").join("Photos").join("x.jpg");
+    let adopted = b.mount_point.join("Cairn Backup").join("A").join("Photos").join("x.jpg");
     assert!(adopted.is_file(), "moved within the Backup drive");
     assert!(!stray.exists());
     assert_eq!(count(&store, "SELECT COUNT(*) FROM backup_copies"), 1);
@@ -156,7 +156,7 @@ fn stray_backup_moves_via_copy_then_quarantine() {
     let batch = applied.stray_batch.expect("stray batch");
     run_batch(&mut store, &batch);
 
-    let on_backup = b.mount_point.join("Aegis Backup").join("A").join("Work").join("y.bin");
+    let on_backup = b.mount_point.join("Cairn Backup").join("A").join("Work").join("y.bin");
     assert!(on_backup.is_file(), "backup copy written");
     assert!(pa.is_file(), "the original stays");
     assert!(!pc.exists(), "the stray copy is in quarantine");
@@ -198,7 +198,7 @@ fn make_this_the_backup_copy_moves_instead_of_deleting() {
     let out = decide(&mut store, &g.group_id, DupeChoice::MakeThisTheBackupCopy { location_index: victim, keeper_index: None }).unwrap();
     run_batch(&mut store, &out.batch_id.unwrap());
     assert!(!pc.exists());
-    assert!(b.mount_point.join("Aegis Backup").join("A").join("Docs").join("z.bin").is_file());
+    assert!(b.mount_point.join("Cairn Backup").join("A").join("Docs").join("z.bin").is_file());
 }
 
 fn set_mtime(path: &Path, secs_ago: u64) {
@@ -271,7 +271,7 @@ fn topup(fx: &mut BackupFx) -> aegis_core::backup::topup::TopUpResult {
 }
 
 fn live_copy(fx: &BackupFx, rel: &str) -> PathBuf {
-    let mut p = fx.backup.mount_point.join("Aegis Backup").join("PC (Documents)");
+    let mut p = fx.backup.mount_point.join("Cairn Backup").join("PC (Documents)");
     for part in rel.split('/') {
         p = p.join(part);
     }
@@ -312,7 +312,7 @@ fn changed_source_moves_old_copy_to_previous_versions() {
     let old = fx
         .backup
         .mount_point
-        .join("Aegis Backup")
+        .join("Cairn Backup")
         .join("_Previous versions")
         .join(&today)
         .join("PC (Documents)")
@@ -358,7 +358,7 @@ fn deleted_source_retires_only_when_source_online() {
     );
     let res = run_topup(&mut store, &plan, TopUpAuthority::UserApproved, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
     assert_eq!(res.retired, 1);
-    assert!(!b.mount_point.join("Aegis Backup").join("S").join("Keep").join("f0.txt").exists());
+    assert!(!b.mount_point.join("Cairn Backup").join("S").join("Keep").join("f0.txt").exists());
 }
 
 #[test]
@@ -430,7 +430,7 @@ fn prune_removes_only_expired_versions() {
     let left = list_previous_versions(fx.store.conn(), &fx.backup_id).unwrap();
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].id, versions[1].id);
-    assert_eq!(walk_count(&fx.backup.mount_point.join("Aegis Backup").join("_Previous versions"), ".txt"), 1);
+    assert_eq!(walk_count(&fx.backup.mount_point.join("Cairn Backup").join("_Previous versions"), ".txt"), 1);
 }
 
 #[test]
@@ -838,7 +838,7 @@ fn end_to_end_three_drives() {
     for batch in [applied.adopt_batch.clone(), applied.stray_batch.clone()].into_iter().flatten() {
         run_batch(&mut store, &batch);
     }
-    assert!(b.mount_point.join("Aegis Backup").join("A").join("Archive").join("old.zip").is_file());
+    assert!(b.mount_point.join("Cairn Backup").join("A").join("Archive").join("old.zip").is_file());
 
     // 3. Answer every remaining duplicate question.
     for g in grouped_report(store.conn()).unwrap().groups.into_iter().filter(|g| g.needs_question) {
@@ -1064,4 +1064,45 @@ fn retire_copy_only_marks_backup_volume_file_missing() {
         .unwrap();
     assert_eq!(foreign_state, "active", "foreign volume's file at matching path_hash must not be retired");
     assert_eq!(walk_count(&fx.backup.mount_point, ".aegis-partial"), 0);
+}
+
+#[test]
+fn legacy_aegis_backup_folder_is_renamed_and_catalog_follows() {
+    let (tmp, mut store, provider) = setup();
+    let a = common::fake_drive(&tmp, "A", "0001");
+    let b = common::fake_drive(&tmp, "B", "0002");
+    let body = common::noise(6 * KIB, 111);
+    common::put(&a.mount_point, "Photos/x.jpg", &body);
+    common::put(&b.mount_point, "random/x.jpg", &body);
+    let ids = catalog_all(&mut store, &provider, &[&a, &b]);
+    let applied = apply_plan(
+        &mut store,
+        &[(ids[0].clone(), DriveRole::General), (ids[1].clone(), DriveRole::Backup)],
+    )
+    .unwrap();
+    run_batch(&mut store, &applied.adopt_batch.expect("adopt batch"));
+
+    // Turn the drive back into one filled before the rename to Cairn.
+    let current = b.mount_point.join("Cairn Backup");
+    let legacy = b.mount_point.join("Aegis Backup");
+    std::fs::rename(&current, &legacy).unwrap();
+    store
+        .conn()
+        .execute_batch(
+            "UPDATE files SET path = replace(path, 'Cairn Backup', 'Aegis Backup');
+             UPDATE backup_copies SET backup_rel_path = replace(backup_rel_path, 'Cairn Backup', 'Aegis Backup');
+             UPDATE actions SET to_path = replace(to_path, 'Cairn Backup', 'Aegis Backup');",
+        )
+        .unwrap();
+    assert_eq!(aegis_core::backup::backup_root(&b.mount_point), legacy, "legacy folder stays in use");
+
+    sync_mounted(&mut store, &provider).unwrap();
+
+    assert!(!legacy.exists());
+    assert!(current.join("A").join("Photos").join("x.jpg").is_file());
+    assert_eq!(aegis_core::backup::backup_root(&b.mount_point), current);
+    assert_eq!(count(&store, "SELECT COUNT(*) FROM files WHERE path LIKE '%Aegis Backup%'"), 0);
+    assert_eq!(count(&store, "SELECT COUNT(*) FROM files WHERE path LIKE '%Cairn Backup%'"), 1);
+    assert_eq!(count(&store, "SELECT COUNT(*) FROM backup_copies WHERE backup_rel_path LIKE 'Cairn Backup%'"), 1);
+    assert_eq!(count(&store, "SELECT COUNT(*) FROM actions WHERE to_path LIKE '%Aegis Backup%'"), 0);
 }
