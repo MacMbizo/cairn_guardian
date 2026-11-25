@@ -1,4 +1,4 @@
-import { ui } from "../ui";
+import { ui, Flash } from "../ui";
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { DatabaseBackup, FolderPlus, HardDrive, History, Pin, PinOff, RefreshCw, RotateCcw, ShieldAlert, Undo2, Usb } from "lucide-react";
@@ -52,11 +52,7 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
 
   return (
     <div className="space-y-6">
-      {msg && (
-        <p role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">
-          {msg}
-        </p>
-      )}
+      <Flash message={msg} tone="neutral" />
 
       {showPlan && plan && (
         <section aria-label="Drive plan" className={`${card} border-sky-500/30`}>

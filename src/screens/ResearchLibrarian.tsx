@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Flash } from "../ui";
 import {
   BookOpen,
   Check,
@@ -351,19 +352,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
         </div>
       </section>
 
-      {notice && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-700/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
-          <span>{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="ml-2 text-amber-300 hover:text-amber-100"
-            aria-label="Dismiss notice"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      <Flash message={notice} tone="warning" onDismiss={() => setNotice(null)} />
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

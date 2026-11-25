@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Flash } from "../ui";
 import {
   Activity,
   AlertTriangle,
@@ -364,16 +365,8 @@ export function ChiefDigitalOfficer({
         </div>
       </div>
 
-      {err && (
-        <div className="rounded-lg border border-rose-800/70 bg-rose-950/50 px-4 py-2.5 text-xs text-rose-200">
-          {err}
-        </div>
-      )}
-      {flash && (
-        <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-4 py-2.5 text-xs text-emerald-200">
-          {flash}
-        </div>
-      )}
+      <Flash message={err} tone="danger" />
+      <Flash message={flash} tone="success" />
 
       {/* Five Executive Pillars */}
       <div className="grid gap-3 md:grid-cols-5">

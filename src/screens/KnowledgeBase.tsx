@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Flash } from "../ui";
 import {
   Brain,
   Building2,
@@ -601,18 +602,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
         )}
       </div>
 
-      {notice && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-800/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
-          <span>{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="text-amber-300 hover:text-amber-100"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      <Flash message={notice} tone="warning" onDismiss={() => setNotice(null)} />
 
       {/* Sub-view 1: Provisional Inbox */}
       {subView === "inbox" && (

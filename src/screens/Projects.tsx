@@ -1,4 +1,4 @@
-import { ui } from "../ui";
+import { ui, Flash } from "../ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Archive, ArrowLeft, ArrowRight, BookOpen, CircleCheck, Code2, Copy, FileText, Folder, GitBranch, HardDrive, History, House, Layers, Loader2, Palette, RefreshCw, SearchCheck } from "lucide-react";
 import {
@@ -1015,7 +1015,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
           )}
         </div>
       )}
-      {err && <p className="text-xs text-rose-300">{err}</p>}
+      <Flash message={err} tone="danger" />
       {note && (
         <p role="status" className="text-xs text-slate-300">
           {note}

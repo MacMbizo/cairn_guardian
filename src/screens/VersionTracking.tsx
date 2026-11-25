@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Flash } from "../ui";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
@@ -626,18 +627,7 @@ export function VersionTracking({
         </div>
       </div>
 
-      {notice && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-800/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
-          <span>{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="text-amber-300 hover:text-amber-100"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      <Flash message={notice} tone="warning" onDismiss={() => setNotice(null)} />
 
       {displayedChains.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-xs text-slate-400">

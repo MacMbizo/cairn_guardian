@@ -1,4 +1,4 @@
-import { ui } from "../ui";
+import { ui, Flash } from "../ui";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, CheckCircle2, FolderGit2, FolderTree, HardDrive, History, Laptop, ListChecks, Sparkles, Undo2 } from "lucide-react";
 import {
@@ -255,7 +255,7 @@ function BatchView({
           </button>
         </div>
       </header>
-      {err && <p className="text-xs text-rose-300">{err}</p>}
+      <Flash message={err} tone="danger" />
       {!items && !err && <p className="text-xs text-slate-400">Loading…</p>}
       {items && (
         <ul className={`${card} divide-y divide-slate-800 p-0`}>
@@ -346,7 +346,7 @@ function SortView({ s, preview, onBack }: { s: ScopeStatus; preview: boolean; on
         <h1 className="text-lg font-semibold">To sort on {s.label}</h1>
         <p className="text-xs text-slate-400">Cairn wasn't sure about these. Pick a place, or leave them where they are.</p>
       </header>
-      {msg && <p role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">{msg}</p>}
+      <Flash message={msg} tone="neutral" />
       {items?.length === 0 && <p className="text-xs text-slate-400">Nothing left to sort.</p>}
       <ul className={`${card} divide-y divide-slate-800 p-0`}>
         {items?.map((p) => (
@@ -625,7 +625,7 @@ export function FilingScreen({
           </ul>
         </details>
       )}
-      {error && <p className="text-xs text-rose-300">{error}</p>}
+      <Flash message={error} tone="danger" />
       {loading && <p className="text-xs text-slate-400">Loading…</p>}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {scopes.map((s) => {

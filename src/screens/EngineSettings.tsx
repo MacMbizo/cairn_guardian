@@ -1,4 +1,4 @@
-import { ui } from "../ui";
+import { ui, Flash } from "../ui";
 import { useCallback, useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { CheckCircle2, Copy, Eye, EyeOff, FolderOpen, KeyRound, Keyboard, Lock, MessageSquareText, MoonStar, Power, ShieldAlert, ShieldCheck, Sparkles, Undo2, Unlock } from "lucide-react";
@@ -366,11 +366,7 @@ export function EngineSettings({
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      {msg && (
-        <p role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">
-          {msg}
-        </p>
-      )}
+      <Flash message={msg} tone="neutral" />
 
       <section aria-label="Running in the background" className={card}>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">

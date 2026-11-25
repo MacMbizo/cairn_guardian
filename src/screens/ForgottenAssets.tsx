@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Flash } from "../ui";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArchiveRestore,
@@ -445,11 +446,7 @@ export function ForgottenAssets({
           </div>
         )}
 
-        {notice && (
-          <p className="mt-3 rounded border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-amber-300">
-            {notice}
-          </p>
-        )}
+        <Flash message={notice} tone="warning" />
       </div>
 
       {selectedOnlineItems.length > 0 && (

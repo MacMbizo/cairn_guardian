@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Flash } from "../ui";
 import {
   Activity,
   AlertTriangle,
@@ -350,14 +351,7 @@ export function SystemCare({
         })}
       </div>
 
-      {notice && (
-        <div
-          role="status"
-          className="rounded-lg border border-emerald-700/60 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200"
-        >
-          {notice}
-        </div>
-      )}
+      <Flash message={notice} tone="success" />
 
       {section === "overview" && (
         <div className="space-y-5">

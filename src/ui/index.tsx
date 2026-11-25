@@ -5,7 +5,7 @@
  * and behaves the same everywhere. Change a look once, here, rather than per screen.
  */
 import type { ComponentType, ReactNode, ButtonHTMLAttributes } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 type IconType = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
 
@@ -223,6 +223,25 @@ export function Notice({
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
+  );
+}
+
+/** A one-line result message (after an action), optionally dismissible. Renders nothing when empty. */
+export function Flash({ message, tone = "neutral", onDismiss }: { message: ReactNode; tone?: Tone; onDismiss?: () => void }) {
+  if (!message) return null;
+  return (
+    <Notice
+      tone={tone}
+      actions={
+        onDismiss && (
+          <button type="button" onClick={onDismiss} aria-label="Dismiss message" className={`rounded p-0.5 opacity-70 hover:opacity-100 ${ui.focus}`}>
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )
+      }
+    >
+      {message}
+    </Notice>
   );
 }
 

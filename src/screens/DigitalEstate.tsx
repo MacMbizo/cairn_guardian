@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Flash } from "../ui";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   CheckCircle2,
@@ -371,16 +372,8 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
         </div>
       </div>
 
-      {err && (
-        <div className="rounded-lg border border-rose-800/70 bg-rose-950/50 px-4 py-2.5 text-xs text-rose-200">
-          {err}
-        </div>
-      )}
-      {flash && (
-        <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-4 py-2.5 text-xs text-emerald-200">
-          {flash}
-        </div>
-      )}
+      <Flash message={err} tone="danger" />
+      <Flash message={flash} tone="success" />
 
       {/* Sub-Tabs */}
       <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2">

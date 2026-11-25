@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, PageHeader } from "../ui";
+import { Badge, Button, PageHeader, Flash } from "../ui";
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -404,18 +404,7 @@ export function SelfHealing({
         }
       />
 
-      {notice && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
-          <span>{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="rounded p-0.5 hover:bg-emerald-900/50"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      <Flash message={notice} tone="success" onDismiss={() => setNotice(null)} />
 
       {report && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

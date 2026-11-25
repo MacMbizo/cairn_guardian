@@ -1,4 +1,4 @@
-import { ui } from "../ui";
+import { ui, Flash } from "../ui";
 import { useEffect, useState } from "react";
 import { Activity, BellRing, CheckCheck, Download, FolderGit2, HardDrive, ShieldCheck } from "lucide-react";
 import { aegis, errorMessage, type FindingAction, type Reminder, type Screen } from "../bindings/client";
@@ -93,11 +93,7 @@ export function ThisWeek({
         <h1 className="mt-1 text-xl font-semibold text-slate-50">{note.headline}</h1>
       </header>
 
-      {msg && (
-        <p role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">
-          {msg}
-        </p>
-      )}
+      <Flash message={msg} tone="neutral" />
 
       {note.needs_you.length > 0 && (
         <Section icon={BellRing} title="Needs you">
