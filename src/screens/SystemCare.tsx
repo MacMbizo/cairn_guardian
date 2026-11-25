@@ -296,11 +296,13 @@ export function SystemCare({
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div>
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-50">
-            <HeartPulse className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+          <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-50">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400">
+              <HeartPulse className="h-4 w-4" aria-hidden="true" />
+            </span>
             Windows System Care
-          </h2>
-          <p className="mt-0.5 text-xs text-slate-400">
+          </h1>
+          <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
             Reclaim clutter via 30-day quarantine, uninstall apps with their own uninstallers,
             check SMART drive health, and track disk growth. Cairn never edits the registry.
           </p>

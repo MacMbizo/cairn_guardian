@@ -298,16 +298,15 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
-              <ScrollText className="h-5 w-5" aria-hidden="true" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400">
+              <ScrollText className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-lg font-semibold text-slate-50">
-                Digital Estate Management
+                Digital Estate
               </h1>
               <p className="text-xs text-slate-400">
-                Trustee key delegation (GF(256) Shamir), sealed succession instructions, and
-                non-destructive continuity release.
+                Share your recovery key with people you trust, leave sealed instructions, and set a check-in that can release them. Nothing is ever deleted.
               </p>
             </div>
           </div>
@@ -329,7 +328,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
               <button
                 type="button"
                 onClick={() => void handleUnlock()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-700 bg-amber-950/40 px-3 py-1.5 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-900/50"
               >
                 <Unlock className="h-3.5 w-3.5" />
                 Unlock estate details
@@ -337,7 +336,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-1.5 text-xs text-emerald-300">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Estate Secrets Unlocked
+                Estate details unlocked
               </span>
             )}
 

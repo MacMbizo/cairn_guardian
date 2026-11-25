@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Badge, Button, PageHeader } from "../ui";
 import {
   Archive,
   CheckCircle2,
@@ -354,54 +355,26 @@ export function DataGovernance({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-emerald-400" />
-            <h1 className="text-lg font-semibold">Personal Data Governance</h1>
-            <span className="rounded border border-emerald-800/50 bg-emerald-950/70 px-2 py-0.5 text-xs font-medium text-emerald-300">
-              Encrypted catalog · Windows unlock · BitLocker · Offline
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-400">
-            Detects exposed PII, payment cards, tax IDs, and API credentials on this PC without
-            storing raw secrets. Sensitive documents stay findable in your local index while hiding
-            previews and excluding them from AI prompts until you unlock them with Windows.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleToggleSensitive()}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
-              includeSensitive
-                ? "border-amber-600/70 bg-amber-950/40 text-amber-200"
-                : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-            } transition-colors`}
-          >
-            {includeSensitive ? (
-              <Unlock className="h-3.5 w-3.5 text-amber-400" />
-            ) : (
-              <Lock className="h-3.5 w-3.5 text-slate-400" />
-            )}
-            {includeSensitive
-              ? "Sensitive files unlocked"
-              : "Unlock sensitive files"}
-          </button>
-
-          <button
-            type="button"
-            disabled={scanning}
-            onClick={() => void handleScan()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
-            {scanning ? "Scanning Files..." : "Scan PII & Secrets"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        icon={ShieldCheck}
+        title="Data Governance"
+        badges={<Badge tone="success" icon={Lock}>Offline · encrypted</Badge>}
+        description="Finds exposed personal data, payment cards, tax IDs and API keys on this PC without storing the secrets themselves. Sensitive files stay searchable, but their previews are hidden and they are kept away from AI features until you unlock them with Windows."
+        actions={
+          <>
+            <Button
+              icon={includeSensitive ? Unlock : Lock}
+              onClick={() => void handleToggleSensitive()}
+              className={includeSensitive ? "border-amber-700 text-amber-200" : ""}
+            >
+              {includeSensitive ? "Sensitive files unlocked" : "Unlock sensitive files"}
+            </Button>
+            <Button variant="primary" icon={RefreshCw} loading={scanning} onClick={() => void handleScan()}>
+              {scanning ? "Scanning…" : "Scan for exposed data"}
+            </Button>
+          </>
+        }
+      />
 
       {notice && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">

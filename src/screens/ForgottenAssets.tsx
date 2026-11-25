@@ -271,12 +271,14 @@ export function ForgottenAssets({
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-              <Compass className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+            <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-50">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400">
+                <Compass className="h-4 w-4" aria-hidden="true" />
+              </span>
               Forgotten Assets
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Finds 80+ design, RAW photo, 3D, font, video, audio, and document formats buried in clutter, resting on unplugged drives, or stranded outside matching projects.
+            </h1>
+            <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
+              Finds design files, RAW photos, 3D models, fonts, video, audio and documents that are buried in clutter, sitting on drives you rarely plug in, or living away from the project they belong to.
             </p>
           </div>
           <button

@@ -419,13 +419,14 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-              <Brain className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+            <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-50">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400">
+                <Brain className="h-4 w-4" aria-hidden="true" />
+              </span>
               Knowledge Base
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Extracts typed People, Organizations, Projects, Decisions, and Action Items from
-              documents &amp; `.vtt`/`.srt` transcripts — adding them only when you approve, with one-click undo. Meeting recordings stay off until you turn them on, and sensitive files stay hidden.
+            </h1>
+            <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
+              Pulls people, organisations, projects, decisions and action items out of your documents and meeting transcripts, adding them only when you approve, with one-click undo. Meeting recordings stay off until you turn them on, and sensitive files stay hidden.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -270,12 +270,12 @@ export function ChiefDigitalOfficer({
       <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
-              <Gauge className="h-5 w-5" aria-hidden="true" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400">
+              <Gauge className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-lg font-semibold text-slate-50">
-                AI Chief Digital Officer Agent
+                Chief Digital Officer
               </h1>
               <p className="text-xs text-slate-400">{dashboard.posture_summary}</p>
             </div>
@@ -302,7 +302,7 @@ export function ChiefDigitalOfficer({
             <div className="text-xs uppercase tracking-wide text-slate-500">
               Executive Index
             </div>
-            <div className="text-lg font-bold text-indigo-300">
+            <div className="font-mono text-lg text-emerald-300">
               {dashboard.executive_score.toFixed(1)}{" "}
               <span className="text-xs font-medium text-slate-400">
                 ({dashboard.executive_grade})

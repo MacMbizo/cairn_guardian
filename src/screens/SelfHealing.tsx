@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge, Button, PageHeader } from "../ui";
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -382,51 +383,26 @@ export function SelfHealing({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Wrench className="h-5 w-5 text-emerald-400" />
-            <h1 className="text-lg font-semibold">Self-Healing Workspace</h1>
-            <span className="rounded bg-emerald-950/70 px-2 py-0.5 text-xs font-medium text-emerald-300 border border-emerald-800/50">
-              You approve every fix · one-click undo
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-400">
-            Repairs broken Markdown &amp; wikilinks across external/USN moves, consolidates casing &amp;
-            typo tag weeds, catches hex color false positives, and audits Folderless rule paths — every edit
-            runs transactionally through the Simulator with TOCTOU verification and one-click undo.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleToggleSensitive()}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
-              includeSensitive
-                ? "border-amber-600/70 bg-amber-950/40 text-amber-200"
-                : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-            } transition-colors`}
-          >
-            {includeSensitive ? (
-              <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
-            ) : (
-              <ShieldAlert className="h-3.5 w-3.5 text-slate-400" />
-            )}
-            {includeSensitive ? "Sensitive notes unlocked" : "Include sensitive notes"}
-          </button>
-
-          <button
-            type="button"
-            disabled={scanning}
-            onClick={() => void runScan()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
-            {scanning ? "Scanning..." : "Scan Workspace"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        icon={Wrench}
+        title="Self-Healing"
+        badges={<Badge tone="success">You approve every fix · one-click undo</Badge>}
+        description="Repairs Markdown and wiki links broken when files move, tidies tag variants and typos, and checks your filing rules still point somewhere real. Every fix is previewed in the Simulator first."
+        actions={
+          <>
+            <Button
+              icon={includeSensitive ? ShieldCheck : ShieldAlert}
+              onClick={() => void handleToggleSensitive()}
+              className={includeSensitive ? "border-amber-700 text-amber-200" : ""}
+            >
+              {includeSensitive ? "Sensitive notes unlocked" : "Include sensitive notes"}
+            </Button>
+            <Button variant="primary" icon={RefreshCw} loading={scanning} onClick={() => void runScan()}>
+              {scanning ? "Scanning…" : "Scan workspace"}
+            </Button>
+          </>
+        }
+      />
 
       {notice && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">

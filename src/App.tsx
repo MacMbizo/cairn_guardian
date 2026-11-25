@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { HomeTiles } from "./components/HomeTiles";
 import { HealthBars, StorageClarity } from "./components/HomeHealth";
+import { PageHeader } from "./ui";
 import { PlugBanner } from "./components/PlugBanner";
 import { AskFiles } from "./screens/AskFiles";
 import { ChiefDigitalOfficer } from "./screens/ChiefDigitalOfficer";
@@ -101,6 +102,17 @@ import {
 } from "./bindings/client";
 
 type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "cdo" | "estate" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+
+/** Page titles for screens that don't draw their own header. */
+const PAGE_META: Partial<Record<TabId, { title: string; icon: typeof Search; description: string }>> = {
+  drives: { title: "Drives & Backup", icon: Usb, description: "Your PC and external drives, what each one is for, and the Backup drive that keeps a plain copy of what matters." },
+  dupes: { title: "Duplicates", icon: CopyCheck, description: "Files that exist more than once across your drives. Choose which copy to keep; the others go to quarantine and can be restored for 30 days." },
+  search: { title: "Search", icon: Search, description: "Find any file by name, by what is inside it, or by meaning, across every catalogued drive, including drives that are unplugged." },
+  rescue: { title: "Quarantine", icon: Archive, description: "Everything Cairn has removed waits here for 30 days on the same drive. Restore anything, or free the space for good." },
+  simulator: { title: "Simulator & Actions", icon: Sparkles, description: "Every change Cairn proposes is shown here first. Check what will happen, approve it, and undo it later if you need to." },
+  doctor: { title: "Cairn Doctor", icon: Stethoscope, description: "Checks that the catalog, search index and quarantine are healthy, and repairs what it can." },
+  settings: { title: "Settings", icon: SlidersHorizontal, description: "How Cairn runs: start with Windows, the weekly note, shortcuts, local models, and security." },
+};
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -916,6 +928,11 @@ export default function App() {
         )}
 
         <div className="flex-1 overflow-y-auto p-6">
+          {PAGE_META[tab] && (
+            <div className="mb-5">
+              <PageHeader icon={PAGE_META[tab]!.icon} title={PAGE_META[tab]!.title} description={PAGE_META[tab]!.description} />
+            </div>
+          )}
           {tab === "drives" && (
             <DrivesScreen data={drivesData} onReviewBatches={() => { setTab("simulator"); void refreshAll(); }} />
           )}

@@ -501,14 +501,14 @@ export function VersionTracking({
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-              <GitBranch className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+            <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-50">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400">
+                <GitBranch className="h-4 w-4" aria-hidden="true" />
+              </span>
               Version Tracking
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Groups filename iterations (`_v1` / `_FINAL` / dates), project `Versions\` folders,
-              move lineage (`file_history`), and semantically similar drafts (`&gt;= 92%`) — never
-              auto-deleting near-duplicates.
+            </h1>
+            <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
+              Groups the versions of a document: names like _v2 or _FINAL, Versions folders, files you moved, and drafts that say nearly the same thing. Shows what changed between them. Near-duplicates are never deleted automatically.
             </p>
           </div>
           <button

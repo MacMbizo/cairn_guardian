@@ -247,18 +247,16 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
-              <Network className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-              Cross-Project Intelligence
+            <h1 className="flex flex-wrap items-center gap-2.5 text-lg font-semibold text-slate-50">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400"><Network className="h-4 w-4" aria-hidden="true" /></span>
+              Cross-Project
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-xs font-medium text-emerald-200">
                 <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                 Reads files on disk only
               </span>
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Detects duplicate research/effort, conflicting architectural decisions, stack version
-              drift, and cross-functional dependencies across project directories without manual
-              linking.
+            </h1>
+            <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
+              Spots work you are repeating in several projects, decisions that contradict each other, libraries drifting apart in version, and projects that depend on each other.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

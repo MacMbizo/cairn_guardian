@@ -310,18 +310,16 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
-              <BookOpen className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-              Autonomous Research Librarian
+            <h1 className="flex flex-wrap items-center gap-2.5 text-lg font-semibold text-slate-50">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-emerald-400"><BookOpen className="h-4 w-4" aria-hidden="true" /></span>
+              Research Librarian
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-xs font-medium text-emerald-200">
                 <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                 Reads files on disk only
               </span>
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Surfaces conceptual parallels (even with zero overlapping keywords), cross-project
-              links, and shared Knowledge Base entities across saved files on disk — never watches
-              your screen or keystrokes.
+            </h1>
+            <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
+              Finds related reading across your saved files, even when they share no keywords: ideas from other projects and people or decisions you have already recorded. It reads files on disk only and never watches your screen.
             </p>
           </div>
           <div className="flex items-center gap-2">
