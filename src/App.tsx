@@ -103,6 +103,21 @@ import {
 
 type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "cdo" | "estate" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
+/** Readable labels for why a search result matched, and for a file's state. */
+const MATCH_LABEL: Record<string, string> = {
+  hybrid: "Words and meaning",
+  semantic: "Similar meaning",
+  content: "Words inside",
+  name: "File name",
+  "former name": "Earlier name",
+};
+const STATE_LABEL: Record<string, string> = {
+  archive: "In an archive",
+  missing: "Missing",
+  placeholder_remote: "Cloud only",
+  quarantine: "In quarantine",
+};
+
 /** Page titles for screens that don't draw their own header. */
 const PAGE_META: Partial<Record<TabId, { title: string; icon: typeof Search; description: string }>> = {
   drives: { title: "Drives & Backup", icon: Usb, description: "Your PC and external drives, what each one is for, and the Backup drive that keeps a plain copy of what matters." },
@@ -382,10 +397,10 @@ export default function App() {
   }, []);
 
   const addRoot = (path: string) =>
-    run("Add root", async () => {
+    run("Add folder", async () => {
       const added = await aegis.roots.add(path);
       setNewRootPath("");
-      return `Added root ${added.path}`;
+      return `Added ${added.path}`;
     });
 
   // D1 zero-typing onboarding: the usual Windows user folders, one click each.
@@ -543,7 +558,7 @@ export default function App() {
   const handleIndexPendingSearch = () => {
     if (!desktop) return;
     void run(
-      "Semantic Index",
+      "Meaning search",
       async () => {
         const rep = await aegis.embed.syncNow(200);
         await refreshEmbed();
@@ -774,7 +789,7 @@ export default function App() {
           </div>
           <p className="mb-4 text-xs leading-relaxed text-slate-300">
             {vaultStatus?.lock_reason ??
-              "This Cairn database is encrypted with SQLCipher and cannot be unsealed by DPAPI on this Windows account. Enter your 24-word recovery phrase or 64-character hex key to unlock."}
+              "Your Cairn catalog is encrypted, and this Windows account cannot open it automatically. Enter your 24-word recovery phrase or 64-character recovery key to unlock it."}
           </p>
           <form onSubmit={(e) => void handleUnlockVault(e)} className="space-y-3">
             <textarea
@@ -1067,8 +1082,7 @@ export default function App() {
                         </h2>
                         <p className="text-xs text-slate-300">
                           {scanStatus.files_skipped_perm} permission-skipped ·{" "}
-                          {scanStatus.files_skipped_cloud} cloud placeholders (never
-                          hydrated)
+                          {scanStatus.files_skipped_cloud} cloud-only files (not downloaded)
                         </p>
                       </div>
                     </div>
@@ -1165,7 +1179,7 @@ export default function App() {
                             type="button"
                             disabled={busy}
                             onClick={() =>
-                              void run("Toggle root", () =>
+                              void run("Pause or resume folder", () =>
                                 aegis.roots.toggle(r.path, !r.enabled)
                               )
                             }
@@ -1181,9 +1195,9 @@ export default function App() {
                             type="button"
                             disabled={busy}
                             onClick={() =>
-                              void run("Remove root", async () => {
+                              void run("Remove folder", async () => {
                                 await aegis.roots.remove(r.path);
-                                return `Removed root ${r.path} (indexed data is kept).`;
+                                return `Stopped looking after ${r.path}. Its catalog entries are kept.`;
                               })
                             }
                             className="rounded px-2 py-0.5 text-xs text-rose-400 hover:bg-rose-950/40 disabled:opacity-40"
@@ -1274,9 +1288,9 @@ export default function App() {
               {desktop && embedStatus && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-300">
                   <span>
-                    Semantic index:{" "}
+                    Meaning search:{" "}
                     <strong className="text-slate-100">{embedStatus.model_name}</strong>{" "}
-                    · {embedStatus.embedded_chunks.toLocaleString()}/{embedStatus.total_chunks.toLocaleString()} chunks
+                    · {embedStatus.embedded_chunks.toLocaleString()}/{embedStatus.total_chunks.toLocaleString()} passages ready
                     {embedStatus.pending_chunks > 0
                       ? ` (${embedStatus.pending_chunks.toLocaleString()} pending)`
                       : " (up to date)"}
@@ -1335,11 +1349,7 @@ export default function App() {
                                     : "bg-slate-800 text-slate-300"
                             }`}
                           >
-                            {hit.match_reason}
-                          </span>
-                          <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
-                            state: {hit.state}
-                          </span>
+                            {MATCH_LABEL[hit.match_reason] ?? hit.match_reason} </span> {hit.state !== "active" && ( <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300"> {STATE_LABEL[hit.state] ?? hit.state} </span> )}
                           {desktop && (
                             <button
                               type="button"
@@ -1380,7 +1390,7 @@ export default function App() {
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <div>
                   <h2 className="text-sm font-semibold">
-                    Disk Rescue & Per-Volume Quarantine
+                    Quarantine on each drive
                   </h2>
                   <p className="text-xs text-slate-400">
                     Staged: <strong className="text-amber-300">{formatBytes(totalStagedBytes)}</strong>{" "}
@@ -1514,7 +1524,7 @@ export default function App() {
                 <section className="rounded-xl border border-emerald-500/30 bg-emerald-950/15 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-sm font-semibold">
-                      Dry-Run Simulation: {simulation.batch_id.slice(0, 8)}
+                      Preview: {simulation.batch_id.slice(0, 8)}
                     </h2>
                     <span className="text-xs text-slate-300">
                       Ready: {simulation.ready_count} · Review: {simulation.review_count} ·
@@ -1536,7 +1546,7 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           {item.atomic_unit_protected && (
                             <span className="flex items-center gap-1 rounded bg-rose-950 px-2 py-0.5 text-rose-300">
-                              <Lock className="h-3 w-3" /> Atomic Unit
+                              <Lock className="h-3 w-3" /> Kept whole (project or repo)
                             </span>
                           )}
                           <span
@@ -1789,7 +1799,7 @@ export default function App() {
               </button>
             </div>
             <p className="mb-3 text-xs text-slate-300">
-              Root: {coverageModal.root_path} · Indexed {coverageModal.indexed} /{" "}
+              Folder: {coverageModal.root_path} · Indexed {coverageModal.indexed} /{" "}
               {coverageModal.total_seen} · Skipped perm: {coverageModal.skipped_perm} ·
               Cloud placeholders: {coverageModal.skipped_cloud}
             </p>
@@ -1821,8 +1831,7 @@ export default function App() {
             </h2>
             <p className="mt-2 text-xs text-slate-300">
               This will permanently delete {quarantineEntries.length} staged item(s) (
-              {formatBytes(totalStagedBytes)}) from volume quarantine and free disk space.
-              This cannot be undone.
+              {formatBytes(totalStagedBytes)}) from quarantine and free the disk space. This cannot be undone.
             </p>
             <div className="mt-4 flex justify-end gap-2 text-xs">
               <button

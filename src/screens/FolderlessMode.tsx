@@ -167,7 +167,7 @@ export function FolderlessMode({
         return;
       }
       if (!savedRuleId && !targetDraft.dest_root.trim()) {
-        setNotice("Specify a Destination Root before previewing rule matches.");
+        setNotice("Choose a destination folder before previewing matches.");
         return;
       }
       setPreviewing(true);
@@ -464,7 +464,7 @@ export function FolderlessMode({
               className="inline-flex items-center gap-1.5 rounded-md border border-violet-600/60 bg-violet-950/40 px-3 py-2 text-xs font-semibold text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              Refine with Local LLM
+              Refine with local model
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -525,7 +525,7 @@ export function FolderlessMode({
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, scope_root: e.target.value || null }))
                 }
-                placeholder="All enabled non-backup roots"
+                placeholder="All your folders"
                 className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
               />
             </div>
@@ -610,7 +610,7 @@ export function FolderlessMode({
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
-              <label className="mb-1 block text-xs text-slate-400">Destination Root</label>
+              <label className="mb-1 block text-xs text-slate-400">Destination folder</label>
               <div className="flex gap-1.5">
                 <input
                   type="text"
@@ -696,7 +696,7 @@ export function FolderlessMode({
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 <Play className="h-3.5 w-3.5 text-emerald-400" />
-                {previewing ? "Previewing…" : "Dry-Run Preview"}
+                {previewing ? "Previewing…" : "Preview matches"}
               </button>
               <button
                 type="button"
@@ -850,7 +850,7 @@ export function FolderlessMode({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-100">
-                Dry-Run Match Preview ({preview?.total_matches ?? 0} matched ·{" "}
+                Preview of matches ({preview?.total_matches ?? 0} matched ·{" "}
                 {formatBytes(preview?.total_bytes ?? 0)})
               </h3>
               {preview && (

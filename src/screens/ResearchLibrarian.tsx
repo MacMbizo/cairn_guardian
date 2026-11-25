@@ -49,7 +49,7 @@ function formatShortDate(ms: number): string {
 function reasonLabel(reason: AssociationReason): string {
   switch (reason) {
     case "conceptual_parallel":
-      return "Conceptual parallel";
+      return "Same idea, different words";
     case "semantic_and_lexical":
       return "Semantic & lexical";
     case "shared_knowledge":
@@ -238,7 +238,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
     const sourceId = report?.source_doc?.file_id;
     if (!sourceId) return;
     if (!desktop) {
-      setNotice("Preview mode: pinning persists to encrypted SQLCipher in the desktop app.");
+      setNotice("Preview mode: pins are saved in the desktop app.");
       return;
     }
     setBusyId(ref.file_id);
@@ -377,7 +377,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
           </div>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-          <div className="text-xs text-slate-400">Conceptual Parallels</div>
+          <div className="text-xs text-slate-400">Same idea, different words</div>
           <div className="mt-1 text-xl font-bold text-violet-300">
             {report?.conceptual_count ?? 0}
           </div>
@@ -484,11 +484,11 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                                   : "bg-slate-800 text-slate-400"
                               }`}
                             >
-                              {doc.has_vectors ? "Vectors" : "Lexical"}
+                              {doc.has_vectors ? "Meaning search ready" : "Keywords only"}
                             </span>
                             {doc.entity_count > 0 && (
                               <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-sky-300">
-                                {doc.entity_count} entities
+                                {doc.entity_count} people & decisions
                               </span>
                             )}
                             <span>{formatShortDate(doc.mtime)}</span>
@@ -505,8 +505,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                 </ul>
               ) : (
                 <div className="rounded-lg border border-dashed border-slate-800 p-4 text-center text-xs text-slate-400">
-                  No indexed text documents matched yet. Scan a root with text or PDF documents to
-                  populate the reading shelf.
+                  No documents yet. Add a folder with text or PDF files and Cairn will fill this shelf.
                 </div>
               )}
             </>
@@ -518,8 +517,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                   Research Topic or Excerpt
                 </h3>
                 <p className="mt-1 text-xs text-slate-400">
-                  Paste a working paragraph, question, or thesis intentionally here to find
-                  conceptual parallels and entity links across all saved projects.
+                  Paste a paragraph, question or idea to find related writing and people or decisions across all your projects.
                 </p>
               </div>
               <textarea
@@ -566,7 +564,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
               className="flex items-center gap-1.5 rounded-md border border-violet-600/60 bg-violet-950/40 px-3 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              {synthesizing ? "Synthesizing Brief…" : "Synthesize Reading Brief (Local LLM)"}
+              {synthesizing ? "Writing brief…" : "Write reading brief (local model)"}
             </button>
           </div>
 
@@ -588,7 +586,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                 onChange={(e) => setConceptualOnly(e.target.checked)}
                 className="rounded border-slate-700 bg-slate-950 text-violet-500"
               />
-              Conceptual parallels (0 shared words)
+              Same idea, different words
             </label>
             {mode === "file" && (
               <label className="inline-flex cursor-pointer items-center gap-1.5">
@@ -676,7 +674,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
           {/* Related Reference Cards */}
           {loadingRefs ? (
             <p className="py-10 text-center text-xs text-slate-400">
-              Analyzing semantic vectors, lexical concepts, and Knowledge Graph entities…
+              Looking for related writing…
             </p>
           ) : report && report.references.length > 0 ? (
             <div className="space-y-3">
@@ -708,7 +706,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                           </span>
                           {r.semantic_only && (
                             <span className="rounded border border-violet-600/50 bg-violet-950/60 px-2 py-0.5 text-xs font-medium text-violet-200">
-                              Conceptual parallel · 0 shared words
+                              Same idea, different words
                             </span>
                           )}
                           {r.cross_project && (
@@ -803,10 +801,10 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
 
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs">
                       <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                        Semantic {semPct}%
+                        Meaning {semPct}%
                       </span>
                       <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                        Lexical {lexPct}%
+                        Keywords {lexPct}%
                       </span>
                       <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
                         Knowledge {entPct}%
@@ -891,7 +889,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
           ) : (
             <div className="rounded-lg border border-dashed border-slate-800 p-8 text-center text-xs text-slate-400">
               {mode === "file"
-                ? "Select an indexed document on the left to surface related notes, conceptual parallels, and shared Knowledge Base entities."
+                ? "Choose a document on the left to see related notes and writing, and the people and decisions they share."
                 : "Enter a topic or paste a working excerpt on the left and click Find Cross-References."}
             </div>
           )}

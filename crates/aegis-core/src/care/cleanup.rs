@@ -440,7 +440,7 @@ fn scan_dead_large_files(
             bytes: size,
             file_count: 1,
             age_days,
-            reason: format!("Unmodified for {age_days} days; outside recognised projects and atomic units"),
+            reason: format!("Unmodified for {age_days} days; outside any recognised project"),
             file_id: Some(file_id),
             safety_note: "Staged in 30-day quarantine; restore at any time before expiry.".into(),
         });

@@ -308,7 +308,7 @@ pub fn rag_ask(
                 code: "engine_error".into(),
                 message: err.to_string(),
                 retryable: true,
-                remediation: Some("Check the selected GGUF model or switch to Built-in Extractive in Settings.".into()),
+                remediation: Some("Check the chat model chosen in Settings, or switch to quotes only.".into()),
             })
         }
     }

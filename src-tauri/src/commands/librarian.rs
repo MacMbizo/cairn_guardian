@@ -130,9 +130,9 @@ pub fn librarian_synthesize_brief(
     {
         return Err(IpcError {
             code: "busy".into(),
-            message: "Another local LLM task is currently running.".into(),
+            message: "The local model is busy with another request.".into(),
             retryable: true,
-            remediation: Some("Wait for the active LLM request to finish and try again.".into()),
+            remediation: Some("Wait for it to finish, then try again.".into()),
         });
     }
     struct RunningReset<'a>(&'a AtomicBool);

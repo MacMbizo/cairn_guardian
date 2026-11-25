@@ -91,7 +91,7 @@ impl AegisError {
                 code: "cloud_placeholder".into(),
                 message: msg.clone(),
                 retryable: false,
-                remediation: Some("Opt in per root to hydrate cloud placeholders.".into()),
+                remediation: Some("Cloud-only files are skipped. Turn on downloading for this folder to include them.".into()),
             },
             Self::UnsupportedFs(msg) => IpcError {
                 code: "unsupported_fs".into(),

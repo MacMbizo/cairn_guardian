@@ -90,7 +90,7 @@ export const PREVIEW_CLEANUP: CleanupScanReport = {
           file_count: 1,
           age_days: 312,
           reason:
-            "Unmodified for 312 days; outside recognised projects and atomic units",
+            "Unmodified for 312 days; outside any recognised project",
           file_id: null,
           safety_note: "Staged in 30-day quarantine; restore at any time before expiry.",
         },

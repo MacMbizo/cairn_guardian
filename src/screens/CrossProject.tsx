@@ -161,7 +161,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
     status: InsightStatus
   ) => {
     if (!desktop) {
-      setNotice(`Preview mode: finding status (${status}) persists inside SQLCipher in desktop mode.`);
+      setNotice(`Preview mode: finding status (${status}) is saved in the desktop app.`);
       return;
     }
     setBusyKey(finding.insight_key);
@@ -280,7 +280,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               className="flex items-center gap-1.5 rounded-md border border-violet-600/60 bg-violet-950/40 px-3 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              {synthesizing ? "Synthesizing Brief…" : "Executive Brief (Local LLM)"}
+              {synthesizing ? "Writing brief…" : "Write brief (local model)"}
             </button>
           </div>
         </div>

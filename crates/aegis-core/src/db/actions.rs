@@ -688,7 +688,7 @@ pub fn propose_dupe_quarantine_pairs(
             atomic_unit_id,
             from_path: path,
             to_path: None,
-            reason: "Exact duplicate (identical BLAKE3) of the kept copy".into(),
+            reason: "Exact copy of the file you kept".into(),
             confidence: 0.99,
             evidence_json: serde_json::json!([{ "keeper_file_id": keeper }]).to_string(),
         });

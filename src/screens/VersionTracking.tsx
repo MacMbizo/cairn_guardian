@@ -459,7 +459,7 @@ export function VersionTracking({
   const handleExplainWithLlm = async () => {
     if (!olderId || !newerId || olderId === newerId) return;
     if (!desktop) {
-      setNotice("Preview mode: on-demand local GGUF summaries run in the desktop app.");
+      setNotice("Preview mode: summaries from the local model work in the desktop app.");
       return;
     }
     setLlmBusy(true);
@@ -544,7 +544,7 @@ export function VersionTracking({
               <p className="mt-0.5 text-base font-semibold text-violet-300">
                 {report.semantic_chains_count.toLocaleString()}
               </p>
-              <p className="text-xs text-slate-500">&gt;= 92% vector similarity</p>
+              <p className="text-xs text-slate-500">92% or more alike</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <p className="text-xs text-slate-400">Exact dupes in chains</p>
@@ -552,7 +552,7 @@ export function VersionTracking({
                 {report.chains_with_dupes.toLocaleString()} chains
               </p>
               <p className="text-xs text-slate-500">
-                {formatBytes(report.reclaimable_duplicate_bytes)} reclaimable (BLAKE3)
+                {formatBytes(report.reclaimable_duplicate_bytes)} reclaimable (exact copies)
               </p>
             </div>
           </div>
@@ -802,9 +802,7 @@ export function VersionTracking({
                   </div>
                 </div>
                 <p className="mt-1.5 text-xs text-slate-500">
-                  Safety rule (`FR-004.2`): Near-identical semantic revisions (`&gt;= 92%`) are
-                  never auto-deleted. Only verified byte-identical `BLAKE3` duplicates can enter
-                  30-day quarantine, preserving `MIN_COPIES = 2`.
+                  Safety rule: drafts that are only nearly the same are never removed. Only exact, byte-for-byte copies can go to the 30-day quarantine, and at least two copies of every file are always kept.
                 </p>
               </div>
 
@@ -868,7 +866,7 @@ export function VersionTracking({
                                 )}
                                 {node.is_exact_duplicate && (
                                   <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300">
-                                    Exact copy (BLAKE3)
+                                    Exact copy
                                   </span>
                                 )}
                                 {node.semantic_similarity_prev !== null && (
@@ -1020,7 +1018,7 @@ export function VersionTracking({
                       className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-40"
                     >
                       <Sparkles className="h-3.5 w-3.5" />
-                      {llmBusy ? "Summarizing…" : "Explain changes (Local LLM)"}
+                      {llmBusy ? "Summarizing…" : "Explain changes (local model)"}
                     </button>
                   </div>
                 </div>
@@ -1054,7 +1052,7 @@ export function VersionTracking({
                     </div>
 
                     <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-xs text-slate-200">
-                      <p className="font-medium text-slate-300">Conceptual Delta</p>
+                      <p className="font-medium text-slate-300">What changed in meaning</p>
                       <p className="mt-1 text-slate-400">{diffReport.deterministic_summary}</p>
 
                       {llmSummary && (
@@ -1062,7 +1060,7 @@ export function VersionTracking({
                           <div className="flex items-center gap-2">
                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-violet-300">
                               <Sparkles className="h-3 w-3" />
-                              Local LLM Summary ({llmSummary.model_name})
+                              Local model summary ({llmSummary.model_name})
                             </span>
                             {llmSummary.cached && (
                               <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
@@ -1195,7 +1193,7 @@ export function VersionTracking({
               <p className="text-xs font-medium text-slate-300">Indexed snippet preview</p>
               {inspected.chunks_preview.length === 0 ? (
                 <p className="text-xs text-slate-500">
-                  No text chunks indexed for this binary or unparsed revision.
+                  No text could be read from this version.
                 </p>
               ) : (
                 inspected.chunks_preview.map((chunk, i) => (

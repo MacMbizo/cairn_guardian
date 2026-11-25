@@ -271,13 +271,13 @@ export function AskFiles({
                 {localLlm.loaded ? "Loaded in RAM" : "Unloaded (0 MB)"}
               </span>
               <select
-                aria-label="Ask Files local LLM"
+                aria-label="Local model for Ask Files"
                 disabled={running || modelBusy || !desktop}
                 value={localLlm.selected_path ?? ""}
                 onChange={(e) => void handleModelChange(e.target.value ? e.target.value : null)}
                 className="max-w-xs rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 disabled:opacity-50"
               >
-                <option value="">Auto (best compact GGUF &le; 4.5 GB, else Extractive)</option>
+                <option value="">Automatic (best small model, or quotes only)</option>
                 {localLlm.available_models.map((m) => (
                   <option key={m.path} value={m.path}>
                     {m.name}

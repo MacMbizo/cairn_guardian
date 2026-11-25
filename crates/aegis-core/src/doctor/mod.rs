@@ -80,11 +80,11 @@ pub fn run_doctor(store: &mut SqliteStore, repair: bool) -> Result<DoctorReport>
     }
     checks.push(DoctorCheckResult {
         check_id: 3,
-        name: "FTS5 Sync Drift".into(),
+        name: "Search index in sync".into(),
         passed: fts_passed,
         details: format!("chunks={chunks_cnt}, chunks_fts={fts_cnt}"),
         repaired: fts_repaired,
-        remediation: (!fts_passed).then(|| "Run doctor with repair=true to rebuild FTS5.".into()),
+        remediation: (!fts_passed).then(|| "Run the Doctor with Repair to rebuild the search index.".into()),
     });
 
     // 4. Vector Store & Outbox

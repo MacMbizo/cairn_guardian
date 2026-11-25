@@ -421,7 +421,7 @@ export function SelfHealing({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
             <div className="text-xs uppercase tracking-wide text-slate-400">
-              Relational Integrity
+              Links working
             </div>
             <div className="mt-1 text-xl font-semibold text-emerald-300">
               {report.relational_integrity_score.toFixed(1)}%
@@ -439,19 +439,19 @@ export function SelfHealing({
               {report.healable_links_count} / {report.broken_links_count}
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {report.move_log_entries} USN/scanner moves tracked
+              {report.move_log_entries} file moves tracked
             </div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
             <div className="text-xs uppercase tracking-wide text-slate-400">
-              Taxonomic Hygiene
+              Tag tidiness
             </div>
             <div className="mt-1 text-xl font-semibold text-violet-300">
               {report.taxonomic_hygiene_score.toFixed(1)}%
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {report.tag_weeds_count} tag weed occurrence(s)
+              {report.tag_weeds_count} tag variant(s) to merge
             </div>
           </div>
 
@@ -476,7 +476,7 @@ export function SelfHealing({
             type="text"
             value={scopeRoot}
             onChange={(e) => setScopeRoot(e.target.value)}
-            placeholder="Optional scope folder path (leave blank for all non-backup roots)"
+            placeholder="Limit to a folder (leave blank for all your folders)"
             className="w-72 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-200 placeholder:text-slate-500"
           />
           <label className="inline-flex items-center gap-1.5 text-xs text-slate-300">
@@ -498,7 +498,7 @@ export function SelfHealing({
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             <Eye className="h-3.5 w-3.5" />
-            {previewing ? "Building Diffs..." : `Dry-Run Diff (${healableLinkCount + patchableTagClusterCount})`}
+            {previewing ? "Building preview…" : `Preview changes (${healableLinkCount + patchableTagClusterCount})`}
           </button>
 
           <button
@@ -508,7 +508,7 @@ export function SelfHealing({
             className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             <Play className="h-3.5 w-3.5" />
-            {staging ? "Staging..." : "Review in Simulator"}
+            {staging ? "Preparing…" : "Review in Simulator"}
           </button>
 
           <button
@@ -527,7 +527,7 @@ export function SelfHealing({
         <div className="space-y-3 rounded-xl border border-sky-800/60 bg-slate-900/70 p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-sky-300">
-              Dry-Run Unified Diff Preview ({diffs.length} file(s), nothing written yet)
+              Preview of changes ({diffs.length} file(s), nothing written yet)
             </h2>
             <button
               type="button"
@@ -908,11 +908,10 @@ export function SelfHealing({
                 <Stethoscope className="h-4 w-4 text-emerald-400" />
                 <div>
                   <h2 className="text-sm font-semibold">
-                    Encrypted Transaction &amp; FTS5 Journal Verification (`D1`)
+                    Catalog health check
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Verifies SQLCipher `quick_check`, foreign keys, FTS5 sync, and outbox health after
-                    self-healing writes.
+                    Checks that the encrypted catalog and search index are consistent after fixes are applied.
                   </p>
                 </div>
               </div>
@@ -1019,7 +1018,7 @@ export function SelfHealing({
             <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-300">
               {inspected.chunks_preview.length > 0
                 ? inspected.chunks_preview.join("\n---\n")
-                : "(No indexed chunks preview)"}
+                : "(No preview available)"}
             </pre>
           </div>
         </div>

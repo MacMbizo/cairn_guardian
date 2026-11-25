@@ -395,7 +395,7 @@ export function ForgottenAssets({
               onChange={(e) => setVolumeId(e.target.value)}
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
             >
-              <option value="">Every volume</option>
+              <option value="">Every drive</option>
               {report.by_drive.map((d) => (
                 <option key={d.volume_id} value={d.volume_id}>
                   {d.label} ({d.count}){d.online ? "" : " · offline"}

@@ -295,7 +295,7 @@ export function DataGovernance({
       setRuleName("");
       setRulePrefix("");
       setRulePattern("");
-      setNotice("Saved privacy rule to SQLCipher catalog.");
+      setNotice("Privacy rule saved.");
       await loadDashboard();
     } catch (err) {
       setNotice(errorMessage(err));
@@ -393,13 +393,13 @@ export function DataGovernance({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
           <div className="text-xs uppercase tracking-wide text-slate-400">
-            Privacy Posture
+            Privacy check
           </div>
           <div className="mt-1 text-xl font-semibold text-emerald-300">
             {dash.posture.privacy_score.toFixed(1)}%
           </div>
           <div className="mt-0.5 text-xs text-slate-400">
-            {dash.posture.db_encrypted ? "SQLCipher AES-256 active" : "Unencrypted"}
+            {dash.posture.db_encrypted ? "Catalog encrypted" : "Unencrypted"}
           </div>
         </div>
 
@@ -457,7 +457,7 @@ export function DataGovernance({
             },
             {
               id: "posture" as const,
-              label: "Privacy Posture & BitLocker",
+              label: "Privacy check & BitLocker",
               icon: Shield,
             },
           ].map((t) => {
@@ -748,7 +748,7 @@ export function DataGovernance({
           {/* Sensitive Files Inventory */}
           <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="text-sm font-semibold">
-              Protected Sensitive Files (Searchable by Owner, Previews Masked Until CredUI)
+              Protected files (searchable, previews hidden until you unlock)
             </h2>
             {dash.sensitive_files.length === 0 ? (
               <p className="text-xs text-slate-400">
@@ -833,7 +833,7 @@ export function DataGovernance({
         </div>
       )}
 
-      {/* Privacy Posture & BitLocker Tab */}
+      {/* Privacy check & BitLocker Tab */}
       {subTab === "posture" && (
         <div className="space-y-4">
           {/* Drive BitLocker Status */}
@@ -950,7 +950,7 @@ export function DataGovernance({
             <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-300">
               {inspected.chunks_preview.length > 0
                 ? inspected.chunks_preview.join("\n---\n")
-                : "(No indexed chunks preview)"}
+                : "(No preview available)"}
             </pre>
           </div>
         </div>

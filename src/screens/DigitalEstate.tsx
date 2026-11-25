@@ -194,7 +194,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
       setGeneratedBundle(bundle);
       setVerifyResult(null);
       setFlash(
-        `Generated ${bundle.threshold_k}-of-${bundle.total_n} Shamir shards (${bundle.shard_set_id}). Copy them now — raw shards are never saved to aegis.db.`
+        `Generated ${bundle.threshold_k}-of-${bundle.total_n} key shares (${bundle.shard_set_id}). Copy them now: Cairn never saves the shares themselves.`
       );
       await loadDashboard();
     } catch (ex) {
@@ -234,7 +234,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
       });
       setPTitle("");
       setPBody("");
-      setFlash("Succession packet saved inside SQLCipher vault.");
+      setFlash("Succession packet saved in your encrypted catalog.");
       await loadDashboard();
     } catch (ex) {
       setErr(errorMessage(ex));
@@ -366,7 +366,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
               <HardDrive className="h-3.5 w-3.5 text-indigo-400" />
               Backup Drives: {dashboard.backup_drives_online} / {dashboard.backup_drives_count} online
             </span>
-            <span>Vault: {dashboard.db_encrypted ? "SQLCipher D1" : "Unencrypted"}</span>
+            <span>Catalog: {dashboard.db_encrypted ? "Encrypted" : "Not encrypted"}</span>
           </div>
         </div>
       </div>
@@ -730,7 +730,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
               rows={6}
               value={pBody}
               onChange={(e) => setPBody(e.target.value)}
-              placeholder="Write instructions that only unlock after Windows Hello / CredUI authentication..."
+              placeholder="Write instructions that can only be read after you unlock with Windows Hello or your PIN…"
               className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-xs text-slate-100"
             />
             <div className="flex flex-wrap gap-4 text-xs text-slate-300">
@@ -886,9 +886,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
               Export offline Continuity Kit for trustees
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              Writes `README_TRUSTEE_RECOVERY.md`, sealed packet Markdown files, and `manifest.json`
-              to a chosen destination (such as a Backup drive or USB). Never includes raw Shamir
-              shards or `DbKey`, and never deletes existing files.
+              Saves a recovery guide for your trustees and your sealed instructions to a folder you choose, such as a Backup drive or USB stick. It never includes your recovery key or its shares, and never deletes anything already there.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

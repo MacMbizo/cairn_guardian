@@ -104,13 +104,13 @@ export function EngineSettings({
 
   const handleSelectLlm = async (path: string | null) => {
     if (preview) {
-      setMsg("Preview only: run the desktop app to configure local RAG models.");
+      setMsg("Preview only: choose local models in the desktop app.");
       return;
     }
     setLlmBusy(true);
     try {
       const next = await aegis.rag.selectModel(path);
-      await syncLlm(next, `Local RAG model switched to ${next.model_name}.`);
+      await syncLlm(next, `Ask Files now uses ${next.model_name}.`);
     } catch (e) {
       setMsg(errorMessage(e));
     } finally {
@@ -124,7 +124,7 @@ export function EngineSettings({
       const picked = await openDialog({
         directory: false,
         multiple: false,
-        filters: [{ name: "GGUF LLM model", extensions: ["gguf"] }],
+        filters: [{ name: "Chat model file", extensions: ["gguf"] }],
       });
       if (typeof picked === "string" && picked) {
         await handleSelectLlm(picked);
@@ -139,7 +139,7 @@ export function EngineSettings({
     setLlmBusy(true);
     try {
       const next = await aegis.rag.unload();
-      await syncLlm(next, "Local RAG chat model unloaded from memory.");
+      await syncLlm(next, "Chat model unloaded from memory.");
     } catch (e) {
       setMsg(errorMessage(e));
     } finally {
@@ -170,13 +170,13 @@ export function EngineSettings({
 
   const handleSelectModel = async (path: string | null) => {
     if (preview) {
-      setMsg("Preview only: run the desktop app to configure local embedding models.");
+      setMsg("Preview only: choose local models in the desktop app.");
       return;
     }
     setEmbedBusy(true);
     try {
       const next = await aegis.embed.selectModel(path);
-      await syncEmbed(next, `Semantic search model switched to ${next.model_name} (${next.dim}-d).`);
+      await syncEmbed(next, `Meaning search now uses ${next.model_name}.`);
     } catch (e) {
       setMsg(errorMessage(e));
     } finally {
@@ -190,7 +190,7 @@ export function EngineSettings({
       const picked = await openDialog({
         directory,
         multiple: false,
-        filters: directory ? undefined : [{ name: "GGUF embedding model", extensions: ["gguf"] }],
+        filters: directory ? undefined : [{ name: "Search model file", extensions: ["gguf"] }],
       });
       if (typeof picked === "string" && picked) {
         await handleSelectModel(picked);
@@ -208,7 +208,7 @@ export function EngineSettings({
       const next = await aegis.embed.status();
       await syncEmbed(
         next,
-        `Indexed ${rep.embedded_count} chunk(s) in ${rep.took_ms}ms (${rep.pending_remaining} pending). Model unloaded.`
+        `Prepared ${rep.embedded_count} passage(s) for meaning search in ${rep.took_ms} ms (${rep.pending_remaining} still to do). Model unloaded.`
       );
     } catch (e) {
       setMsg(errorMessage(e));
@@ -222,7 +222,7 @@ export function EngineSettings({
     setEmbedBusy(true);
     try {
       const next = await aegis.embed.unload();
-      await syncEmbed(next, "Embedding model weights unloaded from memory.");
+      await syncEmbed(next, "Search model unloaded from memory.");
     } catch (e) {
       setMsg(errorMessage(e));
     } finally {
@@ -502,7 +502,7 @@ export function EngineSettings({
 
         {preview || !localVault ? (
           <p className="text-xs text-slate-400">
-            SQLCipher whole-store encryption and DPAPI key sealing run in the desktop runtime.
+            Catalog encryption and key protection work in the desktop app.
           </p>
         ) : (
           <div className="space-y-4">
@@ -514,7 +514,7 @@ export function EngineSettings({
                 </p>
               </div>
               <div>
-                <span className="text-slate-400">Vector engine</span>
+                <span className="text-slate-400">Meaning search</span>
                 <p className="font-mono text-slate-200">sqlite-vec {localVault.vec_version}</p>
               </div>
               <div>
@@ -523,7 +523,7 @@ export function EngineSettings({
               </div>
               <div>
                 <span className="text-slate-400">Unattended startup</span>
-                <p className="text-slate-200">Sealed with Windows DPAPI</p>
+                <p className="text-slate-200">Protected by your Windows account</p>
               </div>
             </div>
 
@@ -533,7 +533,7 @@ export function EngineSettings({
                   Save your 24-word offline recovery key
                 </p>
                 <p className="mt-1 text-amber-100/80">
-                  Write these words down offline or save them in a password manager. Cairn unlocks unattended on this Windows account via DPAPI, so you only need this phrase if you move your database or reset Windows.
+                  Write these words down offline or save them in a password manager. Cairn unlocks automatically on this Windows account, so you only need this phrase if you move your database or reset Windows.
                 </p>
 
                 {bundle ? (
@@ -724,10 +724,10 @@ export function EngineSettings({
         )}
       </section>
 
-      <section aria-label="Semantic Search & Local Embeddings" className={card}>
+      <section aria-label="Meaning search" className={card}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Semantic Search &amp; Local Embeddings
+            <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Meaning search
           </h2>
           {localEmbed && (
             <span
@@ -744,7 +744,7 @@ export function EngineSettings({
 
         {preview || !localEmbed ? (
           <p className="text-xs text-slate-400">
-            Local CPU semantic embeddings (Candle GGUF/Safetensors + lexical fallback) run offline inside the encrypted SQLite store.
+            Lets Search find files by what they mean, not just the words they contain. A small local model does this on your PC, offline; without one, Cairn falls back to keyword matching.
           </p>
         ) : (
           <div className="space-y-4">
@@ -766,12 +766,10 @@ export function EngineSettings({
             <div className="space-y-1.5 text-xs">
               <div className="flex items-center justify-between text-slate-300">
                 <span>
-                  Vector coverage:{" "}
+                  Ready for meaning search:{" "}
                   <strong>
                     {localEmbed.embedded_chunks.toLocaleString()} / {localEmbed.total_chunks.toLocaleString()}
-                  </strong>{" "}
-                  chunks
-                </span>
+                  </strong>{" "} passages </span>
                 <span className="text-slate-400">
                   {localEmbed.pending_chunks.toLocaleString()} pending
                 </span>
@@ -794,13 +792,13 @@ export function EngineSettings({
               <label className="block text-slate-300">
                 Local model selection (auto picks compact models &le; 350 MB first):
                 <select
-                  aria-label="Embedding model"
+                  aria-label="Search model"
                   disabled={embedBusy}
                   value={localEmbed.selected_path ?? ""}
                   onChange={(e) => void handleSelectModel(e.target.value ? e.target.value : null)}
                   className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
                 >
-                  <option value="">Auto (best compact local model, else lexical fallback)</option>
+                  <option value="">Automatic (best small model, or keywords only)</option>
                   {localEmbed.available_models.map((m) => (
                     <option key={m.path} value={m.path}>
                       {m.name} · {m.dim}-d
@@ -842,7 +840,7 @@ export function EngineSettings({
                 >
                   {embedBusy
                     ? "Indexing…"
-                    : `Index pending chunks (${localEmbed.pending_chunks.toLocaleString()})`}
+                    : `Prepare ${localEmbed.pending_chunks.toLocaleString()} waiting passage(s)`}
                 </button>
                 <button
                   type="button"
@@ -878,7 +876,7 @@ export function EngineSettings({
 
         {preview || !localLlm ? (
           <p className="text-xs text-slate-400">
-            100% offline CPU inference over local Ollama/standalone GGUF chat models with a zero-RAM extractive fallback.
+            Answers in Ask Files come from a chat model running offline on your PC (Ollama models or GGUF files). Without one, Cairn answers with direct quotes and uses no extra memory.
           </p>
         ) : (
           <div className="space-y-4">
@@ -901,15 +899,15 @@ export function EngineSettings({
 
             <div className="space-y-2 text-xs">
               <label className="block text-slate-300">
-                Local LLM selection (auto picks recommended GGUF &le; 4.5 GB first):
+                Chat model (Automatic picks the best one under 4.5 GB):
                 <select
-                  aria-label="Local RAG LLM"
+                  aria-label="Chat model"
                   disabled={llmBusy}
                   value={localLlm.selected_path ?? ""}
                   onChange={(e) => void handleSelectLlm(e.target.value ? e.target.value : null)}
                   className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100"
                 >
-                  <option value="">Auto (best compact local GGUF &le; 4.5 GB, else Extractive)</option>
+                  <option value="">Automatic (best small model, or quotes only)</option>
                   {localLlm.available_models.map((m) => (
                     <option key={m.path} value={m.path}>
                       {m.name} · {m.architecture}

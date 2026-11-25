@@ -227,7 +227,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
 
   const handleExtractFileLlm = async (fileId: string) => {
     if (!desktop) {
-      setNotice("Preview mode: on-demand local LLM extraction runs in the desktop runtime.");
+      setNotice("Preview mode: reading files with the local model works in the desktop app.");
       return;
     }
     setLlmFileBusy(fileId);
@@ -235,7 +235,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
     try {
       const rep = await aegis.knowledge.extractFileLlm(fileId);
       setNotice(
-        `Local LLM extraction refreshed ${rep.proposals_created} provisional item(s).`
+        `The local model found ${rep.proposals_created} item(s) to review.`
       );
       await loadDashboard();
     } catch (err) {
@@ -279,8 +279,8 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
       setEditingId(null);
       setNotice(
         res.merged_into_existing
-          ? `Merged into existing canonical record (${res.relationships_added} provenance/graph link(s) added).`
-          : `Created canonical entity and recorded ${res.relationships_added} provenance link(s).`
+          ? `Added to the existing record (${res.relationships_added} link(s) added).`
+          : `Added to your knowledge base with ${res.relationships_added} source link(s).`
       );
       await loadDashboard();
     } catch (err) {
@@ -313,7 +313,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
 
   const handleUndo = async (p: KnowledgeProposal) => {
     if (!desktop) {
-      setNotice("Preview mode: Undo reverts entities and relationship edges atomically.");
+      setNotice("Preview mode: Undo removes the item and its links together.");
       return;
     }
     setBusy(true);
@@ -331,7 +331,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
 
   const handleDismiss = async (p: KnowledgeProposal, restore: boolean) => {
     if (!desktop) {
-      setNotice("Preview mode: dismissal state persists in encrypted SQLCipher storage.");
+      setNotice("Preview mode: dismissals are saved in the desktop app.");
       return;
     }
     setBusy(true);
@@ -465,7 +465,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               <p className="text-xs text-slate-500">Waiting for your approval</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-xs text-slate-400">Canonical entities</p>
+              <p className="text-xs text-slate-400">Records</p>
               <p className="mt-0.5 text-base font-semibold text-emerald-300">
                 {dashboard.total_entities.toLocaleString()}
               </p>
@@ -545,7 +545,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 type="text"
                 value={queryInput}
                 onChange={(e) => setQueryInput(e.target.value)}
-                placeholder="Filter entities, decisions, quotes…"
+                placeholder="Filter people, decisions, quotes…"
                 className="w-full rounded-md border border-slate-700 bg-slate-950 py-1 pl-8 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
@@ -695,7 +695,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             ) : (
                               p.status === "pending" && (
                                 <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
-                                  New entity
+                                  New record
                                 </span>
                               )
                             )}
@@ -750,7 +750,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                                 className="inline-flex items-center gap-1 rounded border border-violet-700/60 bg-violet-950/40 px-2 py-1 text-xs text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
                               >
                                 <Sparkles className="h-3 w-3" />
-                                {llmFileBusy === p.source_file_id ? "LLM…" : "Deep LLM"}
+                                {llmFileBusy === p.source_file_id ? "LLM…" : "Read with local model"}
                               </button>
                             )}
                           </>
@@ -910,7 +910,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
           <div className="space-y-2 lg:max-h-[720px] lg:overflow-y-auto lg:pr-1">
             {displayedEntities.length === 0 ? (
               <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
-                No approved entities yet. Approve items in the Review Inbox to grow the graph.
+                Nothing approved yet. Approve items in the Review Inbox to build your knowledge base.
               </div>
             ) : (
               displayedEntities.map((ent) => {
@@ -989,7 +989,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               {selectedEntity.related_entities.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Connected Entities
+                    Connected records
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {selectedEntity.related_entities.map((link) => (
@@ -1014,7 +1014,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 </h4>
                 {selectedEntity.provenance.length === 0 ? (
                   <p className="text-xs text-slate-500">
-                    No active live provenance edges attached.
+                    No source files linked yet.
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -1160,7 +1160,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               <p className="text-xs font-medium text-slate-300">Indexed snippet preview</p>
               {inspected.chunks_preview.length === 0 ? (
                 <p className="text-xs text-slate-500">
-                  No text chunks indexed for this file yet.
+                  No text has been read from this file yet.
                 </p>
               ) : (
                 inspected.chunks_preview.map((chunk, i) => (

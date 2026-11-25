@@ -288,7 +288,7 @@ export function SystemCare({
     { id: "cleanup", label: "Cleanup", icon: Sparkles },
     { id: "apps", label: "Apps & Leftovers", icon: AppWindow },
     { id: "startup", label: "Startup Items", icon: Power },
-    { id: "health", label: "Drive Health (SMART)", icon: HardDrive },
+    { id: "health", label: "Drive Health", icon: HardDrive },
     { id: "trends", label: "Disk Trends", icon: TrendingUp },
   ];
 
@@ -304,7 +304,7 @@ export function SystemCare({
           </h1>
           <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-400">
             Reclaim clutter via 30-day quarantine, uninstall apps with their own uninstallers,
-            check SMART drive health, and track disk growth. Cairn never edits the registry.
+            check drive health, and track disk growth. Cairn never edits the registry.
           </p>
         </div>
         <button
@@ -401,7 +401,7 @@ export function SystemCare({
               </div>
               <div className="mt-1 text-xs text-slate-400">
                 {orphanedStartupCount > 0
-                  ? `${orphanedStartupCount} orphaned entry(s) spotted`
+                  ? `${orphanedStartupCount} entry(s) point to a missing program`
                   : `${startup.length} total read-only entries`}
               </div>
             </button>
@@ -731,7 +731,7 @@ export function SystemCare({
                     </span>
                     {s.orphaned && (
                       <span className="rounded border border-amber-700/60 bg-amber-950/60 px-1.5 py-0.5 text-xs text-amber-200">
-                        Orphaned target missing
+                        Program missing
                       </span>
                     )}
                     <span className="text-xs font-normal text-slate-400">{s.source}</span>
@@ -839,7 +839,7 @@ export function SystemCare({
         <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-100">
-              Volume Space Trends ({trends?.today ?? "today"})
+              Drive Space Trends ({trends?.today ?? "today"})
             </h3>
             <div className="flex gap-1.5 text-xs">
               {([30, 90] as const).map((w) => (
@@ -912,11 +912,11 @@ export function SystemCare({
 
           <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-100">
-              Folder Growth ({trends?.roots.length ?? 0} tracked roots)
+              Folder Growth ({trends?.roots.length ?? 0} tracked folders)
             </h3>
             {!trends?.roots.length ? (
               <p className="text-xs text-slate-400">
-                Root space samples appear after daily scans complete.
+                Folder sizes appear after the first daily scans.
               </p>
             ) : (
               <div className="space-y-2 text-xs">

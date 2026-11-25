@@ -201,7 +201,7 @@ export function ChiefDigitalOfficer({
     setFlash(null);
     try {
       const record = await aegis.cdo.ratifyRecommendation(rec);
-      setFlash(`Ratified: ${record.applied_summary} (single-click Undo available below).`);
+      setFlash(`Approved: ${record.applied_summary}. You can undo it below.`);
       await loadDashboard();
     } catch (e) {
       setErr(errorMessage(e));
@@ -359,7 +359,7 @@ export function ChiefDigitalOfficer({
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            {synthesizing ? "Synthesizing..." : "Synthesize Executive Briefing"}
+            {synthesizing ? "Writing…" : "Write briefing"}
           </button>
         </div>
       </div>
@@ -556,8 +556,7 @@ export function ChiefDigitalOfficer({
             </div>
             {dashboard.recent_ratifications.length === 0 ? (
               <p className="text-xs text-slate-500">
-                No CDO proposals ratified yet. Every ratified rule or schedule adjustment can be
-                undone here with one click.
+                Nothing approved yet. Anything you approve here can be undone with one click.
               </p>
             ) : (
               <div className="space-y-2">
@@ -742,7 +741,7 @@ export function ChiefDigitalOfficer({
                 No executive briefing saved yet
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Click &ldquo;Synthesize Executive Briefing&rdquo; above to run the local model (loaded only for this) against your disk metrics and save a cited memo in your encrypted catalog.
+                Click &ldquo;Write briefing&rdquo; above. The local model reads your workspace figures and writes a short memo with sources, saved in your encrypted catalog.
               </p>
             </div>
           ) : (

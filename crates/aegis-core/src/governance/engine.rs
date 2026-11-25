@@ -985,7 +985,7 @@ pub fn propose_governance_quarantine(
 
     if actions.is_empty() {
         return Err(AegisError::InvalidInput(
-            "Selected files are blocked by policy (outside managed roots, atomic unit repo, or pending batch).".into(),
+            "Selected files are blocked by policy (outside your folders, inside a project kept whole, or already waiting in a batch).".into(),
         ));
     }
 
