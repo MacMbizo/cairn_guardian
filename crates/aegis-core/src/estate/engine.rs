@@ -903,7 +903,7 @@ pub fn export_estate_continuity_kit(
     // 1. README_TRUSTEE_RECOVERY.md
     let quorum_line = if let Some(first) = active_shards.first() {
         format!(
-            "Active Shamir Shard Set `{}` requires **{} of {}** shares for key fingerprint `{}`.\n(Raw shard strings are NEVER written to this kit; each trustee holds their own `AEGIS-SHARD-V1:...` share separately.)",
+            "Active Shamir Shard Set `{}` requires **{} of {}** shares for key fingerprint `{}`.\n(Raw shard strings are NEVER written to this kit; each trustee holds their own `CAIRN-SHARD-V1:...` share separately.)",
             first.shard_set_id, first.threshold_k, first.total_n, first.key_fingerprint
         )
     } else {

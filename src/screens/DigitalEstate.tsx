@@ -621,7 +621,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
                   rows={3}
                   value={quorumInput}
                   onChange={(e) => setQuorumInput(e.target.value)}
-                  placeholder="AEGIS-SHARD-V1:..."
+                  placeholder="CAIRN-SHARD-V1:..."
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 font-mono text-[11px] text-slate-200"
                 />
                 <div className="flex items-center justify-between gap-2">

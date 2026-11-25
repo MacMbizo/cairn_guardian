@@ -11,7 +11,9 @@ use zeroize::Zeroizing;
 use crate::db::crypto::{DbKey, fill_random_bytes};
 use crate::error::{AegisError, Result};
 
-const SHARD_PREFIX: &str = "AEGIS-SHARD-V1";
+const SHARD_PREFIX: &str = "CAIRN-SHARD-V1";
+/// Prefix of shares generated before the rename to Cairn; still accepted (same checksum).
+const LEGACY_SHARD_PREFIX: &str = "AEGIS-SHARD-V1";
 
 #[inline]
 fn gf_add(a: u8, b: u8) -> u8 {
@@ -173,12 +175,12 @@ pub fn split_key(
     Ok(out)
 }
 
-/// Validates syntax and `blake3` integrity tag of one `AEGIS-SHARD-V1` token.
+/// Validates syntax and `blake3` integrity tag of one `CAIRN-SHARD-V1` (or legacy `AEGIS-SHARD-V1`) token.
 pub fn parse_shard(token: &str) -> Result<ParsedShard> {
     let parts: Vec<&str> = token.trim().split(':').collect();
-    if parts.len() != 6 || parts[0] != SHARD_PREFIX {
+    if parts.len() != 6 || (parts[0] != SHARD_PREFIX && parts[0] != LEGACY_SHARD_PREFIX) {
         return Err(AegisError::InvalidInput(
-            "Invalid Cairn shard format (expected AEGIS-SHARD-V1:...).".into(),
+            "Invalid Cairn shard format (expected CAIRN-SHARD-V1:...).".into(),
         ));
     }
     let shard_set_id = parts[1].trim().to_string();
@@ -349,5 +351,17 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(r3, key);
+    }
+
+    #[test]
+    fn new_shares_use_cairn_prefix_and_legacy_aegis_shares_still_parse() {
+        let key = DbKey::from_bytes([7u8; 32]);
+        let shards = split_key(&key, 2, 3, "set-legacy").unwrap();
+        let token = shards[0].shard_token.to_string();
+        assert!(token.starts_with("CAIRN-SHARD-V1:"));
+        let legacy = token.replacen("CAIRN-SHARD-V1", "AEGIS-SHARD-V1", 1);
+        let parsed = parse_shard(&legacy).unwrap();
+        assert_eq!(parsed.share_index, 1);
+        assert!(parse_shard(&token.replacen("CAIRN", "OTHER", 1)).is_err());
     }
 }

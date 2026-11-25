@@ -744,7 +744,7 @@ export default function App() {
           <ShieldCheck className="h-6 w-6 text-emerald-400" aria-hidden="true" />
           <div>
             <h1 className="text-sm font-semibold tracking-wide text-slate-50">
-              AEGIS GUARDIAN
+              CAIRN GUARDIAN
             </h1>
             <p className="text-xs text-slate-400">Local Digital Twin v0.1</p>
           </div>

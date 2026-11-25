@@ -116,7 +116,7 @@ fn generates_shard_metadata_without_storing_raw_shards_and_verifies_quorum_r2_r7
     assert_eq!(bundle.shards.len(), 3);
     assert_eq!(bundle.key_fingerprint, key.fingerprint());
 
-    // Database stores metadata ONLY — never raw AEGIS-SHARD-V1 secret strings.
+    // Database stores metadata ONLY — never raw CAIRN-SHARD-V1 secret strings.
     let row_count: i64 = store
         .conn()
         .query_row(
