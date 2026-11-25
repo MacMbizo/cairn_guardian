@@ -20,6 +20,14 @@ Current state:
 - **Repo files added:** `README.md` (badges incl. CI), `CONTRIBUTING.md`, `SECURITY.md` (private vulnerability reporting enabled), `CHANGELOG.md`, `.github/workflows/ci.yml` (windows-latest: pnpm build, clippy, tests), issue/PR templates. Repo description and topics set.
 - `recognise_is_fast_on_a_big_catalog` limit is now 30 s in debug builds (15 s release); it was flaky under full-suite load.
 
+## Project 5 progress (2026-11-25)
+
+- Done: Cairn icon (owner chose option C "Flat precision", `design-system/cairn/`) for app/tray/sidebar/favicon (`92ffb68`); grouped scrolling sidebar + trust rail + bundled IBM Plex Sans / JetBrains Mono (`aaf470d`); plain-language pass removing rule codes from UI, engine messages and fixtures, D1 Home storage bar + health bars + quick-add folders (`99c9f64`).
+- Installers built: `target\release\bundle\nsis\Cairn Guardian_0.1.0_x64-setup.exe` and `...\bundle\msi\Cairn Guardian_0.1.0_x64_en-US.msi` (`pnpm dlx @tauri-apps/cli@2 build`; close any running `cairn-guardian.exe` first).
+- Waiting on the owner: install and run the checks listed in `docs/PROGRESS.md` §4 (notifications, Ctrl+Shift+Space, tray after reboot, <= 350 MB background).
+- Remaining D1 items: Command omnibar (Ctrl+K), Simulator split diff with one "Approve & apply", rollback conflict resolver as radio cards, list virtualisation for long lists, keyboard-only checks.
+- Preview server note: port 1420 is used by another project on this PC; run `pnpm exec vite --port 1430` for the browser preview.
+
 ## NEXT CHAT: do this first
 
 **All 15 North-Star roadmap capabilities (`docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` §2.2) are built, and the Cairn rebrand is pushed.**
