@@ -509,7 +509,7 @@ function ConfirmList({ items, ans }: { items: Collection[]; ans: Answering }) {
         {items.map((c) => {
           const l = c.locations[0];
           return (
-            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
+            <li key={c.id} className="cv-row flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 py-2 last:border-b-0">
               <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
                 <KindBadge c={c} />
                 <span className="font-medium text-slate-100">{c.name}</span>
@@ -632,7 +632,7 @@ function ReuniteSection({
           const k = keyOf(p);
           const isRunning = running === `reunite:${k}`;
           return (
-            <li key={k} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-2 last:pb-0">
+            <li key={k} className="cv-row flex flex-wrap items-start justify-between gap-3 py-3 first:pt-2 last:pb-0">
               <div className="min-w-0 flex-1 space-y-1 text-xs">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Chip tone="bg-emerald-500/15 text-emerald-300">{REUNITE_KIND_LABEL[p.collection_kind]}</Chip>

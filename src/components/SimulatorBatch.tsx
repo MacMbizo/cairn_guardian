@@ -171,7 +171,7 @@ export function SimulatorBatch({
             const to = s?.effective_to_path ?? a.to_path;
             const status = STATUS[a.status];
             return (
-              <li key={a.id} className="grid grid-cols-[1.75rem_minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-3 px-3 py-2.5">
+              <li key={a.id} className="cv-row grid grid-cols-[1.75rem_minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-3 px-3 py-2.5">
                 <span>
                   {isPending && (
                     <input

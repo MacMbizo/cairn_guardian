@@ -211,6 +211,14 @@ export default function App() {
   // Search
   const [query, setQuery] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevTab = useRef(tab);
+  useEffect(() => {
+    if (prevTab.current === tab) return;
+    prevTab.current = tab;
+    contentRef.current?.scrollTo({ top: 0 });
+    contentRef.current?.focus({ preventScroll: true });
+  }, [tab]);
   const [pendingSearch, setPendingSearch] = useState(false);
   const [searchMode, setSearchMode] = useState<SearchMode>("hybrid");
   const [includeQuarantined, setIncludeQuarantined] = useState(false);
@@ -826,6 +834,13 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100">
+      <a
+        href="#main-content"
+        onClick={(e) => { e.preventDefault(); contentRef.current?.focus(); }}
+        className="sr-only z-50 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
+      >
+        Skip to content
+      </a>
       {/* Left Navigation Rail */}
       <aside
         aria-label="Primary Navigation"
@@ -954,7 +969,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div id="main-content" ref={contentRef} tabIndex={-1} className="flex-1 overflow-y-auto p-6 focus:outline-none">
           {PAGE_META[tab] && (
             <div className="mb-5">
               <PageHeader icon={PAGE_META[tab]!.icon} title={PAGE_META[tab]!.title} description={PAGE_META[tab]!.description} />
@@ -1465,7 +1480,7 @@ export default function App() {
                     {rescue.exact_dupe_clusters.map((cl) => (
                       <div
                         key={cl.cluster_key}
-                        className="flex items-center justify-between rounded border border-slate-800 bg-slate-950/60 p-2.5"
+                        className="cv-row flex items-center justify-between rounded border border-slate-800 bg-slate-950/60 p-2.5"
                       >
                         <span>
                           Cluster {cl.cluster_key} ({cl.member_file_ids.length} files){" "}
@@ -1502,7 +1517,7 @@ export default function App() {
                     {quarantineEntries.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center justify-between rounded border border-slate-800 bg-slate-950/60 p-2.5"
+                        className="cv-row flex items-center justify-between rounded border border-slate-800 bg-slate-950/60 p-2.5"
                       >
                         <div>
                           <div className="font-mono text-slate-200">{q.original_path}</div>

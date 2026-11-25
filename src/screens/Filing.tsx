@@ -262,7 +262,7 @@ function BatchView({
           {items.map((a) => {
             const renamed = a.to_path && fileName(a.to_path) !== fileName(a.from_path);
             return (
-              <li key={a.id} className="px-4 py-2.5">
+              <li key={a.id} className="cv-row px-4 py-2.5">
                 <div className="flex items-start gap-3">
                   <input
                     type="checkbox"

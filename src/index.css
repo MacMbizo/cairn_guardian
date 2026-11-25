@@ -55,3 +55,9 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* Long lists: the browser skips laying out rows that are off-screen (D1 list performance). */
+.cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
