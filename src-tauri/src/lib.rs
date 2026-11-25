@@ -370,6 +370,13 @@ pub fn run() {
             commands::governance::governance_save_rule,
             commands::governance::governance_delete_rule,
             commands::governance::governance_apply_rule,
+            commands::cdo::cdo_dashboard,
+            commands::cdo::cdo_set_recommendation_status,
+            commands::cdo::cdo_ratify_recommendation,
+            commands::cdo::cdo_undo_ratification,
+            commands::cdo::cdo_synthesize_briefing,
+            commands::cdo::cdo_list_briefings,
+            commands::cdo::cdo_list_ratifications,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

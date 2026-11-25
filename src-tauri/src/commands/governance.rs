@@ -19,7 +19,7 @@ use crate::commands::vault::build_vault_status;
 use crate::commands::{AEGIS_EVENT, AppState, lock_store, map_err};
 use crate::engine_host::wake;
 
-fn posture_context(state: &AppState) -> Result<VaultPostureContext, IpcError> {
+pub(crate) fn posture_context(state: &AppState) -> Result<VaultPostureContext, IpcError> {
     let vstatus = build_vault_status(state)?;
     let dpapi_sealed = sealed_key_path(&state.db_path).is_file();
     let cipher_label = if vstatus.cipher_version.is_empty() {

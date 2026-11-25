@@ -62,6 +62,7 @@ pub enum Screen {
     Folderless,
     Healing,
     Governance,
+    Cdo,
 }
 
 /// What acting on a finding does.

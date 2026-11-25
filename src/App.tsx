@@ -15,6 +15,7 @@ import {
   FolderGit2,
   FolderOpen,
   FolderTree,
+  Gauge,
   GitBranch,
   HardDrive,
   HeartPulse,
@@ -42,6 +43,7 @@ import {
 import { HomeTiles } from "./components/HomeTiles";
 import { PlugBanner } from "./components/PlugBanner";
 import { AskFiles } from "./screens/AskFiles";
+import { ChiefDigitalOfficer } from "./screens/ChiefDigitalOfficer";
 import { CrossProject } from "./screens/CrossProject";
 import { DrivesScreen } from "./screens/Drives";
 import { DupeReview } from "./screens/DupeReview";
@@ -90,7 +92,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "cdo" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -107,6 +109,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   folderless: "folderless",
   healing: "healing",
   governance: "governance",
+  cdo: "cdo",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -674,6 +677,7 @@ export default function App() {
     { id: "folderless", label: "Folderless Rules", icon: Wand2 },
     { id: "healing", label: "Self-Healing", icon: Wrench },
     { id: "governance", label: "Data Governance", icon: ShieldCheck },
+    { id: "cdo", label: "Chief Digital Officer", icon: Gauge },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -912,6 +916,15 @@ export default function App() {
               desktop={desktop}
               onReviewBatches={() => {
                 setTab("simulator");
+                void refreshAll();
+              }}
+            />
+          )}
+          {tab === "cdo" && (
+            <ChiefDigitalOfficer
+              desktop={desktop}
+              onNavigate={(screen) => {
+                setTab(TAB_FOR[screen]);
                 void refreshAll();
               }}
             />

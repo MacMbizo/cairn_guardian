@@ -42,6 +42,12 @@ import type {
   ActionStatus,
   AtomicUnit,
   AuditEntry,
+  CdoDashboard,
+  CdoExecutiveBriefing,
+  CdoRatificationRecord,
+  CdoRecommendation,
+  CdoRecommendationStatus,
+  CdoScanOptions,
   CleanupCandidate,
   CleanupScanReport,
   ConflictResolutionChoice,
@@ -701,6 +707,41 @@ export const aegis = {
       call<boolean>("governance_delete_rule", { ruleId }),
     applyRule: (ruleId: string) =>
       call<GovernanceLabelBatch>("governance_apply_rule", { ruleId }),
+  },
+  cdo: {
+    dashboard: (options?: CdoScanOptions | null, liveProbeBitlocker?: boolean) =>
+      call<CdoDashboard>("cdo_dashboard", {
+        options: options ?? null,
+        liveProbeBitlocker: liveProbeBitlocker ?? false,
+      }),
+    setRecommendationStatus: (
+      recKey: string,
+      status: CdoRecommendationStatus,
+      note?: string | null
+    ) =>
+      call<void>("cdo_set_recommendation_status", {
+        recKey,
+        status,
+        note: note ?? null,
+      }),
+    ratifyRecommendation: (recommendation: CdoRecommendation) =>
+      call<CdoRatificationRecord>("cdo_ratify_recommendation", { recommendation }),
+    undoRatification: (ratificationId: string) =>
+      call<CdoRatificationRecord>("cdo_undo_ratification", { ratificationId }),
+    synthesizeBriefing: (params?: {
+      horizonDays?: number;
+      includeSensitive?: boolean;
+      liveProbeBitlocker?: boolean;
+    }) =>
+      call<CdoExecutiveBriefing>("cdo_synthesize_briefing", {
+        horizonDays: params?.horizonDays ?? null,
+        includeSensitive: params?.includeSensitive ?? false,
+        liveProbeBitlocker: params?.liveProbeBitlocker ?? false,
+      }),
+    listBriefings: (limit?: number) =>
+      call<CdoExecutiveBriefing[]>("cdo_list_briefings", { limit: limit ?? 10 }),
+    listRatifications: (limit?: number) =>
+      call<CdoRatificationRecord[]>("cdo_list_ratifications", { limit: limit ?? 15 }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

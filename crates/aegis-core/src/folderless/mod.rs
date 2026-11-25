@@ -52,7 +52,7 @@ pub struct FolderlessRule {
 }
 
 /// Editable draft or save payload for creating/updating a Folderless rule (`R6`).
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct FolderlessRuleInput {
     pub id: Option<String>,

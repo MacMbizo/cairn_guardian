@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod backup;
 pub mod care;
+pub mod cdo;
 pub mod context;
 pub mod contracts;
 pub mod cross_project;
