@@ -89,7 +89,7 @@ fn passport_roundtrip_and_regenerate() {
 
     let p = write_passport(root).unwrap();
     assert_eq!(p.schema, 1);
-    assert!(p.created_by.starts_with("aegis "));
+    assert!(p.created_by.starts_with("cairn "));
     assert!(root.join(".aegis").join("volume.json").is_file());
     assert_eq!(read_passport(root).unwrap(), Some(p.clone()));
 
