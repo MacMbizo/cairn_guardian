@@ -872,12 +872,12 @@ fn end_to_end_three_drives() {
             ("report v1", blake3::hash(b"PK\x03\x04 quarterly report v1")),
             ("note n0", blake3::hash(b"note number 0")),
         ];
-        // The owner's own edit and delete are not Aegis removing a copy; they are kept as
+        // The owner's own edit and delete are not Cairn removing a copy; they are kept as
         // previous versions, checked below.
         if known.iter().any(|(_, k)| k.as_bytes().as_slice() == h.as_slice()) {
             continue;
         }
-        assert!(n >= 1, "Aegis left a file without any copy: {hex}");
+        assert!(n >= 1, "Cairn left a file without any copy: {hex}");
     }
     // The old report and the deleted note wait in previous versions.
     let versions = list_previous_versions(store.conn(), &ids[1]).unwrap();

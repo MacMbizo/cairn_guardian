@@ -25,7 +25,7 @@ pub struct ReadReport {
     pub skipped: usize,
 }
 
-/// Message for a file whose reading did not finish (a hang, or a crash that killed Aegis).
+/// Message for a file whose reading did not finish (a hang, or a crash that killed Cairn).
 pub const TOO_LONG: &str = "reading took too long";
 
 /// Runs `f` on a worker thread with a roomy stack, so a panic or an endless loop costs one
@@ -117,7 +117,7 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
         let mut meta = load_meta(store.conn(), &id)?.unwrap_or_else(|| FileMeta::new(&id, kind_of(&ext, &name, false)));
         meta.kind = kind_of(&ext, &name, false);
         let now = now_ms();
-        // Marked before opening: if a parser crashes Aegis outright, this file isn't tried first
+        // Marked before opening: if a parser crashes Cairn outright, this file isn't tried first
         // again on every start.
         meta.read_at = Some(now);
         meta.read_error = Some(TOO_LONG.into());
@@ -152,7 +152,7 @@ pub fn read_pending(store: &mut SqliteStore, limit: usize, timeout: Duration) ->
         meta.read_at = Some(now);
         save_meta(store.conn(), &meta)?;
         if hung {
-            // A stuck reader keeps a core busy until Aegis restarts: don't start more now.
+            // A stuck reader keeps a core busy until Cairn restarts: don't start more now.
             break;
         }
     }
@@ -193,7 +193,7 @@ fn apply_classification(
     meta.evidence = c.evidence;
 }
 
-/// Gives files Aegis can't read (installers, videos, code, system files) their kind and
+/// Gives files Cairn can't read (installers, videos, code, system files) their kind and
 /// confidence from name and type alone. Each file is done once. Returns files classified.
 pub fn classify_unread(store: &mut SqliteStore, limit: usize) -> Result<usize> {
     let rows: Vec<(String, String, Option<String>, i64, bool)> = {

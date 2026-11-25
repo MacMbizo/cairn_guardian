@@ -1,6 +1,6 @@
 //! Backup drive: roles and drive plan, mirror top-up, guard and priority fill (spec §7.6–§7.7).
 //!
-//! Layout on the Backup drive (plain files, browsable without Aegis):
+//! Layout on the Backup drive (plain files, browsable without Cairn):
 //! `<mount>\Aegis Backup\<source label>\<relative path>` and
 //! `<mount>\Aegis Backup\_Previous versions\<yyyy-mm-dd>\<source label>\<relative path>`.
 

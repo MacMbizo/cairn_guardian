@@ -277,7 +277,7 @@ pub fn build_policy_context(store: &SqliteStore) -> Result<PolicyContext> {
         .into_iter()
         .filter(|r| r.enabled)
         .map(|r| PathBuf::from(r.path))
-        // A drive Aegis has fully catalogued is managed as a whole (spec §7.8.1), while online.
+        // A drive Cairn has fully catalogued is managed as a whole (spec §7.8.1), while online.
         .chain(
             volumes
                 .iter()
@@ -662,7 +662,7 @@ pub fn propose_dupe_quarantine_pairs(
             return Err(AegisError::PolicyBlocked {
                 rule: "min_copies".into(),
                 detail: format!(
-                    "Aegis keeps at least {} copies of every file, and only {copies} exist. Make this the backup copy instead of deleting it.",
+                    "Cairn keeps at least {} copies of every file, and only {copies} exist. Make this the backup copy instead of deleting it.",
                     crate::dupes::MIN_COPIES
                 ),
             });
@@ -963,7 +963,7 @@ fn perform_execute_fs(
             // A project plan names its folders exactly: never " (2)", stop instead.
             if plan_evidence(&row.evidence_json).exact_dest && Path::new(raw_to).exists() && !case_only(from, Path::new(raw_to)) {
                 return Err(AegisError::InvalidInput(format!(
-                    "{raw_to} appeared in the way. Aegis will make a fresh plan."
+                    "{raw_to} appeared in the way. Cairn will make a fresh plan."
                 )));
             }
             let (eff_to, _) = if case_only(from, Path::new(raw_to)) {
@@ -1302,13 +1302,13 @@ fn check_plan_folder(store: &mut SqliteStore, row: &DbActionRow) -> Result<Optio
     if let Some(expected) = ev.expect {
         if !from.is_dir() {
             return Err(AegisError::NotFound(format!(
-                "{} is no longer there. Aegis will make a fresh plan.",
+                "{} is no longer there. Cairn will make a fresh plan.",
                 row.from_path
             )));
         }
         if crate::context::plan::folder_state(from)? != expected {
             return Err(AegisError::InvalidInput(format!(
-                "{} changed since this plan was made. Aegis will make a fresh plan.",
+                "{} changed since this plan was made. Cairn will make a fresh plan.",
                 row.from_path
             )));
         }
@@ -1702,7 +1702,7 @@ fn check_single_action_preflight(row: &DbActionRow, exists: &dyn Fn(&Path) -> bo
                 from_path: row.from_path.clone(),
                 to_path: row.to_path.clone(),
                 conflict: RollbackConflictKind::Modified,
-                detail: format!("File at {} was modified after Aegis healed it", row.from_path),
+                detail: format!("File at {} was modified after Cairn healed it", row.from_path),
                 recommended_choice: ConflictResolutionChoice::CopyBackKeepingBoth,
             });
         }
@@ -1739,7 +1739,7 @@ fn check_single_action_preflight(row: &DbActionRow, exists: &dyn Fn(&Path) -> bo
             from_path: row.from_path.clone(),
             to_path: row.to_path.clone(),
             conflict: RollbackConflictKind::Modified,
-            detail: format!("File at {to_str} was modified after Aegis moved it"),
+            detail: format!("File at {to_str} was modified after Cairn moved it"),
             recommended_choice: ConflictResolutionChoice::CopyBackKeepingBoth,
         });
     }

@@ -484,7 +484,7 @@ pub fn grant_standing_topup(
         return Err(AegisError::InvalidInput("Only the Backup drive can back up automatically.".into()));
     }
     let passport = passport.ok_or_else(|| {
-        AegisError::InvalidInput("This drive can't carry an Aegis passport (read-only), so it can't back up automatically.".into())
+        AegisError::InvalidInput("This drive can't carry a Cairn passport (read-only), so it can't back up automatically.".into())
     })?;
     let approved_run: bool = store.conn().query_row(
         "SELECT EXISTS(SELECT 1 FROM backup_jobs

@@ -1352,7 +1352,7 @@ pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> R
             for m in matching {
                 if !Path::new(&m.path).is_file() {
                     return Err(AegisError::NotFound(format!(
-                        "{} is no longer there. Aegis will make a fresh plan.",
+                        "{} is no longer there. Cairn will make a fresh plan.",
                         m.path
                     )));
                 }
@@ -1382,7 +1382,7 @@ pub fn propose(store: &mut SqliteStore, c: &Collection, plan: &ProjectPlan) -> R
             }
         }
         if actions.is_empty() {
-            return Err(AegisError::NotFound("The files in this set have moved. Aegis will look again.".into()));
+            return Err(AegisError::NotFound("The files in this set have moved. Cairn will look again.".into()));
         }
         let id = crate::db::actions::propose_batch(store, &RefilePlan { origin, actions })?;
         super::store::record_plan_run(store.conn(), &id, &plan.volume_id, &[set_fp], "proposed")?;

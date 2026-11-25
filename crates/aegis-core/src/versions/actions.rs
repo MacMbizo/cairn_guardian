@@ -49,7 +49,7 @@ pub fn propose_version_archive(
     let dest_path_base = Path::new(clean_dest);
     if path_contains_aegis_internal(dest_path_base) {
         return Err(AegisError::PermissionDenied(
-            "Cannot archive versions into Aegis internal directories.".into(),
+            "Cannot archive versions into Cairn internal directories.".into(),
         ));
     }
 

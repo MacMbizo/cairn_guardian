@@ -741,7 +741,7 @@ pub fn propose_asset_recovery(store: &mut SqliteStore, items: &[AssetRecoverItem
         let dest_dir = Path::new(dest_dir_str);
         if path_contains_aegis_internal(dest_dir) {
             return Err(AegisError::PermissionDenied(
-                "Cannot recover assets into Aegis internal directories.".into(),
+                "Cannot recover assets into Cairn internal directories.".into(),
             ));
         }
         if same_parent_dir(&from_path, dest_dir_str) {

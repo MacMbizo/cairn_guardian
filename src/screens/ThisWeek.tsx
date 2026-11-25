@@ -78,7 +78,7 @@ export function ThisWeek({
       <div className={card}>
         <h2 className="mb-1 text-sm font-semibold">This week</h2>
         <p className="text-sm text-slate-300">Your first note arrives on {day} evening.</p>
-        <p className="mt-1 text-xs text-slate-400">Aegis keeps watching in the background and saves the quiet things for it.</p>
+        <p className="mt-1 text-xs text-slate-400">Cairn keeps watching in the background and saves the quiet things for it.</p>
       </div>
     );
   }
@@ -122,7 +122,7 @@ export function ThisWeek({
       )}
 
       {note.did.length > 0 && (
-        <Section icon={CheckCheck} title="What Aegis did by itself">
+        <Section icon={CheckCheck} title="What Cairn did by itself">
           <ul className="list-inside list-disc space-y-0.5 text-sm text-slate-300">
             {note.did.map((d) => (
               <li key={d}>
@@ -182,7 +182,7 @@ export function ThisWeek({
       )}
 
       {note.about_aegis.length > 0 && (
-        <Section icon={Activity} title="About Aegis">
+        <Section icon={Activity} title="About Cairn">
           <ul className="space-y-0.5 text-xs text-slate-400">
             {note.about_aegis.map((a) => (
               <li key={a}>{a}</li>

@@ -6,7 +6,7 @@ export type SearchHit = { file_id: string, path: string, name: string, state: st
  */
 match_reason: string, 
 /**
- * Where the file was before Aegis filed it, if it moved.
+ * Where the file was before Cairn filed it, if it moved.
  */
 was: string | null, 
 /**

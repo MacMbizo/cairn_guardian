@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
-/// Below this, Aegis asks instead of proposing a move.
+/// Below this, Cairn asks instead of proposing a move.
 pub const PROPOSE_AT: f64 = 0.60;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -37,7 +37,7 @@ pub struct Placement {
     pub confidence: f64,
     pub reason: String,
     pub rule_key: Option<String>,
-    /// Aegis isn't sure: the owner picks a place.
+    /// Cairn isn't sure: the owner picks a place.
     pub to_sort: bool,
     #[ts(type = "number")]
     pub bytes: i64,
@@ -122,7 +122,7 @@ pub fn scope_roots(store: &SqliteStore, scope: &Scope) -> Result<Vec<(String, Op
     }
 }
 
-/// Folders Aegis never files from or into.
+/// Folders Cairn never files from or into.
 fn protected(rel: &Path) -> bool {
     rel.components().any(|c| {
         let n = c.as_os_str().to_string_lossy().to_lowercase();
@@ -877,7 +877,7 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
             let mut p = match choice {
                 BlueprintChoice::Fresh => match fresh_area(r, if subject_routed { photo_subj } else { None }) {
                     _ if low && is_doc => file_placement(r, None, None, true),
-                    _ if low => stays(r, "Left where it is: Aegis isn't sure what this is"),
+                    _ if low => stays(r, "Left where it is: Cairn isn't sure what this is"),
                     Some((area, sub)) => match bases.of(area) {
                         Some(base) => {
                             let dir = sub.iter().fold(base, |p, s| p.join(s));
@@ -885,7 +885,7 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                         }
                         None => stays(r, "Left where it is: this PC has no folder for it"),
                     },
-                    None => stays(r, "Left where it is: Aegis files documents, photos, music, videos and installers"),
+                    None => stays(r, "Left where it is: Cairn files documents, photos, music, videos and installers"),
                 },
                 BlueprintChoice::Tidy => {
                     let top = rel.components().next().map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or_default();
@@ -897,7 +897,7 @@ fn plan_files(store: &SqliteStore, scope: &Scope, choice: BlueprintChoice, only:
                     } else if loose {
                         match fresh_area(r, None) {
                             _ if low && is_doc => file_placement(r, None, None, true),
-                            _ if low => stays(r, "Left where it is: Aegis isn't sure what this is"),
+                            _ if low => stays(r, "Left where it is: Cairn isn't sure what this is"),
                             Some((area, _)) => {
                                 let existing = tops.keys().find(|t| folder_key(t) == folder_key(area)).cloned();
                                 let dir = root_p.join(existing.unwrap_or_else(|| area.to_string()));

@@ -483,7 +483,7 @@ fn resolve_broken_link(
                     candidate_paths: Vec::new(),
                     sensitive: source.sensitive,
                     dismissed: is_dismissed,
-                    reason: "Target was moved into Aegis 30-day Quarantine; restore it instead of rewriting links (K2).".into(),
+                    reason: "Target was moved into Cairn 30-day Quarantine; restore it instead of rewriting links (K2).".into(),
                 },
                 None,
             );
@@ -517,7 +517,7 @@ fn resolve_broken_link(
                             candidate_paths: Vec::new(),
                             sensitive: source.sensitive,
                             dismissed: is_dismissed,
-                            reason: "Moved file later entered Aegis 30-day Quarantine; restore it rather than rewriting links (K2).".into(),
+                            reason: "Moved file later entered Cairn 30-day Quarantine; restore it rather than rewriting links (K2).".into(),
                         },
                         None,
                     );
@@ -542,7 +542,7 @@ fn resolve_broken_link(
                     let source_desc = match src_kind {
                         HealResolutionSource::HealMoveLog => "USN / scanner move tracking",
                         HealResolutionSource::FileHistory => "file_history move log",
-                        HealResolutionSource::ActionLog => "executed Aegis batch",
+                        HealResolutionSource::ActionLog => "executed Cairn batch",
                         _ => "catalog match",
                     };
                     let rep_syntax = format_healed_link_preview(link, &new_target);

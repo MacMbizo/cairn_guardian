@@ -1,4 +1,4 @@
-# Aegis Guardian: progress and what remains
+# Cairn Guardian: progress and what remains
 
 Updated 2026-11-25. This is the whole-project view. `HANDOFF.md` covers the working detail for the next chat.
 
@@ -110,7 +110,7 @@ Adds 100% offline CPU document Q&A (`Ask Files`) over the SQLCipher-encrypted hy
 
 ### Project 4 (System care) in one paragraph
 
-Delivers calm, non-destructive Windows System Care under every North Star guardrail (`K1`, `K2`, `K3`, `K5`, `R1`, `R3`, `R8`, `R9`). `crates/aegis-core/src/care/` scans aged temporary files, Windows CrashDumps/WER reports, disposable browser/dev caches (`Edge`, `Chrome`, `Brave`, `Vivaldi`, `Firefox`, `pip`, `npm`, `uv`, `NuGet`), active `cache_dirs`, Downloads janitor items, stale unowned leftover folders inside `%LOCALAPPDATA%`/`%APPDATA%`, and large stale untracked dead files (`DeadFiles`, >=100 MiB & >=180d outside projects/backups/atomic units) — proposing every removal exclusively into 30-day per-volume quarantine via strict `PolicyContext` allow-lists (`care_cleanup_roots`, `care_disposable_dirs`, `care_leftover_parents`, blocking protected vendor/Aegis dirs and auto-indexing uncatalogued files safely). Registry inspection (`care::apps`, `care::startup`) is strictly `KEY_READ`-only (`R3`): **Uninstall** invokes each app's own interactive `UninstallString` via backend registry lookup (`lookup_uninstall_command`), and Windows Apps / Startup Apps links open `ms-settings:appsfeatures` / `ms-settings:startupapps`. Non-admin Windows Storage CIM + `SmartHealthWatch` (`care::smart`, `care::watch`) monitors physical disk health without MFT/elevation (`R1`), `care::trends` computes 30d/90d volume and `root_samples` folder growth, `health_breakdown` scores the 5 storage-and-integrity dimensions (`storage`, `backup`, `duplication`, `caches`, `organization`), `janitor::installer_matches` fixes the deferred 3+ word false-match bug, and `src/screens/SystemCare.tsx` surfaces all 6 sub-tabs.
+Delivers calm, non-destructive Windows System Care under every North Star guardrail (`K1`, `K2`, `K3`, `K5`, `R1`, `R3`, `R8`, `R9`). `crates/aegis-core/src/care/` scans aged temporary files, Windows CrashDumps/WER reports, disposable browser/dev caches (`Edge`, `Chrome`, `Brave`, `Vivaldi`, `Firefox`, `pip`, `npm`, `uv`, `NuGet`), active `cache_dirs`, Downloads janitor items, stale unowned leftover folders inside `%LOCALAPPDATA%`/`%APPDATA%`, and large stale untracked dead files (`DeadFiles`, >=100 MiB & >=180d outside projects/backups/atomic units) — proposing every removal exclusively into 30-day per-volume quarantine via strict `PolicyContext` allow-lists (`care_cleanup_roots`, `care_disposable_dirs`, `care_leftover_parents`, blocking protected vendor/Cairn dirs and auto-indexing uncatalogued files safely). Registry inspection (`care::apps`, `care::startup`) is strictly `KEY_READ`-only (`R3`): **Uninstall** invokes each app's own interactive `UninstallString` via backend registry lookup (`lookup_uninstall_command`), and Windows Apps / Startup Apps links open `ms-settings:appsfeatures` / `ms-settings:startupapps`. Non-admin Windows Storage CIM + `SmartHealthWatch` (`care::smart`, `care::watch`) monitors physical disk health without MFT/elevation (`R1`), `care::trends` computes 30d/90d volume and `root_samples` folder growth, `health_breakdown` scores the 5 storage-and-integrity dimensions (`storage`, `backup`, `duplication`, `caches`, `organization`), `janitor::installer_matches` fixes the deferred 3+ word false-match bug, and `src/screens/SystemCare.tsx` surfaces all 6 sub-tabs.
 
 ### Plan 6B in one paragraph
 
@@ -118,7 +118,7 @@ Wires 100% offline local semantic embeddings and hybrid retrieval (`K2`/`K3`/`K5
 
 ### Plan 6A in one paragraph
 
-Encrypts the entire SQLite catalog (`aegis.db`) at rest with SQLCipher AES-256 (`sqlcipher-src` 4.20.0 + `libtomcrypt` 1.18.2 via `libsqlite3-sys-sqlcipher`, zero Perl/OpenSSL dependency) and registers `sqlite-vec` `0.1.9` on every `SqliteStore` connection alongside migration `0009_vault_and_vec_meta.sql` (`chunk_embeddings_meta`). Startup (`open_or_migrate_encrypted` in `db::crypto`) generates or DPAPI-seals the 256-bit key (`aegis.key.dpapi`, `R2`) for unattended engine/tray launches, performs verified one-time `sqlcipher_export` migration of legacy plaintext databases (`R8` temp cleanup), and locks behind an **Unlock Aegis Vault** screen if `aegis.key.dpapi` is missing on another account/PC until unlocked with the offline 24-word BIP-39 or 64-hex recovery key (`aegis.vault.json`). Sensitive files (`confidential`/`secret`, `R7`) remain searchable while masking snippets/chunk previews unless unlocked for a timed 15-minute session via Windows CredUI (`CredUIPromptForWindowsCredentialsW`), with full Settings (`Security & Encryption`) + Search UI controls, Doctor cipher/`sqlite-vec` checks, and an automated `Cargo.lock` guard (`R9`) blocking networking crates in `aegis-core` and `aegis-embed`.
+Encrypts the entire SQLite catalog (`aegis.db`) at rest with SQLCipher AES-256 (`sqlcipher-src` 4.20.0 + `libtomcrypt` 1.18.2 via `libsqlite3-sys-sqlcipher`, zero Perl/OpenSSL dependency) and registers `sqlite-vec` `0.1.9` on every `SqliteStore` connection alongside migration `0009_vault_and_vec_meta.sql` (`chunk_embeddings_meta`). Startup (`open_or_migrate_encrypted` in `db::crypto`) generates or DPAPI-seals the 256-bit key (`aegis.key.dpapi`, `R2`) for unattended engine/tray launches, performs verified one-time `sqlcipher_export` migration of legacy plaintext databases (`R8` temp cleanup), and locks behind an **Unlock Cairn Vault** screen if `aegis.key.dpapi` is missing on another account/PC until unlocked with the offline 24-word BIP-39 or 64-hex recovery key (`aegis.vault.json`). Sensitive files (`confidential`/`secret`, `R7`) remain searchable while masking snippets/chunk previews unless unlocked for a timed 15-minute session via Windows CredUI (`CredUIPromptForWindowsCredentialsW`), with full Settings (`Security & Encryption`) + Search UI controls, Doctor cipher/`sqlite-vec` checks, and an automated `Cargo.lock` guard (`R9`) blocking networking crates in `aegis-core` and `aegis-embed`.
 
 ### Plan 5 in one paragraph
 
@@ -159,7 +159,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 - **Orphaned quarantine folders removed:** Deleted all `57` pre-existing orphaned synthetic test folders from `C:\.aegis-quarantine` after confirming `quarantine_entries = 0` in the live database (`0` remaining).
 
 **Still waiting on the owner:**
-1. Choose a new app name (another "eagis" / Aegis app already exists).
+1. ~~Choose a new app name.~~ Resolved 2026-11-25: **Cairn Guardian** (user-facing rebrand; internal `aegis-*` crate names and on-disk formats intentionally kept, see `HANDOFF.md`).
 2. Next active roadmap sequence: **Capability #3 (Local RAG engine)** (built on merged Plan 6B hybrid search) or **owner live-PC checks / Project 5 UI polish**, per owner choice.
 
 ## 4. What remains
@@ -178,7 +178,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 - **Owner checks that need the installed build:**
   - `pnpm tauri build` and install;
-  - notifications under "Aegis Guardian" open the right screen;
+  - notifications under "Cairn Guardian" open the right screen;
   - Ctrl+Shift+Space opens Search;
   - starts in the tray after a reboot;
   - at most 350 MB in the background.

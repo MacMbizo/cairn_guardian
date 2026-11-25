@@ -134,7 +134,7 @@ fn validate_rule_prefix(conn: &Connection, prefix: Option<&str>) -> Result<Optio
     }
     if path_contains_aegis_internal(p) {
         return Err(AegisError::PermissionDenied(
-            "Privacy rule path cannot target Aegis internals.".into(),
+            "Privacy rule path cannot target Cairn internals.".into(),
         ));
     }
     let mut st = conn.prepare(

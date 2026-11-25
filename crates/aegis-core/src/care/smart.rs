@@ -1,5 +1,5 @@
 //! Non-admin drive SMART & storage reliability monitoring (`R1` user-mode only) combined with
-//! Aegis's catalog read-error counts per volume.
+//! Cairn's catalog read-error counts per volume.
 
 use super::DriveHealthItem;
 use rusqlite::{Connection, OptionalExtension};
@@ -347,7 +347,7 @@ pub fn probe_drive_health(conn: &Connection) -> Vec<DriveHealthItem> {
                 read_errors: None,
                 write_errors: None,
                 smart_detail_available: false,
-                smart_note: Some("Telemetry from Aegis catalog only.".into()),
+                smart_note: Some("Telemetry from Cairn catalog only.".into()),
                 catalog_read_errors: err_n,
             }
         })

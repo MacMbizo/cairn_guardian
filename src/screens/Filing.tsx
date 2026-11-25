@@ -122,7 +122,7 @@ function PlanView({ s, preview, onChosen, onBack }: { s: ScopeStatus; preview: b
       </button>
       <header>
         <h1 className="text-lg font-semibold">Choose a structure for {s.label}</h1>
-        <p className="text-xs text-slate-400">Nothing moves yet. After you choose, Aegis proposes batches you approve one at a time, and every batch can be undone.</p>
+        <p className="text-xs text-slate-400">Nothing moves yet. After you choose, Cairn proposes batches you approve one at a time, and every batch can be undone.</p>
       </header>
       {midway && s.blueprint && (
         <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -240,7 +240,7 @@ function BatchView({
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">Next batch for {s.label}</h1>
-          <p className="text-xs text-slate-400">Untick anything you'd rather leave where it is. Aegis remembers, and learns from what you approve.</p>
+          <p className="text-xs text-slate-400">Untick anything you'd rather leave where it is. Cairn remembers, and learns from what you approve.</p>
         </div>
         <div className="flex gap-2">
           <button type="button" className={btn} disabled={busy} onClick={() => void skip()}>
@@ -343,7 +343,7 @@ function SortView({ s, preview, onBack }: { s: ScopeStatus; preview: boolean; on
       </button>
       <header>
         <h1 className="text-lg font-semibold">To sort on {s.label}</h1>
-        <p className="text-xs text-slate-400">Aegis wasn't sure about these. Pick a place, or leave them where they are.</p>
+        <p className="text-xs text-slate-400">Cairn wasn't sure about these. Pick a place, or leave them where they are.</p>
       </header>
       {msg && <p role="status" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">{msg}</p>}
       {items?.length === 0 && <p className="text-xs text-slate-400">Nothing left to sort.</p>}
@@ -415,7 +415,7 @@ function RecentView({
       </button>
       <header>
         <h1 className="text-lg font-semibold">Recent batches</h1>
-        <p className="text-xs text-slate-400">Everything filing has moved, including what Aegis filed by itself. Any batch can be put back.</p>
+        <p className="text-xs text-slate-400">Everything filing has moved, including what Cairn filed by itself. Any batch can be put back.</p>
       </header>
       {list?.length === 0 && <p className="text-xs text-slate-400">Nothing has been filed yet.</p>}
       <ul className={`${card} divide-y divide-slate-800 p-0`}>
@@ -468,9 +468,9 @@ function RulesView({ preview, onBack }: { preview: boolean; onBack: () => void }
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> All drives
       </button>
       <header>
-        <h1 className="text-lg font-semibold">What Aegis has learned</h1>
+        <h1 className="text-lg font-semibold">What Cairn has learned</h1>
         <p className="text-xs text-slate-400">
-          After you approve the same kind of move three times, Aegis files new ones by itself. One "no" and it asks again.
+          After you approve the same kind of move three times, Cairn files new ones by itself. One "no" and it asks again.
         </p>
       </header>
       {rules?.length === 0 && <p className="text-xs text-slate-400">Nothing yet. Rules appear as you approve batches.</p>}
@@ -591,7 +591,7 @@ export function FilingScreen({
             <History className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Recent batches
           </button>
           <button type="button" className={btn} onClick={() => setView({ kind: "rules" })}>
-            <ListChecks className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> What Aegis has learned
+            <ListChecks className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> What Cairn has learned
           </button>
         </span>
       </header>
@@ -644,7 +644,7 @@ export function FilingScreen({
               {reading && (
                 <div className="mb-2">
                   <div className="mb-1 flex justify-between text-xs text-slate-400">
-                    <span>Reading files so Aegis knows what they are</span>
+                    <span>Reading files so Cairn knows what they are</span>
                     <span>{Math.round(s.read_pct * 100)}%</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded bg-slate-800">

@@ -426,7 +426,7 @@ pub struct SearchHit {
     pub score: f64,
     /// `"hybrid"`, `"semantic"`, `"content"`, `"name"`, or `"former name"`.
     pub match_reason: String,
-    /// Where the file was before Aegis filed it, if it moved.
+    /// Where the file was before Cairn filed it, if it moved.
     pub was: Option<String>,
     /// Name of the project, design set, or module this file belongs to.
     #[serde(default)]
@@ -834,7 +834,7 @@ pub enum AegisEvent {
         v: u8,
         overall_score: f64,
     },
-    /// A drive was plugged in. `known` = Aegis has seen it before.
+    /// A drive was plugged in. `known` = Cairn has seen it before.
     DriveArrived {
         v: u8,
         volume_id: String,

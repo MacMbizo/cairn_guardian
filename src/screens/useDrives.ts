@@ -33,7 +33,7 @@ export interface DrivesData {
   versions: PreviousVersionItem[];
   topupPlan: TopUpPlan | null;
   standing: boolean;
-  /** Drives plugged in this session that Aegis has never catalogued. */
+  /** Drives plugged in this session that Cairn has never catalogued. */
   unknownDrives: string[];
   /** Drives being catalogued now, with files seen so far. */
   cataloguing: Record<string, number>;

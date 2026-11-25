@@ -1,6 +1,6 @@
 //! Backup priority tiers and filling the Backup drive in order (spec §7.7.2).
 //!
-//! 1. Pinned folders and **only copies** (files with exactly one copy anywhere Aegis knows).
+//! 1. Pinned folders and **only copies** (files with exactly one copy anywhere Cairn knows).
 //! 2. Everything else in the backup sources (the PC's Documents, Desktop, Pictures …).
 //! 3. Music and video that isn't personal footage.
 //!
@@ -145,7 +145,7 @@ pub fn tier_for_file(conn: &Connection, file_id: &str) -> Result<Option<i64>> {
         return Ok(Some(3));
     }
 
-    // Only copy anywhere Aegis knows about?
+    // Only copy anywhere Cairn knows about?
     let only_copy = match hash {
         Some(h) => crate::dupes::copy_count(conn, &h)? <= 1,
         None => {

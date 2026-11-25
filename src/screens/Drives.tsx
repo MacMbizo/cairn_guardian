@@ -63,7 +63,7 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
             <DatabaseBackup className="h-4 w-4 text-sky-300" aria-hidden="true" /> Drive plan
           </h2>
           {!plan.ready ? (
-            <p className="text-xs text-slate-400">Catalog every drive first, so Aegis can suggest which one should be the Backup drive.</p>
+            <p className="text-xs text-slate-400">Catalog every drive first, so Cairn can suggest which one should be the Backup drive.</p>
           ) : (
             <>
               <p className="mb-3 text-xs text-slate-400">
@@ -131,7 +131,7 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
         {drives.length === 0 ? (
           <p className="text-xs text-slate-400">
             <Usb className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
-            Plug in an external drive. Aegis gives it a small passport file so it recognises it next time, under any drive letter.
+            Plug in an external drive. Cairn gives it a small passport file so it recognises it next time, under any drive letter.
           </p>
         ) : (
           <ul className="divide-y divide-slate-800">
@@ -323,9 +323,9 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
       </section>
 
       <section aria-label="Your answers" className={card}>
-        <h2 className="mb-3 text-sm font-semibold">Duplicate answers Aegis remembers</h2>
+        <h2 className="mb-3 text-sm font-semibold">Duplicate answers Cairn remembers</h2>
         {decisions.length === 0 ? (
-          <p className="text-xs text-slate-400">When you answer a duplicate question, Aegis remembers it here and never asks again.</p>
+          <p className="text-xs text-slate-400">When you answer a duplicate question, Cairn remembers it here and never asks again.</p>
         ) : (
           <ul className="divide-y divide-slate-800">
             {decisions.map((d) => (
@@ -334,7 +334,7 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
                   <strong className="text-slate-100">{d.decision === "keep_both" ? "Keep both" : d.decision === "backup" ? "It's a backup" : "Delete the copy"}</strong>{" "}
                   · {driveName(d.a_drive, "PC")}: {d.a_rel_path || "(whole drive)"} ↔ {driveName(d.b_drive, "PC")}: {d.b_rel_path || "(whole drive)"} · {formatDay(d.decided_at)}
                 </span>
-                <button type="button" disabled={busy} className={btn} onClick={() => void act(async () => { await aegis.dupes.undoDecision(d.id); return "Aegis will ask about that one again."; })}>
+                <button type="button" disabled={busy} className={btn} onClick={() => void act(async () => { await aegis.dupes.undoDecision(d.id); return "Cairn will ask about that one again."; })}>
                   <Undo2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" /> Undo
                 </button>
               </li>

@@ -147,7 +147,7 @@ function relation(l: Location): { label: string; detail: string; icon: ReactNode
   return rel[l.relationship];
 }
 
-/** Evidence the card shows under "Why Aegis thinks so" (links to other copies are shown in the table). */
+/** Evidence the card shows under "Why Cairn thinks so" (links to other copies are shown in the table). */
 const whyOf = (c: Collection) => c.evidence.filter((e) => !e.startsWith("also at ")).slice(0, 4);
 
 function formatBytes(b: number): string {
@@ -417,7 +417,7 @@ function ProjectCard({
           </div>
         </div>
         <div>
-          <p className="text-xs font-semibold text-slate-400">Why Aegis thinks so</p>
+          <p className="text-xs font-semibold text-slate-400">Why Cairn thinks so</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-300">
             {whyOf(c).map((e) => (
               <li key={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</li>
@@ -1024,7 +1024,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
       {!list && !err && <p className="text-xs text-slate-400">Loading projects…</p>}
       {list && list.length === 0 && (
         <p className={`${card} p-4 text-xs text-slate-400`}>
-          No projects found yet. Aegis looks for them by itself while your PC is quiet, or press Look again now.
+          No projects found yet. Cairn looks for them by itself while your PC is quiet, or press Look again now.
         </p>
       )}
       <ReuniteSection

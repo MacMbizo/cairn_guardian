@@ -102,7 +102,7 @@ pub fn filing_skip(app: AppHandle, state: State<'_, AppState>, batch: String) ->
     Ok(())
 }
 
-/// Items Aegis isn't sure about, for the owner to place.
+/// Items Cairn isn't sure about, for the owner to place.
 #[tauri::command(async)]
 pub fn filing_to_sort(state: State<'_, AppState>, scope: Scope) -> Result<Vec<Placement>, IpcError> {
     let store = own_store(&state)?;

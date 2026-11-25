@@ -10,7 +10,7 @@ use std::path::Path;
 /// A delete may never leave fewer than this many copies of a file.
 pub const MIN_COPIES: i64 = 2;
 
-/// Number of distinct copies of `blake3` Aegis knows about, on any volume, online or not.
+/// Number of distinct copies of `blake3` Cairn knows about, on any volume, online or not.
 /// Hardlinks (same volume + file index) are one copy. Quarantined, missing and soft-deleted
 /// rows are not copies.
 pub fn copy_count(conn: &Connection, blake3: &[u8]) -> Result<i64> {
@@ -49,7 +49,7 @@ fn full_hash(path: &Path) -> Option<Vec<u8>> {
 
 /// Confirms the drive mounted where `volume_id` is registered is really that drive: online, and
 /// carrying the passport on record. Guards against another drive taking the same letter before
-/// Aegis noticed (any action uses stored absolute paths).
+/// Cairn noticed (any action uses stored absolute paths).
 pub fn confirm_drive_identity(conn: &Connection, volume_id: &str) -> Result<()> {
     let (mount, status, label, passport): (String, String, Option<String>, Option<String>) = conn.query_row(
         "SELECT mount_point, status, label, passport_id FROM volumes WHERE id = ?1",

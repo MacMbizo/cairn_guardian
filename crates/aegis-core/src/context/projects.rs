@@ -18,7 +18,7 @@ const SEP: char = std::path::MAIN_SEPARATOR;
 
 /// A folder is a project from this confidence; filing protects it from here.
 pub const PROJECT_THRESHOLD: f64 = 0.60;
-/// From this confidence Aegis is sure; between the two it asks "Is this a project?".
+/// From this confidence Cairn is sure; between the two it asks "Is this a project?".
 pub const SURE_THRESHOLD: f64 = 0.80;
 
 /// A folder recognised as a project.

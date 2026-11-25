@@ -158,7 +158,7 @@ export default function App() {
   const vaultLocked = Boolean(desktop && vaultStatus?.locked);
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
-      ? "Aegis Guardian core ready."
+      ? "Cairn Guardian core ready."
       : "Browser preview mode — launch via Tauri desktop runtime for local filesystem IPC."
   );
   const [busy, setBusy] = useState(false);
@@ -685,7 +685,7 @@ export default function App() {
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
-    { id: "doctor", label: "Aegis Doctor", icon: Stethoscope },
+    { id: "doctor", label: "Cairn Doctor", icon: Stethoscope },
     { id: "settings", label: "Settings", icon: SlidersHorizontal },
   ];
 
@@ -698,13 +698,13 @@ export default function App() {
               <KeyRound className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-base font-semibold text-slate-50">Unlock Aegis Vault</h1>
+              <h1 className="text-base font-semibold text-slate-50">Unlock Cairn Vault</h1>
               <p className="text-xs text-slate-400">Encrypted local index recovery required</p>
             </div>
           </div>
           <p className="mb-4 text-xs leading-relaxed text-slate-300">
             {vaultStatus?.lock_reason ??
-              "This Aegis database is encrypted with SQLCipher and cannot be unsealed by DPAPI on this Windows account. Enter your 24-word recovery phrase or 64-character hex key to unlock."}
+              "This Cairn database is encrypted with SQLCipher and cannot be unsealed by DPAPI on this Windows account. Enter your 24-word recovery phrase or 64-character hex key to unlock."}
           </p>
           <form onSubmit={(e) => void handleUnlockVault(e)} className="space-y-3">
             <textarea
@@ -825,7 +825,7 @@ export default function App() {
             <span className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" aria-hidden="true" />
               <span>
-                Your Aegis index is encrypted. Back up and verify your 24-word recovery key so you never lose access if Windows changes.
+                Your Cairn index is encrypted. Back up and verify your 24-word recovery key so you never lose access if Windows changes.
               </span>
             </span>
             <button
@@ -1624,7 +1624,7 @@ export default function App() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="text-sm font-semibold">
-                    Aegis Doctor (8-Point Integrity Matrix)
+                    Cairn Doctor (8-Point Integrity Matrix)
                   </h2>
                   <p className="text-xs text-slate-400">
                     Check #1 (Audit Chain) is strictly read-only and never auto-rewrites.

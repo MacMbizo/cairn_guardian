@@ -522,7 +522,7 @@ pub fn propose_reunite(store: &mut SqliteStore, plan: &ReunitePlan) -> Result<St
     for (idx, it) in plan.items.iter().enumerate() {
         if !Path::new(&it.from).is_file() {
             return Err(AegisError::NotFound(format!(
-                "{} is no longer there. Aegis will check again.",
+                "{} is no longer there. Cairn will check again.",
                 it.from
             )));
         }

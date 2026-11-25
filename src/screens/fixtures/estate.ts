@@ -129,5 +129,5 @@ export const PREVIEW_ESTATE_DASHBOARD: EstateDashboard = {
   r10_policy_summary:
     "Non-destructive policy (R10): A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
   r8_policy_summary:
-    "Multi-pass shredding disabled (R8): Aegis relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.",
+    "Multi-pass shredding disabled (R8): Cairn relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.",
 };

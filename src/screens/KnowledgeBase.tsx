@@ -1070,7 +1070,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 Meeting Audio Observation Is Off (`K4`)
               </h3>
               <p className="mx-auto mt-1 max-w-lg text-xs text-slate-400">
-                By default, Aegis never inspects audio or video recordings beyond file catalog
+                By default, Cairn never inspects audio or video recordings beyond file catalog
                 metadata. Enable opt-in audio observation to list local meeting recordings and pair
                 them with companion `.vtt` / `.srt` transcripts offline.
               </p>

@@ -13,9 +13,9 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
     zero_network_status:
       "Code-enforced offline engine: aegis-core, aegis-embed, and aegis-llm depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models` (R9).",
     firewall_command:
-      'New-NetFirewallRule -DisplayName "Aegis Guardian Block Outbound" -Direction Outbound -Program "$env:LOCALAPPDATA\\Programs\\Aegis Guardian\\aegis-desktop.exe" -Action Block',
+      'New-NetFirewallRule -DisplayName "Cairn Guardian Block Outbound" -Direction Outbound -Program "$env:LOCALAPPDATA\\Programs\\Cairn Guardian\\aegis-desktop.exe" -Action Block',
     shredding_policy:
-      "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Aegis purge performs clean normal OS unlinking.",
+      "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.",
     drives_encryption: [
       {
         mount_point: "C:\\",
@@ -54,7 +54,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
         label: "Browser History Ingestion",
         state: "off",
         rule_ref: "K4",
-        detail: "Off — Aegis never reads external browser history or profile cookies.",
+        detail: "Off — Cairn never reads external browser history or profile cookies.",
       },
       {
         id: "audio_transcripts",

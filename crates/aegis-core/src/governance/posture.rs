@@ -16,8 +16,8 @@ pub struct VaultPostureContext {
 }
 
 const ZERO_NETWORK_STATUS: &str = "Code-enforced offline engine: aegis-core, aegis-embed, and aegis-llm depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models` (R9).";
-const FIREWALL_COMMAND: &str = r#"New-NetFirewallRule -DisplayName "Aegis Guardian Block Outbound" -Direction Outbound -Program "$env:LOCALAPPDATA\Programs\Aegis Guardian\aegis-desktop.exe" -Action Block"#;
-const SHREDDING_POLICY: &str = "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Aegis purge performs clean normal OS unlinking.";
+const FIREWALL_COMMAND: &str = r#"New-NetFirewallRule -DisplayName "Cairn Guardian Block Outbound" -Direction Outbound -Program "$env:LOCALAPPDATA\Programs\Cairn Guardian\aegis-desktop.exe" -Action Block"#;
+const SHREDDING_POLICY: &str = "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.";
 
 /// Probes drive BitLocker protection status using Windows Shell non-admin properties (`R1`),
 /// gracefully falling back to `unknown_requires_admin` without requesting UAC elevation.
@@ -263,7 +263,7 @@ pub fn build_privacy_posture_with_drives(
             label: "Browser History Ingestion".into(),
             state: "off".into(),
             rule_ref: "K4".into(),
-            detail: "Off — Aegis never reads external browser history or profile cookies.".into(),
+            detail: "Off — Cairn never reads external browser history or profile cookies.".into(),
         },
         OptInCapabilityAudit {
             id: "audio_transcripts".into(),

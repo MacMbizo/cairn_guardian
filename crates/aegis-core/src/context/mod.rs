@@ -1,5 +1,5 @@
 //! Context layer (spec 2026-11-22-context-aware-filing-design §1A): before filing moves any single
-//! file, Aegis asks "what does this belong to?". The answer is a collection: a group of files that
+//! file, Cairn asks "what does this belong to?". The answer is a collection: a group of files that
 //! belong together, recognised by a module. Projects are the first module; sets and photo subjects
 //! build alongside them.
 //!

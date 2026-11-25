@@ -11,7 +11,7 @@ use ts_rs::TS;
 
 /// Days of history the forecast looks at.
 pub const WINDOW_DAYS: i64 = 28;
-/// Samples needed before Aegis predicts anything.
+/// Samples needed before Cairn predicts anything.
 pub const MIN_SAMPLES: usize = 7;
 /// Forecasts this far out are not worth mentioning.
 pub const SHOW_UNDER_WEEKS: f64 = 26.0;

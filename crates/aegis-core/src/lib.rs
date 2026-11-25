@@ -1,4 +1,4 @@
-//! Aegis Guardian core engine (`B4 v2.3.1`, `C1 v1.2`, `C4 v1.1`, `E4 v1.2`).
+//! Cairn Guardian core engine (`B4 v2.3.1`, `C1 v1.2`, `C4 v1.1`, `E4 v1.2`).
 
 pub mod assets;
 pub mod backup;

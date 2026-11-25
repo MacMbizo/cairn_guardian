@@ -28,7 +28,7 @@ struct Running;
 
 impl Running {
     fn start() -> Result<Self, IpcError> {
-        Self::start_with("Aegis is already looking for projects. It will be done in a moment.")
+        Self::start_with("Cairn is already looking for projects. It will be done in a moment.")
     }
 
     fn start_with(message: &str) -> Result<Self, IpcError> {
@@ -105,7 +105,7 @@ pub fn context_run_plan(
     volume_id: String,
     expected_digest: String,
 ) -> Result<PlanOutcome, IpcError> {
-    let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
+    let _running = Running::start_with("Cairn is busy with your projects. Try again in a moment.")?;
     let mut store = own_store(&state)?;
     let projects = map_err(list_collections_in(store.conn(), &PROJECT_LIST_KINDS))?;
     let stale = || IpcError {
@@ -141,7 +141,7 @@ pub fn context_run_reunite(
     volume_id: String,
     expected_digest: String,
 ) -> Result<PlanOutcome, IpcError> {
-    let _running = Running::start_with("Aegis is busy with your projects. Try again in a moment.")?;
+    let _running = Running::start_with("Cairn is busy with your projects. Try again in a moment.")?;
     let mut store = own_store(&state)?;
     let stale = || IpcError {
         code: "not_found".into(),

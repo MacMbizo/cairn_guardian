@@ -571,7 +571,7 @@ export function SystemCare({
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-800/50 bg-sky-950/20 px-4 py-2.5 text-xs text-sky-200">
             <span className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />
-              Aegis never cleans or edits the Windows Registry (R3). Uninstall launches each app&apos;s own Windows uninstaller; leftover folders go to 30-day quarantine.
+              Cairn never cleans or edits the Windows Registry (R3). Uninstall launches each app&apos;s own Windows uninstaller; leftover folders go to 30-day quarantine.
             </span>
             <button
               type="button"
@@ -697,7 +697,7 @@ export function SystemCare({
                 Windows Startup Items ({startup.length}, read-only)
               </h3>
               <p className="text-xs text-slate-400">
-                Per Rule R3, Aegis lists startup entries and flags missing/orphaned targets without modifying the Windows Registry. Switch items off in Windows Settings.
+                Per Rule R3, Cairn lists startup entries and flags missing/orphaned targets without modifying the Windows Registry. Switch items off in Windows Settings.
               </p>
             </div>
             <button

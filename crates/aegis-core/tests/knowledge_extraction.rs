@@ -538,7 +538,7 @@ fn llm_json_and_bullet_output_parser_ingests_pending_proposals() {
 
     let simulated_llm_output = r#"[
       {"type":"decision","name":"Keep embeddings encrypted in SQLCipher","summary":"Use sqlite-vec inside AES-256 vault","evidence_quote":"offline architecture"},
-      {"type":"action_item","name":"Profile llama3.2 RAM ceiling","assignee":"Thabo Ndlovu","due_date":"2026-12-15","project_hint":"Aegis"}
+      {"type":"action_item","name":"Profile llama3.2 RAM ceiling","assignee":"Thabo Ndlovu","due_date":"2026-12-15","project_hint":"Cairn"}
     ]"#;
     let cands = parse_llm_extraction_output(simulated_llm_output, "document");
     let upserted = ingest_llm_candidates(store.conn(), &fid, &cands, false).unwrap();

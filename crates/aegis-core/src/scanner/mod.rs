@@ -623,7 +623,7 @@ fn walk_root(
 }
 
 /// Retires index rows under `root` that were not seen in this pass (deleted or now ignored
-/// outside Aegis), except beneath directories/files that could not be read this time.
+/// outside Cairn), except beneath directories/files that could not be read this time.
 /// Returns the number of rows retired.
 fn sweep_unseen(
     conn: &Connection,
@@ -926,7 +926,7 @@ pub fn catalog_volume(
     Ok(result)
 }
 
-/// Scans that were still "running" when Aegis last stopped can never finish: marks them
+/// Scans that were still "running" when Cairn last stopped can never finish: marks them
 /// interrupted. Called once when the engine starts, before any job runs. Returns rows changed.
 pub fn mark_interrupted_jobs(conn: &rusqlite::Connection, now: i64) -> Result<usize> {
     Ok(conn.execute(
@@ -940,7 +940,7 @@ pub fn downloads_dir() -> Option<PathBuf> {
     known_folders().into_iter().next().filter(|p| p.is_dir())
 }
 
-/// The PC folders Aegis starts with (spec §7.8.1): Downloads, Documents, Desktop, Pictures, Music.
+/// The PC folders Cairn starts with (spec §7.8.1): Downloads, Documents, Desktop, Pictures, Music.
 pub fn default_root_paths() -> Vec<PathBuf> {
     known_folders()
         .into_iter()
@@ -1002,7 +1002,7 @@ pub fn seed_default_roots(store: &SqliteStore) -> Result<Vec<RootConfig>> {
     Ok(added)
 }
 
-/// True when live file-watching/indexing should skip `path` (immutable Aegis/OS folders,
+/// True when live file-watching/indexing should skip `path` (immutable Cairn/OS folders,
 /// Backup `_Previous versions`, `.git` metadata, and recognized build/cache directories such as
 /// `node_modules`, `.venv`, `venv`, `.gradle`, and Cargo `target`).
 pub fn is_live_excluded_path(path: &Path) -> bool {

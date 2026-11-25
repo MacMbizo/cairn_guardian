@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Aegis Guardian",
+  "productName": "Cairn Guardian",
   "version": "0.1.0",
   "identifier": "com.aegis.guardian",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Aegis Guardian",
+        "title": "Cairn Guardian",
         "width": 1280,
         "height": 840,
         "minWidth": 960,

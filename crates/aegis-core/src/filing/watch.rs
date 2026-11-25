@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// A file must be unchanged this long before it is filed.
 pub const SETTLE_MS: i64 = 600_000;
-/// Files Aegis first saw less than this long ago are left alone.
+/// Files Cairn first saw less than this long ago are left alone.
 pub const MIN_AGE_MS: i64 = 120_000;
 /// Waiting items that turn the weekly-note line into a reminder.
 pub const REMIND_AT: i64 = 20;

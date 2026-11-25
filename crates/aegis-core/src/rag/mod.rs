@@ -260,7 +260,7 @@ pub fn retrieve_rag_context(
         excluded_sensitive_count = excluded_sensitive_count.max(extra);
     }
 
-    let system_prompt = "You are Aegis Guardian's 100% offline local file assistant. Answer strictly and concisely using only the numbered local file excerpts below, citing sources inline like [1], [2]. If the excerpts do not contain enough information, state that clearly without guessing.".to_string();
+    let system_prompt = "You are Cairn Guardian's 100% offline local file assistant. Answer strictly and concisely using only the numbered local file excerpts below, citing sources inline like [1], [2]. If the excerpts do not contain enough information, state that clearly without guessing.".to_string();
 
     let mut context_blocks = String::new();
     for c in &citations {

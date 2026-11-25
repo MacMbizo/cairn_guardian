@@ -71,12 +71,12 @@ pub fn refuse_live_database(db: &Path, live: Option<&Path>) -> Result<()> {
     let target = canon(db).ok_or_else(|| crate::error::AegisError::NotFound(db.display().to_string()))?;
     if live.and_then(canon).is_some_and(|l| l == target) {
         return Err(crate::error::AegisError::InvalidInput(
-            "That is the live Aegis database. Copy it first and point the tool at the copy.".into(),
+            "That is the live Cairn database. Copy it first and point the tool at the copy.".into(),
         ));
     }
     if db.parent().is_some_and(|d| d.join("EBWebView").is_dir()) {
         return Err(crate::error::AegisError::InvalidInput(
-            "That database belongs to an Aegis data folder. Copy it somewhere else first.".into(),
+            "That database belongs to a Cairn data folder. Copy it somewhere else first.".into(),
         ));
     }
     Ok(())

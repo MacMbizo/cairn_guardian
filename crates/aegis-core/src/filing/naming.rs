@@ -1,10 +1,10 @@
-//! The naming scheme (spec §6): `<YYYY-MM-DD> <who/what> <type>.<ext>` for documents Aegis is
+//! The naming scheme (spec §6): `<YYYY-MM-DD> <who/what> <type>.<ext>` for documents Cairn is
 //! sure about, `<YYYY-MM-DD> <HH.MM.SS> Screenshot.<ext>` for screenshots, nothing for the rest.
 
 use super::Kind;
 use super::classify::{Classification, DateSource};
 
-/// Longest name Aegis gives a file, extension included.
+/// Longest name Cairn gives a file, extension included.
 pub const MAX_NAME: usize = 120;
 /// Date and type must both be at least this sure before a document is renamed.
 pub const RENAME_CONFIDENCE: f64 = 0.80;
@@ -120,7 +120,7 @@ fn screenshot_time(stem: &str, mtime: i64) -> String {
     format!("{:02}.{:02}.{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
 }
 
-/// The name Aegis would give this file, or `None` to keep its name.
+/// The name Cairn would give this file, or `None` to keep its name.
 pub fn proposed_name(c: &Classification, original_stem: &str, ext: &str, mtime: i64) -> Option<String> {
     let ext = ext.to_lowercase();
     let name = match c.kind {

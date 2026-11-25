@@ -75,7 +75,7 @@ impl Kind {
     }
 }
 
-/// What Aegis read and concluded about one file.
+/// What Cairn read and concluded about one file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct FileMeta {
@@ -382,7 +382,7 @@ pub struct ScopeStatus {
     pub scope: Scope,
     pub label: String,
     pub online: bool,
-    /// Share of files Aegis has read or classified, 0–1.
+    /// Share of files Cairn has read or classified, 0–1.
     pub read_pct: f64,
     pub blueprint: Option<BlueprintChoice>,
     pub open_batch: Option<String>,
@@ -396,7 +396,7 @@ pub struct ScopeStatus {
     pub remaining: i64,
     #[ts(type = "number")]
     pub to_sort: i64,
-    /// False when the drive is unplugged and Aegis has no counts for it yet.
+    /// False when the drive is unplugged and Cairn has no counts for it yet.
     pub counts_known: bool,
 }
 

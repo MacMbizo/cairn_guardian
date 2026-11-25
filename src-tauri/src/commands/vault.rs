@@ -143,7 +143,7 @@ pub fn vault_reveal_recovery_key(state: State<'_, AppState>) -> Result<RecoveryK
         return Err(AegisError::VaultLocked("Vault is locked.".into()).to_ipc());
     }
     let ok = map_err(verify_windows_user(
-        "Aegis Guardian — Recovery Key",
+        "Cairn Guardian — Recovery Key",
         "Confirm your Windows sign-in to display your 24-word offline recovery phrase.",
     ))?;
     if !ok {
@@ -208,7 +208,7 @@ pub fn vault_unlock_sensitive(state: State<'_, AppState>) -> Result<VaultStatus,
         return Err(AegisError::VaultLocked("Vault is locked.".into()).to_ipc());
     }
     let ok = map_err(verify_windows_user(
-        "Aegis Guardian — Sensitive Views",
+        "Cairn Guardian — Sensitive Views",
         "Confirm your Windows sign-in to reveal sensitive file previews for 15 minutes.",
     ))?;
     if !ok {

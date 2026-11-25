@@ -88,7 +88,7 @@ export const PREVIEW_HEAL_REPORT: HealScanReport = {
       sensitive: false,
       dismissed: false,
       reason:
-        "Target was moved into Aegis 30-day Quarantine; restore it instead of rewriting links (K2).",
+        "Target was moved into Cairn 30-day Quarantine; restore it instead of rewriting links (K2).",
     },
     {
       issue_key: "link:f6:112:125",

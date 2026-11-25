@@ -1,4 +1,4 @@
-# Handoff: Aegis Guardian
+# Handoff: Cairn Guardian
 
 Updated 2026-11-25 (**Capability #15: Digital Estate Management (5.3, reshaped R10)** — pure-Rust GF(256) $K$-of-$N$ Shamir secret splitting over `DbKey` with `blake3` checksums & non-secret DB metadata, `D3` trustee directory, `R2`/`R7` CredUI-gated sealed succession packets & offline Continuity Kit export, strictly non-destructive `R10` inactivity heartbeat, `estate_*` IPC, and `DigitalEstate` UI — built, verified, and fast-forward merged into `master`; all 15 North-Star roadmap capabilities are now complete). Read this first in a new chat.
 
@@ -9,7 +9,8 @@ Current state:
 - `master`: Projects 1–3, Context-aware filing Plans 1–5, **Plan 6A** (SQLCipher whole-store encryption, `sqlite-vec` 0.1.9, DPAPI `R2`, 24-word/64-hex recovery, `R7`, `R9`), **Plan 6B** (local pure-Rust `aegis-embed`, encrypted `vec_chunks`, hybrid FTS5+vector RRF search, context filtering/enrichment, AC-gated `EmbedWatch`), **Project 4** (System Care: cleanup/dead files under `system_care` quarantine policy guard, `R3` read-only Uninstall/Startup + Windows settings links + leftover folder quarantine, non-admin CIM `SmartHealthWatch`, 30d/90d volume & root growth trends, upgraded 5-dimension `health_breakdown`), **Capability #3 (Local RAG Engine)** (`aegis-llm`, `core::rag`, `rag_*` IPC, `Ask Files`), **Capability #6 (Forgotten Asset Recovery)** (`migrations/0010_forgotten_assets.sql`, `core::assets`, `assets_*` IPC, `Forgotten Assets`), **Capability #7 (Semantic Version Tracking)** (`migrations/0011_version_tracking.sql`, `core::versions`, `versions_*` IPC, `Version Tracking`), **Capability #8 (Automatic Knowledge Extraction)** (`migrations/0012_knowledge_extraction.sql`, `core::knowledge`, `knowledge_*` IPC, `Knowledge Base`), **Capability #9 (Autonomous Research Librarian)** (`migrations/0013_research_librarian.sql`, `core::librarian`, `librarian_*` IPC, `Research Librarian`), **Capability #10 (Cross-Project Intelligence)** (`migrations/0014_cross_project.sql`, `core::cross_project`, `cross_project_*` IPC, `Cross-Project`), **Capability #11 (AI Folderless Mode)** (`migrations/0015_folderless_intents.sql`, `core::folderless`, `folderless_*` IPC, `Folderless Rules`), **Capability #12 (Self-Healing Workspace)** (`migrations/0016_self_healing.sql`, `ActionType::PatchText`, `core::healing`, `healing_*` IPC, `Self-Healing`), **Capability #13 (Personal Data Governance)** (`migrations/0017_personal_data_governance.sql`, `core::governance`, `governance_*` IPC, `Data Governance`), **Capability #14 (AI Chief Digital Officer Agent)** (`migrations/0018_cdo_agent.sql`, `core::cdo`, `cdo_*` IPC, `Chief Digital Officer`), and **Capability #15 (Digital Estate Management)** (`migrations/0019_digital_estate.sql`, `core::estate`, `estate_*` IPC, `Digital Estate`), fast-forward merged from `feature/digital-estate` (not pushed).
 - `feature/digital-estate`, `feature/cdo-agent`, `feature/personal-data-governance`, `feature/self-healing-workspace`, `feature/folderless-mode`, `feature/cross-project-intelligence`, `feature/research-librarian`, `feature/knowledge-extraction`, `feature/semantic-version-tracking`, `feature/forgotten-asset-recovery`, `feature/local-rag`, `feature/system-care`, `feature/embeddings-hybrid-search`, `feature/d1-encryption-and-vec`, `feature/context-modules-step7`, `feature/put-back-together-and-learning`, & `feature/sets-and-photo-subjects`: merged into `master` (not pushed).
 - `checkpoint/pre-stabilization-2026-11-23` (`084e3d5`): rollback tag preserving pre-stabilization baseline plus parked UI refresh docs (`canonical/D1_Design_System_v1.0.md`, `canonical/D3_Critical_UX_Flows_v1.0.md`, `canonical/suite_reconciliation.md`, `design-system/`).
-- Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched.
+- Leave the two untracked owner docs (`canonical/Aegis Guardian Full PRD.md` and `canonical/local-intelligence-system-architecture.md`) uncommitted and untouched (they keep the old "Aegis" name).
+- **Rebrand to Cairn Guardian (2026-11-25, `feature/cairn-rebrand`):** All user-facing text (UI, tray, dialogs, Windows credential prompts, window title, `productName`, `index.html`, `package.json` name, generated TS doc comments, docs) says "Cairn". **Deliberately kept as `aegis` for compatibility** (renaming would orphan existing data or break installs): Rust crate/binary names (`aegis-core`, `aegis-embed`, `aegis-llm`, `aegis-desktop`), Tauri `identifier` `com.aegis.guardian` (app-data folder), `aegis.db` / `aegis.key.dpapi` / `aegis.vault.json`, the DPAPI entropy and magic bytes, `.aegis-quarantine`, `.aegis-partial` / `.aegis-tmp` / `.aegis-case` temp suffixes, the `Aegis Backup` folder on Backup drives, the `aegis://event` channel, `AegisEvent` / `AegisError` type names, the `aegis` client object in `src/bindings/client.ts`, and `AEGIS-SHARD-V1` shard tokens. A full crate/identifier rename with an on-disk data migration is a separate, optional future project.
 
 ## NEXT CHAT: do this first
 
@@ -40,7 +41,7 @@ Current state:
   - Prior Plan 5 live-DB dry run (`examples/filing_dry_run.rs` on a temporary read-only `VACUUM INTO` copy): `239` projects (`84` multi-location), `1` remaining ungathered design set (`MBIZO 1edited` on `D:`), `5` photo subjects, `18` software packages, `9` owner's folders, `4` resources, `52` series seasons, `2` old copies, **`249` plans in `18.8s` debug**.
 
 1. **Owner items still open:**
-   - app rename choice (another "eagis" / Aegis app exists).
+   - None. The app name is decided: **Cairn Guardian** (2026-11-25).
 2. **Note on `src/bindings/` and `node:sqlite`:**
    - Keep `canonical/D1_Design_System_v1.0.md` parked until core features finish.
    - `cargo test` writes LF line endings into `src/bindings/*.ts`; run `git checkout -f --` on unchanged bindings so only real binding diffs are committed.
@@ -230,7 +231,7 @@ clippy clean; `pnpm build` clean; Projects screen checked in the browser preview
 
 `canonical/local-intelligence-system-architecture.md` (the owner's; untracked, **never commit it**) describes the 14 backlog
 ideas below as one local-first "intelligence OS". Claude's review, given to the owner:
-- Treat it as the north star, mapped onto Aegis, not a restart: Aegis already has the USN journal (read **without** admin),
+- Treat it as the north star, mapped onto Cairn, not a restart: Cairn already has the USN journal (read **without** admin),
   SQLite store, idle-gated scheduler, content reader, batches with undo, duplicates, the janitor, and now the context layer.
 - Decide early (before more data piles up): encryption at rest and key handling. A key that needs Windows Hello would stop the
   tray engine (tripwire, backup) after a reboot; prefer a DPAPI/TPM-sealed key for the engine, biometrics only to open sensitive views.
@@ -250,7 +251,7 @@ Cross-Project Intelligence, Semantic Version Tracking, Dead File Detection, Forg
 Autonomous Research Librarian, Self-Healing Workspace, Context-Aware Search, Workspace Health Score, AI Chief Digital
 Officer Agent.
 
-- Each one was explained, with how it maps onto Aegis, in the last message of the design chat.
+- Each one was explained, with how it maps onto Cairn, in the last message of the design chat.
 - Most build on the context layer, so it comes first.
 - Not yet scheduled. Ask the owner which to design next once Plan 1 lands.
 
@@ -286,10 +287,10 @@ Officer Agent.
 1. **Dry run with the external drive (deferred item 14).** Plug in D:, copy `aegis.db`, run the dry-run tool on the copy.
    Report sample renames and the to-sort share; fix misclassifications test-first.
 2. **Try Filing on the PC**, starting with the Fresh structure; then Recent batches → Undo once to see it work.
-3. **Owner checks that need the installed build.** Quit the running `target\release` Aegis first. Then:
+3. **Owner checks that need the installed build.** Quit the running `target\release` Cairn first. Then:
    1. `pnpm tauri build`, then install the NSIS installer.
-   2. Notifications show under "Aegis Guardian"; clicking one opens the right screen, also from Action Center.
-   3. Ctrl+Shift+Space opens Search. After a reboot, Aegis starts in the tray with no window.
+   2. Notifications show under "Cairn Guardian"; clicking one opens the right screen, also from Action Center.
+   3. Ctrl+Shift+Space opens Search. After a reboot, Cairn starts in the tray with no window.
    4. Background memory with the window closed is at most 350 MB.
 4. **Phase 1 numbers.** Re-plug D: and report catalog time, fingerprint time, file count, duplicate groups, re-plug refresh mode and time.
 5. Then Project 4 (System care).
@@ -321,7 +322,7 @@ Officer Agent.
   - The scheduler also builds the weekly note, delivers reminders and sets the tray state.
 - **Reminders:**
   - "Now" reminders show at once.
-  - "When convenient" reminders: at most one a day, held while the owner is busy or Aegis is paused.
+  - "When convenient" reminders: at most one a day, held while the owner is busy or Cairn is paused.
   - Dismissing a kind of reminder 3 times moves it to the note.
   - Clicking or closing a notification counts as acting on it or as "not now".
 - **UI:**
@@ -342,7 +343,7 @@ Officer Agent.
 
 **From the Project 2 final review:**
 
-- The pending navigation slot gets set even when the window already exists, so a later "Open Aegis" can land on an old screen.
+- The pending navigation slot gets set even when the window already exists, so a later "Open Cairn" can land on an old screen.
 - The tray label hard-codes "Ctrl+Shift+Space". Saving an invalid shortcut also unregisters the working one.
 - `mark_interrupted_jobs` runs after the other threads have started (a small race at startup).
 - The installer-name matcher accepts a match on the first word alone for names of 3+ words, so it can mislabel an installer as "already installed".

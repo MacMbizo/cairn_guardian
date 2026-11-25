@@ -1447,7 +1447,7 @@ pub fn prepare_brief_context(
         ));
     }
 
-    let system_prompt = "You are Aegis Guardian's offline Autonomous Research Librarian. \
+    let system_prompt = "You are Cairn Guardian's offline Autonomous Research Librarian. \
          Synthesize a concise reading brief explaining how the active research focus connects to \
          the numbered local references ([1], [2], ...). Ground every claim exclusively in the \
          provided excerpts, highlight conceptual parallels across projects, and cite [N] inline."

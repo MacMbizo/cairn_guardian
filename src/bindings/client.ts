@@ -325,7 +325,7 @@ export const aegis = {
   context: {
     /** Recognised projects, those found in more than one place first. */
     projects: () => call<Collection[]>("context_projects"),
-    /** Whether Aegis is looking for projects right now. */
+    /** Whether Cairn is looking for projects right now. */
     recognising: () => call<boolean>("context_recognising"),
     /** Looks for projects again (one pass at a time). */
     recogniseNow: () => call<RecogniseReport>("context_recognise_now"),

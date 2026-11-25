@@ -38,7 +38,7 @@ function GroupCard({
       if (out.batch_id) {
         setMsg({ text: "Ready for your approval. Nothing has moved yet.", batch: true });
       } else {
-        setMsg({ text: "Got it. Aegis won't ask about these again." });
+        setMsg({ text: "Got it. Cairn won't ask about these again." });
         await onDone();
       }
     } catch (e) {
@@ -120,7 +120,7 @@ function GroupCard({
         <button type="button" disabled={busy} onClick={() => void answer({ choice: "keep_both" })} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs hover:bg-slate-800 disabled:opacity-40">
           Keep both
         </button>
-        {!hasBackupDrive && <span className="text-xs text-slate-500">Deletes go to quarantine for 30 days, and Aegis always keeps at least two copies.</span>}
+        {!hasBackupDrive && <span className="text-xs text-slate-500">Deletes go to quarantine for 30 days, and Cairn always keeps at least two copies.</span>}
         {msg && (
           <span role="status" className="text-xs text-slate-200">
             {msg.text}{" "}
@@ -162,7 +162,7 @@ export function DupeReview({ data, onReviewBatches }: { data: DrivesData; onRevi
         {answered > 0 && <span className="text-xs text-slate-500">{answered} already answered or safely backed up</span>}
       </div>
       {groups.length === 0 && (
-        <p className="text-xs text-slate-400">Catalog your drives and Aegis will group exact copies by folder, so you answer once per folder, not once per file.</p>
+        <p className="text-xs text-slate-400">Catalog your drives and Cairn will group exact copies by folder, so you answer once per folder, not once per file.</p>
       )}
       {groups.map((g) => (
         <GroupCard key={g.group_id} group={g} preview={data.preview} onDone={data.reload} onReviewBatches={onReviewBatches} />

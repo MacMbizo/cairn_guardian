@@ -29,7 +29,7 @@ pub const DAY_MS: i64 = 86_400_000;
 const HEARTBEAT_SETTING_KEY: &str = "estate.heartbeat_config";
 
 pub const R10_POLICY_SUMMARY: &str = "Non-destructive policy (R10): A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.";
-pub const R8_POLICY_SUMMARY: &str = "Multi-pass shredding disabled (R8): Aegis relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.";
+pub const R8_POLICY_SUMMARY: &str = "Multi-pass shredding disabled (R8): Cairn relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.";
 
 fn readiness_grade(score: f64) -> String {
     if score >= 90.0 {
@@ -910,14 +910,14 @@ pub fn export_estate_continuity_kit(
         "No active Shamir shard set recorded yet — check offline 24-word BIP-39 / 64-hex recovery key.".into()
     };
     let readme = format!(
-        "# Aegis Guardian — Trustee Recovery & Continuity Guide\n\n\
+        "# Cairn Guardian — Trustee Recovery & Continuity Guide\n\n\
          Exported: `{}`\n\n\
          ## Non-Destructive Guarantee (R10)\n\
          {R10_POLICY_SUMMARY}\n\n\
          ## Key & Backup Recovery\n\
          1. {quorum_line}\n\
-         2. Backup drives registered in Aegis: `{}` drive(s) (see `manifest.json`).\n\
-         3. Reassemble shards offline or inside Aegis Vault Unlock / Digital Estate -> Quorum Tester to recover the SQLCipher `aegis.db` encryption key.\n",
+         2. Backup drives registered in Cairn: `{}` drive(s) (see `manifest.json`).\n\
+         3. Reassemble shards offline or inside Cairn Vault Unlock / Digital Estate -> Quorum Tester to recover the SQLCipher `aegis.db` encryption key.\n",
         format_date_ms(now),
         backup_volumes.len()
     );

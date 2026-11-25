@@ -3,7 +3,7 @@ import type { DateSource } from "./DateSource";
 import type { Kind } from "./Kind";
 
 /**
- * What Aegis read and concluded about one file.
+ * What Cairn read and concluded about one file.
  */
 export type FileMeta = { file_id: string, kind: Kind, category: string | null, doc_type: string | null, who: string | null, 
 /**

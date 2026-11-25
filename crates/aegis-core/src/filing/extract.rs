@@ -41,7 +41,7 @@ const TEXT_TYPES: [&str; 13] = [
 const PHOTO_TYPES: [&str; 5] = ["jpg", "jpeg", "heic", "tif", "tiff"];
 const AUDIO_TYPES: [&str; 3] = ["mp3", "m4a", "flac"];
 
-/// True when Aegis can read something useful from files with this extension.
+/// True when Cairn can read something useful from files with this extension.
 pub fn readable(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     TEXT_TYPES.contains(&e.as_str()) || PHOTO_TYPES.contains(&e.as_str()) || AUDIO_TYPES.contains(&e.as_str())

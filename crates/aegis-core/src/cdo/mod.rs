@@ -20,7 +20,7 @@ use crate::engine::Screen;
 use crate::folderless::FolderlessRuleInput;
 use crate::governance::GovernancePrivacyRuleInput;
 
-/// Five executive pillars scored across Aegis subsystems.
+/// Five executive pillars scored across Cairn subsystems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]

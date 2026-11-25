@@ -52,7 +52,7 @@ export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: Dri
           </button>
         </div>
         {drives.length === 0 ? (
-          <p className="text-xs text-slate-400">Plug in an external drive and Aegis will recognise it.</p>
+          <p className="text-xs text-slate-400">Plug in an external drive and Cairn will recognise it.</p>
         ) : (
           <ul className="space-y-2">
             {drives.map((d) => {

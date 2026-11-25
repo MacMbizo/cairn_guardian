@@ -272,7 +272,7 @@ export function EngineSettings({
 
   const handleCopyBundle = async () => {
     if (!bundle) return;
-    const text = `Aegis Guardian Recovery Key (${bundle.fingerprint})\n${bundle.words.map((w, i) => `${i + 1}. ${w}`).join(" ")}\nHex: ${bundle.hex}`;
+    const text = `Cairn Guardian Recovery Key (${bundle.fingerprint})\n${bundle.words.map((w, i) => `${i + 1}. ${w}`).join(" ")}\nHex: ${bundle.hex}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -378,7 +378,7 @@ export function EngineSettings({
         <label className="flex items-center justify-between gap-3 text-sm">
           <span>
             Start with Windows
-            <span className="block text-xs text-slate-400">Aegis sits in the tray and keeps watching. Closing the window doesn't stop it.</span>
+            <span className="block text-xs text-slate-400">Cairn sits in the tray and keeps watching. Closing the window doesn't stop it.</span>
           </span>
           <input
             type="checkbox"
@@ -532,7 +532,7 @@ export function EngineSettings({
                   Save your 24-word offline recovery key
                 </p>
                 <p className="mt-1 text-amber-100/80">
-                  Write these words down offline or save them in a password manager. Aegis unlocks unattended on this Windows account via DPAPI, so you only need this phrase if you move your database or reset Windows.
+                  Write these words down offline or save them in a password manager. Cairn unlocks unattended on this Windows account via DPAPI, so you only need this phrase if you move your database or reset Windows.
                 </p>
 
                 {bundle ? (
@@ -950,7 +950,7 @@ export function EngineSettings({
 
       <section aria-label="Reminders moved to your note" className={card}>
         <h2 className="mb-1 text-sm font-semibold">Reminders moved to your note</h2>
-        <p className="mb-3 text-xs text-slate-400">When you wave away the same kind of reminder three times, Aegis stops popping it up and puts it in your weekly note instead.</p>
+        <p className="mb-3 text-xs text-slate-400">When you wave away the same kind of reminder three times, Cairn stops popping it up and puts it in your weekly note instead.</p>
         {status.demoted.length === 0 ? (
           <p className="text-xs text-slate-400">None.</p>
         ) : (

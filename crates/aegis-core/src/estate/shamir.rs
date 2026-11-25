@@ -178,7 +178,7 @@ pub fn parse_shard(token: &str) -> Result<ParsedShard> {
     let parts: Vec<&str> = token.trim().split(':').collect();
     if parts.len() != 6 || parts[0] != SHARD_PREFIX {
         return Err(AegisError::InvalidInput(
-            "Invalid Aegis shard format (expected AEGIS-SHARD-V1:...).".into(),
+            "Invalid Cairn shard format (expected AEGIS-SHARD-V1:...).".into(),
         ));
     }
     let shard_set_id = parts[1].trim().to_string();

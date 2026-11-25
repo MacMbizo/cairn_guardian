@@ -1,6 +1,6 @@
 //! Migration batches (spec §8): the plan is cut into approvable batches of at most 500 moves,
 //! one folder and destination at a time, one batch per scope at a time. After a batch runs,
-//! Aegis remembers where every file used to be, re-indexes moved folders, tidies up folders it
+//! Cairn remembers where every file used to be, re-indexes moved folders, tidies up folders it
 //! emptied, and teaches the rules what the owner approved or turned down.
 
 use super::blueprint::{Placement, Target, plan, scope_roots};
@@ -59,9 +59,9 @@ pub fn plain_reason(raw: &str) -> String {
     if has("atomic_unit_boundary") {
         "It's inside a code project, which is kept whole".into()
     } else if has("outside_configured_roots") {
-        "It's outside the folders Aegis looks after".into()
+        "It's outside the folders Cairn looks after".into()
     } else if has("protected_aegis_internal") {
-        "It's one of Aegis's own files".into()
+        "It's one of Cairn's own files".into()
     } else if has("isn't plugged in") || has("offline") || has("isn't") && has("any more") {
         "The drive was unplugged".into()
     } else if has("moved since") || has("not found") || has("not_found") || has("cannot find") || has("no longer") || has("os error 2") || has("os error 3") {
@@ -223,7 +223,7 @@ fn root_of<'a>(roots: &'a [String], path: &str) -> Option<&'a String> {
     roots.iter().filter(|r| path_is_within(path, r, false)).max_by_key(|r| r.len())
 }
 
-/// A planned move Aegis would still offer: it goes somewhere, is sure, and wasn't turned down.
+/// A planned move Cairn would still offer: it goes somewhere, is sure, and wasn't turned down.
 fn offerable(p: &Placement, declined: &HashSet<String>) -> bool {
     p.to.is_some() && !p.to_sort && !declined.contains(&p.from.to_lowercase())
 }

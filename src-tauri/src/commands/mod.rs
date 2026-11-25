@@ -180,7 +180,7 @@ pub(crate) fn lock_store<'r>(
     if state.vault_locked.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(IpcError {
             code: "vault_locked".into(),
-            message: "Enter your 24-word recovery key to unlock the Aegis database.".into(),
+            message: "Enter your 24-word recovery key to unlock the Cairn database.".into(),
             retryable: true,
             remediation: None,
         });

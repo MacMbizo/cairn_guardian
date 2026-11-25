@@ -133,7 +133,7 @@ impl AegisError {
                 code: "drive_mismatch".into(),
                 message: msg.clone(),
                 retryable: true,
-                remediation: Some("Plug the right drive back in, let Aegis recognise it, then try again.".into()),
+                remediation: Some("Plug the right drive back in, let Cairn recognise it, then try again.".into()),
             },
             Self::SurvivorUnavailable(msg) => IpcError {
                 code: "survivor_unavailable".into(),

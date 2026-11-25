@@ -556,7 +556,7 @@ pub fn build_intent_llm_prompt(
     intent_text: &str,
     deterministic: &CompiledIntentDraft,
 ) -> (String, String) {
-    let sys = "You compile plain-language file organization rules into JSON for Aegis Guardian. \
+    let sys = "You compile plain-language file organization rules into JSON for Cairn Guardian. \
                Respond with ONLY a single JSON object with optional keys: \
                name, match_doc_types (array), match_keywords (array), match_orgs (array), \
                path_template (using only {year}, {quarter}, {month}, {org}, {doc_type}, {project}, {ext}), \

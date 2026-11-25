@@ -135,7 +135,7 @@ export function PlugBanner({ onOpen, preview = false }: { onOpen: (tab: DrivesTa
             </span>
           ) : (
             <span>
-              New drive <strong>{banner.label}</strong>. A quick catalog lets Aegis find duplicates and remember what's on it.
+              New drive <strong>{banner.label}</strong>. A quick catalog lets Cairn find duplicates and remember what's on it.
             </span>
           )}
         </span>
@@ -181,7 +181,7 @@ export function PlugBanner({ onOpen, preview = false }: { onOpen: (tab: DrivesTa
             </span>
           ) : (
             <span>
-              <strong>Backup of {banner.name} is paused</strong> because lots of files there changed at once. Check them, then tell Aegis if it was you.
+              <strong>Backup of {banner.name} is paused</strong> because lots of files there changed at once. Check them, then tell Cairn if it was you.
             </span>
           )}
         </span>

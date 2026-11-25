@@ -64,7 +64,7 @@ struct ContentAnchors {
     amount: Option<String>,
 }
 
-/// Validates a rule destination root (`K4`, protected OS folders, no `..` traversal or Aegis internals).
+/// Validates a rule destination root (`K4`, protected OS folders, no `..` traversal or Cairn internals).
 pub fn validate_dest_root(dest_root: &str) -> Result<()> {
     let trimmed = dest_root.trim();
     if trimmed.is_empty() {
@@ -80,7 +80,7 @@ pub fn validate_dest_root(dest_root: &str) -> Result<()> {
     }
     if path_contains_aegis_internal(p) {
         return Err(AegisError::PermissionDenied(
-            "Destination root cannot point into Aegis internal directories.".into(),
+            "Destination root cannot point into Cairn internal directories.".into(),
         ));
     }
     let sys_temp = std::env::temp_dir().to_string_lossy().to_string();

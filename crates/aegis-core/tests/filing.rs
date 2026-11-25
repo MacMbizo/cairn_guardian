@@ -1430,7 +1430,7 @@ fn run_report_gives_a_plain_reason_per_failed_item_and_counts_skipped() {
     assert_eq!(plain_reason("Data isn't plugged in."), "The drive was unplugged");
     assert_eq!(plain_reason("policy_blocked:atomic_unit_boundary"), "It's inside a code project, which is kept whole");
     assert_eq!(plain_reason("This file has moved since the change was proposed. Propose it again."), "It was moved or deleted since");
-    assert_eq!(plain_reason("policy_blocked:outside_configured_roots"), "It's outside the folders Aegis looks after");
+    assert_eq!(plain_reason("policy_blocked:outside_configured_roots"), "It's outside the folders Cairn looks after");
     assert_eq!(plain_reason("Access is denied. (os error 5)"), "Windows refused (Access is denied. (os error 5))");
 }
 
@@ -1637,7 +1637,7 @@ fn a_moved_folder_whose_drive_vanished_keeps_its_index() {
     let b = next_batch(&mut s, &scope).unwrap().unwrap();
     approve_batch(&mut s, &b, None).unwrap();
     execute_batch(&mut s, &b).unwrap();
-    // The drive disappears before Aegis records the move.
+    // The drive disappears before Cairn records the move.
     std::fs::rename(&mount, mount.with_extension("gone")).unwrap();
     after_execute(&mut s, &b).unwrap();
     let live: i64 = s.conn().query_row("SELECT COUNT(*) FROM files WHERE deleted_at IS NULL AND name LIKE '%Lesson%'", [], |r| r.get(0)).unwrap();

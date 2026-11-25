@@ -101,10 +101,10 @@ fn icon(state: TrayState) -> Option<Image<'static>> {
 /// Owner-facing tooltip for the tray icon.
 pub fn tooltip(state: TrayState, waiting: usize) -> String {
     match state {
-        TrayState::Calm => "Aegis: all calm".into(),
-        TrayState::Waiting if waiting == 1 => "Aegis: 1 thing waiting".into(),
-        TrayState::Waiting => format!("Aegis: {waiting} things waiting"),
-        TrayState::Urgent => "Aegis: needs you now".into(),
+        TrayState::Calm => "Cairn: all calm".into(),
+        TrayState::Waiting if waiting == 1 => "Cairn: 1 thing waiting".into(),
+        TrayState::Waiting => format!("Cairn: {waiting} things waiting"),
+        TrayState::Urgent => "Cairn: needs you now".into(),
     }
 }
 
@@ -125,7 +125,7 @@ pub struct TrayItems {
 }
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<TrayItems> {
-    let open = MenuItem::with_id(app, "open", "Open Aegis", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Cairn", true, None::<&str>)?;
     let search = MenuItem::with_id(app, "search", "Search everywhere (Ctrl+Shift+Space)", true, None::<&str>)?;
     let week = MenuItem::with_id(app, "week", "This week's note", true, None::<&str>)?;
     let backup_now = MenuItem::with_id(app, "backup_now", "Back up now", false, None::<&str>)?;
@@ -139,7 +139,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<TrayItems> {
             &MenuItem::with_id(app, "pause_resume", "Resume", true, None::<&str>)?,
         ],
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Aegis", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Cairn", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &search, &week, &sep, &backup_now, &pause, &sep2, &quit])?;
@@ -180,7 +180,7 @@ pub fn set_pause(app: &AppHandle, mode: &str) {
     crate::engine_host::wake(app);
 }
 
-/// The first time the window is closed, explain where Aegis went.
+/// The first time the window is closed, explain where Cairn went.
 pub fn first_close_hint(app: &AppHandle) {
     let state = app.state::<AppState>();
     let Ok(store) = state.store.lock() else { return };
@@ -189,7 +189,7 @@ pub fn first_close_hint(app: &AppHandle) {
     }
     let _ = store.set_setting("engine.close_hint_shown", "global", "true");
     drop(store);
-    crate::engine_host::toast(app, "Aegis keeps watching in the tray", "Right-click it to quit.", Screen::Home, None);
+    crate::engine_host::toast(app, "Cairn keeps watching in the tray", "Right-click it to quit.", Screen::Home, None);
 }
 
 /// Registers the global search shortcut; returns whether Windows accepted it.
@@ -234,8 +234,8 @@ mod tests {
 
     #[test]
     fn tooltip_copy() {
-        assert_eq!(tooltip(TrayState::Calm, 0), "Aegis: all calm");
-        assert_eq!(tooltip(TrayState::Waiting, 2), "Aegis: 2 things waiting");
-        assert_eq!(tooltip(TrayState::Urgent, 1), "Aegis: needs you now");
+        assert_eq!(tooltip(TrayState::Calm, 0), "Cairn: all calm");
+        assert_eq!(tooltip(TrayState::Waiting, 2), "Cairn: 2 things waiting");
+        assert_eq!(tooltip(TrayState::Urgent, 1), "Cairn: needs you now");
     }
 }

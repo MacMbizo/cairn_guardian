@@ -267,7 +267,7 @@ fn propose_to_backup(store: &mut SqliteStore, items: &[ToBackup<'_>], backup_id:
             return Err(AegisError::PolicyBlocked {
                 rule: "min_copies".into(),
                 detail: format!(
-                    "Aegis keeps at least {} copies of every file; with the deletes already waiting for approval, this would leave fewer.",
+                    "Cairn keeps at least {} copies of every file; with the deletes already waiting for approval, this would leave fewer.",
                     crate::dupes::MIN_COPIES
                 ),
             });

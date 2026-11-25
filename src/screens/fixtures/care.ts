@@ -144,12 +144,12 @@ export const PREVIEW_LEFTOVERS: LeftoverFolder[] = [
 
 export const PREVIEW_STARTUP: StartupEntry[] = [
   {
-    id: "hkcu_run:Aegis",
-    name: "Aegis Guardian",
-    command: "\"C:\\Program Files\\Aegis Guardian\\aegis-desktop.exe\" --minimized",
+    id: "hkcu_run:Cairn",
+    name: "Cairn Guardian",
+    command: "\"C:\\Program Files\\Cairn Guardian\\aegis-desktop.exe\" --minimized",
     source: "User Run (HKCU)",
     enabled: true,
-    target_path: "C:\\Program Files\\Aegis Guardian\\aegis-desktop.exe",
+    target_path: "C:\\Program Files\\Cairn Guardian\\aegis-desktop.exe",
     target_exists: true,
     orphaned: false,
     impact_hint: "Starts automatically when you sign in.",

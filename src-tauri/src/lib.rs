@@ -393,9 +393,9 @@ pub fn run() {
             commands::engine::engine_debug_raise,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Aegis Guardian");
+        .expect("error while building Cairn Guardian");
     app.run(|_app, event| {
-        // Closing the last window keeps Aegis running in the tray; only "Quit Aegis" exits.
+        // Closing the last window keeps Cairn running in the tray; only "Quit Cairn" exits.
         if let RunEvent::ExitRequested { code: None, api, .. } = event {
             api.prevent_exit();
         }

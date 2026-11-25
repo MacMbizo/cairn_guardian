@@ -2,7 +2,7 @@
 //!
 //! One row per `(kind, subject)`, refreshed each time a watch re-raises it. Now-level rows
 //! notify at once (repeating at most daily); Convenient rows share a cap of one notification a
-//! day and wait while the owner is busy or Aegis is paused. Dismissing a Convenient kind three
+//! day and wait while the owner is busy or Cairn is paused. Dismissing a Convenient kind three
 //! times in a row demotes it to the weekly note.
 
 use super::{Finding, FindingAction, Level};

@@ -1097,7 +1097,7 @@ pub fn prepare_cdo_briefing_prompt(
         )
     };
 
-    let system_prompt = "You are Aegis Guardian's local Chief Digital Officer (CDO) Agent. Synthesize a crisp, practical executive memo grounded strictly in the numbered workspace facts provided. Cite evidence with [1], [2], etc. Never claim screen monitoring or autonomous file changes outside K1 owner ratification.".to_string();
+    let system_prompt = "You are Cairn Guardian's local Chief Digital Officer (CDO) Agent. Synthesize a crisp, practical executive memo grounded strictly in the numbered workspace facts provided. Cite evidence with [1], [2], etc. Never claim screen monitoring or autonomous file changes outside K1 owner ratification.".to_string();
     let user_prompt = format!(
         "Workspace Executive Horizon: {} days\nOverall Executive Score: {}/100 ({})\nObservation Policy: {}\n\nGrounded Evidence:\n{}\nWrite: (1) Executive Summary, (2) Key Bottlenecks, (3) Recommended Next Actions for the Owner.",
         dash.velocity.horizon_days,

@@ -173,7 +173,7 @@ pub fn engine_debug_raise(app: AppHandle, state: State<'_, AppState>, level: Str
             kind: "debug".into(),
             subject: format!("debug-{level}"),
             level: lvl,
-            title: "Test reminder from Aegis".into(),
+            title: "Test reminder from Cairn".into(),
             detail: "Click to open This week.".into(),
             bytes: None,
             action: FindingAction::Open { screen: Screen::Week },

@@ -7,6 +7,6 @@ export type Placement = { target: Target, from: string,
  */
 to: string | null, new_name: string | null, confidence: number, reason: string, rule_key: string | null, 
 /**
- * Aegis isn't sure: the owner picks a place.
+ * Cairn isn't sure: the owner picks a place.
  */
 to_sort: boolean, bytes: number, };

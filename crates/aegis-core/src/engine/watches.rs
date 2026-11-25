@@ -229,7 +229,7 @@ impl Watch for SelfCheckWatch {
                             kind: "engine_health".into(),
                             subject: "db_size".into(),
                             level: Level::Note,
-                            title: format!("Aegis's database grew {pct}% this week"),
+                            title: format!("Cairn's database grew {pct}% this week"),
                             detail: format!("It's now {}.", bytes_text(size)),
                             bytes: Some(size),
                             action: FindingAction::None,
@@ -327,7 +327,7 @@ impl Watch for TripwireLockWatch {
                     .unwrap_or_else(|| {
                         (
                             format!("Backup of {name} is paused"),
-                            "Lots of files there changed at once. Check them, then tell Aegis if it was you.".into(),
+                            "Lots of files there changed at once. Check them, then tell Cairn if it was you.".into(),
                         )
                     });
                 Finding {

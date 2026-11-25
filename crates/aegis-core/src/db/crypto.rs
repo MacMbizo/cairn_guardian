@@ -243,7 +243,7 @@ pub fn seal_key_to_file(key: &DbKey, path: &Path) -> Result<()> {
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
     };
 
-    let descr: Vec<u16> = "Aegis Guardian Database Key\0".encode_utf16().collect();
+    let descr: Vec<u16> = "Cairn Guardian Database Key\0".encode_utf16().collect();
     let data_in = CRYPT_INTEGER_BLOB {
         cbData: 32,
         pbData: key.0.as_ptr() as *mut u8,
@@ -658,7 +658,7 @@ pub fn open_or_migrate_encrypted(db_path: &Path) -> Result<VaultOpenResult> {
 
     if !key_file.is_file() {
         return Ok(VaultOpenResult::NeedsRecoveryKey {
-            reason: "This Aegis database is encrypted and has no sealed key on this PC. Enter your 24-word recovery phrase or 64-character hex key.".into(),
+            reason: "This Cairn database is encrypted and has no sealed key on this PC. Enter your 24-word recovery phrase or 64-character hex key.".into(),
         });
     }
 

@@ -1,4 +1,4 @@
-//! The weekly note (spec §9): one calm page a week saying what Aegis did, what needs the
+//! The weekly note (spec §9): one calm page a week saying what Cairn did, what needs the
 //! owner (at most three things), how safe their files are, and where space is going.
 //!
 //! A note is keyed by the date of the note day it belongs to ("2026-11-22"). It's due once that

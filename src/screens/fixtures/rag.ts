@@ -41,7 +41,7 @@ export function previewRagAnswer(question: string): RagAnswer {
     request_id: `preview-${Date.now()}`,
     question,
     answer:
-      "Preview mode: in the desktop app, Aegis retrieves top hybrid excerpts from your SQLCipher-encrypted index (excluding quarantined, deleted, and locked sensitive files) and streams an offline Candle GGUF or built-in extractive answer with inline [1] citations.",
+      "Preview mode: in the desktop app, Cairn retrieves top hybrid excerpts from your SQLCipher-encrypted index (excluding quarantined, deleted, and locked sensitive files) and streams an offline Candle GGUF or built-in extractive answer with inline [1] citations.",
     citations: [
       {
         ref_id: 1,

@@ -1,4 +1,4 @@
-//! Organisations Aegis recognises in documents (spec §7.3): a built-in list of common South
+//! Organisations Cairn recognises in documents (spec §7.3): a built-in list of common South
 //! African and international names, plus names the owner has approved before.
 
 /// `(display name, names to look for)`. Matching is case-insensitive on word boundaries.
