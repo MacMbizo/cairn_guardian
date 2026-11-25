@@ -38,6 +38,8 @@ import {
   Unlock,
   Usb,
   Wand2,
+  Hand,
+  WifiOff,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -665,29 +667,55 @@ export default function App() {
     return Array.from(map.entries());
   }, [actions]);
 
-  const navItems: { id: TabId; label: string; icon: typeof ShieldCheck }[] = [
-    { id: "dashboard", label: "Home", icon: HardDrive },
-    { id: "week", label: "This week", icon: NotebookText },
-    { id: "drives", label: "Drives & Backup", icon: Usb },
-    { id: "dupes", label: "Duplicates", icon: CopyCheck },
-    { id: "filing", label: "Filing", icon: FolderTree },
-    { id: "search", label: "Search (Ctrl+K)", icon: Search },
-    { id: "ask", label: "Ask Files", icon: MessageSquareText },
-    { id: "assets", label: "Forgotten Assets", icon: Compass },
-    { id: "versions", label: "Version Tracking", icon: GitBranch },
-    { id: "knowledge", label: "Knowledge Base", icon: Brain },
-    { id: "librarian", label: "Research Librarian", icon: BookOpen },
-    { id: "cross_project", label: "Cross-Project", icon: Network },
-    { id: "folderless", label: "Folderless Rules", icon: Wand2 },
-    { id: "healing", label: "Self-Healing", icon: Wrench },
-    { id: "governance", label: "Data Governance", icon: ShieldCheck },
-    { id: "cdo", label: "Chief Digital Officer", icon: Gauge },
-    { id: "estate", label: "Digital Estate", icon: ScrollText },
-    { id: "care", label: "System Care", icon: HeartPulse },
-    { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
-    { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
-    { id: "doctor", label: "Cairn Doctor", icon: Stethoscope },
-    { id: "settings", label: "Settings", icon: SlidersHorizontal },
+  type NavItem = { id: TabId; label: string; icon: typeof ShieldCheck };
+  const navGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: "Today",
+      items: [
+        { id: "dashboard", label: "Home", icon: HardDrive },
+        { id: "week", label: "This week", icon: NotebookText },
+        { id: "cdo", label: "Chief Digital Officer", icon: Gauge },
+      ],
+    },
+    {
+      title: "Find",
+      items: [
+        { id: "search", label: "Search", icon: Search },
+        { id: "ask", label: "Ask Files", icon: MessageSquareText },
+        { id: "knowledge", label: "Knowledge Base", icon: Brain },
+        { id: "librarian", label: "Research Librarian", icon: BookOpen },
+        { id: "cross_project", label: "Cross-Project", icon: Network },
+      ],
+    },
+    {
+      title: "Organise",
+      items: [
+        { id: "filing", label: "Filing", icon: FolderTree },
+        { id: "folderless", label: "Folderless Rules", icon: Wand2 },
+        { id: "dupes", label: "Duplicates", icon: CopyCheck },
+        { id: "versions", label: "Version Tracking", icon: GitBranch },
+        { id: "assets", label: "Forgotten Assets", icon: Compass },
+        { id: "healing", label: "Self-Healing", icon: Wrench },
+      ],
+    },
+    {
+      title: "Protect",
+      items: [
+        { id: "drives", label: "Drives & Backup", icon: Usb },
+        { id: "rescue", label: "Quarantine", icon: Archive },
+        { id: "governance", label: "Data Governance", icon: ShieldCheck },
+        { id: "estate", label: "Digital Estate", icon: ScrollText },
+      ],
+    },
+    {
+      title: "Maintain",
+      items: [
+        { id: "care", label: "System Care", icon: HeartPulse },
+        { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
+        { id: "doctor", label: "Cairn Doctor", icon: Stethoscope },
+        { id: "settings", label: "Settings", icon: SlidersHorizontal },
+      ],
+    },
   ];
 
   if (vaultLocked) {
@@ -739,9 +767,9 @@ export default function App() {
       {/* Left Navigation Rail */}
       <aside
         aria-label="Primary Navigation"
-        className="flex w-64 flex-col border-r border-slate-800 bg-slate-900/70 p-4"
+        className="flex h-screen w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-900/70 p-4"
       >
-        <div className="mb-6 flex items-center gap-2.5 px-2">
+        <div className="mb-5 flex items-center gap-2.5 px-2">
           <CairnMark className="h-8 w-8 shrink-0" />
           <div>
             <h1 className="text-sm font-semibold tracking-wide text-slate-50">
@@ -751,41 +779,60 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = tab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setTab(item.id)}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                  active
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : "text-slate-300 hover:bg-slate-800/70"
-                }`}
-              >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
+        <nav aria-label="Sections" className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
+          {navGroups.map((group) => (
+            <div key={group.title} className="mb-3">
+              <h2 className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {group.title}
+              </h2>
+              <ul className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.id;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => setTab(item.id)}
+                        aria-current={active ? "page" : undefined}
+                        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+                          active
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : "text-slate-300 hover:bg-slate-800/70 hover:text-slate-100"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {item.id === "search" && (
+                          <kbd className="rounded border border-slate-700 px-1 font-mono text-[10px] text-slate-500">Ctrl K</kbd>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
-        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
-          <div className="flex items-center justify-between text-slate-300">
+        {/* Ambient trust rail (D1 §3.4): what Cairn is doing with your data, at a glance. */}
+        <div className="mt-3 space-y-1.5 border-t border-slate-800 pt-3 text-xs">
+          <p className="flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-slate-300">
+            <WifiOff className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden="true" />
+            Offline · nothing leaves this PC
+          </p>
+          <p className="flex items-center justify-between gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-slate-300">
             <span className="flex items-center gap-1.5">
-              <Cpu className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
-              Hardware Profile
+              <Cpu className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden="true" />
+              Hardware profile
             </span>
-            <span className="rounded bg-slate-800 px-1.5 py-0.5 font-semibold uppercase text-emerald-300">
-              {hwProfile}
+            <span className="font-semibold uppercase text-emerald-300">{hwProfile}</span>
+          </p>
+          <p className="flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-slate-300">
+            <Hand className="h-3.5 w-3.5 shrink-0 text-amber-300" aria-hidden="true" />
+            <span>
+              Autonomy: <strong className="text-slate-100">Suggest only</strong>
             </span>
-          </div>
-          <p className="mt-1.5 text-slate-400">
-            Autonomy: <strong className="text-slate-200">Suggest only</strong>
-            <span className="block">Backups run by themselves once you allow it.</span>
           </p>
         </div>
       </aside>
