@@ -168,7 +168,7 @@ fn normalized_parent_dir(path: &str) -> String {
 fn ensure_sensitive_allowed(include_sensitive: bool, reveal_sensitive: bool) -> Result<()> {
     if include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Unlock sensitive previews with Windows authentication before including confidential or secret documents in the Research Librarian (R7)."
+            "Unlock sensitive previews with Windows authentication before including confidential or secret documents in the Research Librarian."
                 .into(),
         ));
     }
@@ -1070,7 +1070,7 @@ pub fn find_related_for_file(
     };
     if is_sensitive(&source_row.sensitivity) && !allow_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Unlock sensitive previews with Windows authentication before researching confidential or secret files (R7)."
+            "Unlock sensitive previews with Windows authentication before researching confidential or secret files."
                 .into(),
         ));
     }
@@ -1377,7 +1377,7 @@ pub fn prepare_brief_context(
         };
         if is_sensitive(&row.sensitivity) && !allow_sensitive {
             return Err(AegisError::PermissionDenied(
-                "Unlock sensitive previews with Windows authentication before synthesizing a brief from confidential files (R7)."
+                "Unlock sensitive previews with Windows authentication before synthesizing a brief from confidential files."
                     .into(),
             ));
         }
@@ -1412,7 +1412,7 @@ pub fn prepare_brief_context(
         };
         if is_sensitive(&row.sensitivity) && !allow_sensitive {
             return Err(AegisError::PermissionDenied(
-                "Unlock sensitive previews with Windows authentication before synthesizing a brief that includes confidential references (R7)."
+                "Unlock sensitive previews with Windows authentication before synthesizing a brief that includes confidential references."
                     .into(),
             ));
         }

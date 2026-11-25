@@ -204,10 +204,10 @@ export function DataGovernance({
         fileIds,
         targetSensitivity: targetSens,
         findingIds: [finding.id],
-        reason: `Protect ${finding.finding_type} as ${targetSens} (R7)`,
+        reason: `Protect ${finding.finding_type} as ${targetSens}`,
       });
       setNotice(
-        `Marked ${batch.file_count} file(s) as ${targetSens} & vaulted finding (reversible K1 batch ${batch.id.slice(0, 8)}).`
+        `Marked ${batch.file_count} file(s) as ${targetSens} and filed the finding as protected. You can undo this (batch ${batch.id.slice(0, 8)}).`
       );
       await loadDashboard();
     } catch (err) {
@@ -230,7 +230,7 @@ export function DataGovernance({
         includeSensitive
       );
       setNotice(
-        `Staged 30-day Quarantine batch ${batchId.slice(0, 8)} in Simulator for review (K1/K2/R8).`
+        `Staged 30-day Quarantine batch ${batchId.slice(0, 8)} is ready to review in the Simulator.`
       );
       await loadDashboard();
     } catch (err) {
@@ -361,13 +361,13 @@ export function DataGovernance({
             <ShieldCheck className="h-5 w-5 text-emerald-400" />
             <h1 className="text-lg font-semibold">Personal Data Governance</h1>
             <span className="rounded border border-emerald-800/50 bg-emerald-950/70 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-              D1 SQLCipher · R7 CredUI · R8 BitLocker · R9 Offline
+              Encrypted catalog · Windows unlock · BitLocker · Offline
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Detects exposed PII, payment cards, tax IDs, and API credentials purely in Rust without
+            Detects exposed PII, payment cards, tax IDs, and API credentials on this PC without
             storing raw secrets. Sensitive documents stay findable in your local index while hiding
-            previews and excluding them from AI prompts until Windows user verification (R7).
+            previews and excluding them from AI prompts until you unlock them with Windows.
           </p>
         </div>
 
@@ -387,8 +387,8 @@ export function DataGovernance({
               <Lock className="h-3.5 w-3.5 text-slate-400" />
             )}
             {includeSensitive
-              ? "Sensitive Views Unlocked (R7)"
-              : "Unlock Sensitive Views (R7)"}
+              ? "Sensitive files unlocked"
+              : "Unlock sensitive files"}
           </button>
 
           <button
@@ -444,7 +444,7 @@ export function DataGovernance({
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
           <div className="text-[11px] uppercase tracking-wide text-slate-400">
-            Protected Files (R7)
+            Protected Files
           </div>
           <div className="mt-1 text-xl font-semibold text-amber-300">
             {dash.posture.confidential_files_count + dash.posture.secret_files_count}
@@ -463,7 +463,7 @@ export function DataGovernance({
             {dash.posture.active_rules_count} rule(s)
           </div>
           <div className="mt-0.5 text-[11px] text-slate-400">
-            R9 offline · R11 zero capture
+            Offline · no screen or keystroke capture
           </div>
         </div>
       </div>
@@ -585,7 +585,7 @@ export function DataGovernance({
                         onClick={() => void handleProtectFinding(f, "confidential")}
                         className="rounded border border-amber-700/60 bg-amber-950/40 px-2.5 py-1 text-amber-200 hover:bg-amber-900/50 disabled:opacity-40"
                       >
-                        Mark Confidential (R7)
+                        Mark Confidential
                       </button>
                       <button
                         type="button"
@@ -601,7 +601,7 @@ export function DataGovernance({
                         onClick={() => void handleStageQuarantine(fileIds, f.id)}
                         className="inline-flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-slate-200 hover:bg-slate-700 disabled:opacity-40"
                       >
-                        <Archive className="h-3 w-3" /> Quarantine Copy (K1)
+                        <Archive className="h-3 w-3" /> Quarantine Copy
                       </button>
                       <button
                         type="button"
@@ -679,7 +679,7 @@ export function DataGovernance({
             className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4"
           >
             <h2 className="text-sm font-semibold">
-              Privacy &amp; AI Exclusion Rules (`R7` + Ask Files guard)
+              Privacy &amp; AI exclusion rules
             </h2>
             <div className="grid gap-2 sm:grid-cols-4 text-xs">
               <input
@@ -711,8 +711,8 @@ export function DataGovernance({
                   }
                   className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-200"
                 >
-                  <option value="auto_confidential">Label Confidential (R7)</option>
-                  <option value="auto_secret">Label Secret (R7)</option>
+                  <option value="auto_confidential">Label Confidential</option>
+                  <option value="auto_secret">Label Secret</option>
                   <option value="exclude_from_ai">Exclude from AI Prompts</option>
                 </select>
                 <button
@@ -754,7 +754,7 @@ export function DataGovernance({
                           onClick={() => void handleApplyRule(r.id)}
                           className="inline-flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-slate-200 hover:bg-slate-700"
                         >
-                          <Play className="h-3 w-3" /> Apply Rule (K1)
+                          <Play className="h-3 w-3" /> Apply Rule
                         </button>
                       )}
                       <button
@@ -816,11 +816,11 @@ export function DataGovernance({
             )}
           </div>
 
-          {/* Reversible Classification Batches (K1 Undo) */}
+          {/* Reversible Classification Batches */}
           <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <History className="h-4 w-4 text-amber-400" />
-              Reversible R7 Classification History (K1 Undo)
+              Label history · undo
             </h2>
             {dash.label_batches.length === 0 ? (
               <p className="text-xs text-slate-400">
@@ -863,12 +863,12 @@ export function DataGovernance({
       {/* Privacy Posture & BitLocker Tab */}
       {subTab === "posture" && (
         <div className="space-y-4">
-          {/* R8 Drive BitLocker Status */}
+          {/* Drive BitLocker Status */}
           <div className="space-y-2.5 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
             <div className="flex items-center gap-2">
               <HardDrive className="h-4 w-4 text-emerald-400" />
               <h2 className="text-sm font-semibold">
-                Disk Encryption &amp; Shredding Policy (`R1` / `R8`)
+                Disk encryption &amp; deletion policy
               </h2>
             </div>
             <p className="text-xs text-slate-300">{dash.posture.shredding_policy}</p>
@@ -901,13 +901,13 @@ export function DataGovernance({
             </div>
           </div>
 
-          {/* Honest R9 Zero-Network & Firewall Hardening */}
+          {/* Zero-Network & Firewall Hardening */}
           <div className="space-y-2.5 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                 <h2 className="text-sm font-semibold">
-                  Offline &amp; Network Guarantee (`R9` Code-Enforced)
+                  Offline guarantee (enforced in code)
                 </h2>
               </div>
               <button
@@ -924,10 +924,10 @@ export function DataGovernance({
             </pre>
           </div>
 
-          {/* K4 / R11 Opt-In Observation Matrix */}
+          {/* Opt-In Observation Matrix */}
           <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
             <h2 className="text-sm font-semibold">
-              Opt-In Observation &amp; Surveillance Audit (`K4` / `R11`)
+              What Cairn observes (all opt-in)
             </h2>
             <div className="space-y-1.5">
               {dash.posture.opt_in_audits.map((a) => (
@@ -938,9 +938,6 @@ export function DataGovernance({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-slate-200">{a.label}</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-                        {a.rule_ref}
-                      </span>
                     </div>
                     <div className="text-[11px] text-slate-400">{a.detail}</div>
                   </div>

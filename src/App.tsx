@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { desktopDir, documentDir, downloadDir, pictureDir } from "@tauri-apps/api/path";
 import {
   AlertTriangle,
   Archive,
@@ -25,6 +26,7 @@ import {
   Network,
   NotebookText,
   Play,
+  Plus,
   RefreshCw,
   RotateCcw,
   ScrollText,
@@ -44,6 +46,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { HomeTiles } from "./components/HomeTiles";
+import { HealthBars, StorageClarity } from "./components/HomeHealth";
 import { PlugBanner } from "./components/PlugBanner";
 import { AskFiles } from "./screens/AskFiles";
 import { ChiefDigitalOfficer } from "./screens/ChiefDigitalOfficer";
@@ -162,7 +165,7 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState<string>(
     desktop
       ? "Cairn Guardian core ready."
-      : "Browser preview mode — launch via Tauri desktop runtime for local filesystem IPC."
+      : "Preview with sample data. Open the Cairn desktop app to see your own files."
   );
   const [busy, setBusy] = useState(false);
 
@@ -373,6 +376,33 @@ export default function App() {
       return `Added root ${added.path}`;
     });
 
+  // D1 zero-typing onboarding: the usual Windows user folders, one click each.
+  const [quickFolders, setQuickFolders] = useState<{ label: string; path: string }[]>([]);
+  useEffect(() => {
+    if (!desktop) return;
+    let cancelled = false;
+    void (async () => {
+      const found: { label: string; path: string }[] = [];
+      const pairs: [string, () => Promise<string>][] = [
+        ["Documents", documentDir],
+        ["Downloads", downloadDir],
+        ["Desktop", desktopDir],
+        ["Pictures", pictureDir],
+      ];
+      for (const [label, get] of pairs) {
+        try {
+          found.push({ label, path: (await get()).replace(/[\\/]+$/, "") });
+        } catch {
+          // Folder not available on this PC: leave its button out.
+        }
+      }
+      if (!cancelled) setQuickFolders(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [desktop]);
+
   const handleAddRoot = (e: React.FormEvent) => {
     e.preventDefault();
     if (newRootPath.trim()) void addRoot(newRootPath.trim());
@@ -392,7 +422,7 @@ export default function App() {
       setStatusMsg("Starting scan…");
       const results = await aegis.scan.start(undefined, [1, 2]);
       const seen = results.reduce((acc, s) => acc + s.files_seen, 0);
-      return `Scan completed across ${results.length} root(s): ${seen.toLocaleString()} files seen.`;
+      return `Scan finished: ${seen.toLocaleString()} files in ${results.length} folder(s).`;
     });
 
   const handleOpenCoverage = async () => {
@@ -655,7 +685,6 @@ export default function App() {
 
   const totalStagedBytes = spaceSummaries.reduce((a, s) => a + s.staged_bytes, 0);
   const totalFreedBytes = spaceSummaries.reduce((a, s) => a + s.freed_bytes, 0);
-  const anyQuotaWarning = spaceSummaries.some((s) => s.quota_warning);
 
   const groupedBatches = useMemo(() => {
     const map = new Map<string, ActionItem[]>();
@@ -775,7 +804,7 @@ export default function App() {
             <h1 className="text-sm font-semibold tracking-wide text-slate-50">
               CAIRN GUARDIAN
             </h1>
-            <p className="text-xs text-slate-400">Local Digital Twin v0.1</p>
+            <p className="text-xs text-slate-400">Your files, kept in order</p>
           </div>
         </div>
 
@@ -863,7 +892,7 @@ export default function App() {
               className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
             >
               <Play className="h-3.5 w-3.5" aria-hidden="true" />
-              Scan Roots
+              Scan now
             </button>
           </div>
         </header>
@@ -1037,77 +1066,50 @@ export default function App() {
                 </section>
               )}
 
-              {/* Metrics Grid */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                  <div className="text-xs text-slate-400">Digital Twin Index</div>
-                  <div className="mt-1 text-2xl font-bold">
-                    {indexStats?.active_files ?? 0}{" "}
-                    <span className="text-sm font-normal text-slate-400">
-                      active files
-                    </span>
-                  </div>
-                  <div className="mt-2 text-xs text-slate-400">
-                    {indexStats?.total_chunks ?? 0} chunks ·{" "}
-                    {indexStats?.atomic_units ?? 0} atomic units ·{" "}
-                    {indexStats?.cache_dirs ?? 0} cache dirs
-                  </div>
-                </div>
-
-                {/* Quarantine Space Clarity (Promoted V1.5-01) */}
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Quarantine vs. Freed Space</span>
-                    {anyQuotaWarning && (
-                      <span className="flex items-center gap-1 text-amber-400">
-                        <AlertTriangle className="h-3.5 w-3.5" /> Quota ≥10%
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-lg font-bold text-amber-300">
-                    {formatBytes(totalStagedBytes)}{" "}
-                    <span className="text-xs font-normal text-slate-400">
-                      Staged in Quarantine (30d reversible)
-                    </span>
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-emerald-400">
-                    {formatBytes(totalFreedBytes)}{" "}
-                    <span className="text-xs font-normal text-slate-400">
-                      Actually Freed on Disk
-                    </span>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                  <div className="text-xs text-slate-400">Environment Health</div>
-                  <div className="mt-1 text-2xl font-bold text-emerald-400">
-                    {health ? health.overall_score.toFixed(1) : "—"}
-                    <span className="text-sm font-normal text-slate-400"> / 100</span>
-                  </div>
-                  <div className="mt-2 space-y-1">
-                    {health?.dimensions.slice(0, 3).map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex items-center justify-between text-xs text-slate-300"
-                      >
-                        <span>{d.label}</span>
-                        <span>{d.score.toFixed(0)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <StorageClarity summaries={spaceSummaries} onOpen={setTab} />
+                <HealthBars health={health} onOpen={setTab} />
               </div>
+              <p className="text-xs text-slate-400">
+                Catalog: <span className="font-mono text-slate-200">{(indexStats?.active_files ?? 0).toLocaleString()}</span> files
+                {" · "}
+                <span className="font-mono text-slate-200">{(indexStats?.atomic_units ?? 0).toLocaleString()}</span> projects and repos kept whole
+              </p>
 
               {/* Roots Manager */}
               <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-                <h2 className="mb-3 text-sm font-semibold">Configured Scan Roots</h2>
+                <h2 className="text-sm font-semibold">Folders Cairn looks after</h2>
+                <p className="mb-3 mt-0.5 text-xs text-slate-400">
+                  Cairn catalogues these folders and watches them for changes. Nothing is moved without your approval.
+                </p>
+                <div className="mb-3 flex flex-wrap gap-2" aria-label="Quick add common folders">
+                  {quickFolders.map((q) => {
+                    const added = roots.some((r) => r.path.toLowerCase() === q.path.toLowerCase());
+                    return (
+                      <button
+                        key={q.label}
+                        type="button"
+                        disabled={!desktop || busy || added}
+                        onClick={() => void addRoot(q.path)}
+                        className="flex items-center gap-1.5 rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:border-emerald-600 hover:bg-emerald-950/30 disabled:opacity-50"
+                      >
+                        {added ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                        )}
+                        {q.label}
+                      </button>
+                    );
+                  })}
+                </div>
                 <form onSubmit={handleAddRoot} className="mb-4 flex gap-2">
                   <input
                     type="text"
                     value={newRootPath}
                     onChange={(e) => setNewRootPath(e.target.value)}
                     placeholder="e.g. C:\Users\you\Documents"
-                    aria-label="New root folder path"
+                    aria-label="Folder path to add"
                     className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                   />
                   <button
@@ -1124,13 +1126,12 @@ export default function App() {
                     disabled={!desktop || busy || !newRootPath.trim()}
                     className="rounded-md bg-slate-800 px-4 py-1.5 text-sm font-medium text-slate-100 hover:bg-slate-700 disabled:opacity-40"
                   >
-                    Add Root
+                    Add folder
                   </button>
                 </form>
                 {roots.length === 0 ? (
                   <p className="text-xs text-slate-400">
-                    No roots added yet. Add a folder path above to begin Tier-1
-                    discovery.
+                    No folders yet. Add a folder above and Cairn will start cataloguing it.
                   </p>
                 ) : (
                   <ul className="divide-y divide-slate-800">

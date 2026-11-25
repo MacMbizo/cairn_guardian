@@ -175,7 +175,7 @@ pub fn extract_knowledge_from_catalog(
     let include_sensitive = options.include_sensitive.unwrap_or(false);
     if include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Unlock sensitive previews with Windows authentication before extracting from confidential/secret files (R7)."
+            "Unlock sensitive previews with Windows authentication before extracting from confidential/secret files."
                 .into(),
         ));
     }
@@ -367,18 +367,18 @@ pub fn load_file_text_for_llm(
     };
     if r.state == "quarantine" || r.state == "missing" {
         return Err(AegisError::InvalidInput(format!(
-            "Cannot extract from `{}` because it is quarantined or missing (K2).",
+            "Cannot extract from `{}` because it is quarantined or missing.",
             r.name
         )));
     }
     if r.role.as_deref() == Some("backup") {
         return Err(AegisError::PermissionDenied(
-            "Backup drives are read-only and never processed (K4).".into(),
+            "Backup drives are read-only and never processed.".into(),
         ));
     }
     if is_sensitive(&r.sensitivity) && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Unlock sensitive previews with Windows authentication before running LLM extraction on sensitive files (R7)."
+            "Unlock sensitive previews with Windows authentication before running LLM extraction on sensitive files."
                 .into(),
         ));
     }
@@ -447,18 +447,18 @@ pub fn ingest_llm_candidates(
     };
     if m.state == "quarantine" || m.state == "missing" {
         return Err(AegisError::InvalidInput(
-            "Cannot ingest knowledge from a quarantined or missing file (K2).".into(),
+            "Cannot ingest knowledge from a quarantined or missing file.".into(),
         ));
     }
     if m.role.as_deref() == Some("backup") {
         return Err(AegisError::PermissionDenied(
-            "Backup drives are read-only and never processed (K4).".into(),
+            "Backup drives are read-only and never processed.".into(),
         ));
     }
     let sensitive_file = is_sensitive(&m.sensitivity);
     if sensitive_file && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Sensitive file access requires Windows unlock (R7).".into(),
+            "Sensitive file access requires Windows unlock.".into(),
         ));
     }
     let (created, updated) = upsert_proposals_for_file(
@@ -641,7 +641,7 @@ pub fn approve_proposal(
         };
         if prop.contains_sensitive && !reveal_sensitive {
             return Err(AegisError::PermissionDenied(
-                "Unlock sensitive previews with Windows authentication before approving sensitive proposals (R7)."
+                "Unlock sensitive previews with Windows authentication before approving sensitive proposals."
                     .into(),
             ));
         }

@@ -92,13 +92,13 @@ pub fn propose_version_archive(
 
         if target.deleted_at.is_some() || target.state == "quarantine" || target.state == "missing" {
             return Err(AegisError::InvalidInput(format!(
-                "Cannot archive `{}` because it is deleted or in quarantine (K2).",
+                "Cannot archive `{}` because it is deleted or in quarantine.",
                 target.filename
             )));
         }
         if target.vol_role.as_deref() == Some("backup") {
             return Err(AegisError::PermissionDenied(
-                "Backup drives are read-only and never modified (K4).".into(),
+                "Backup drives are read-only and never modified.".into(),
             ));
         }
         if target.vol_status != "online" {
@@ -229,7 +229,7 @@ pub fn propose_version_quarantine_dupes(
     };
     if keeper_role.as_deref() == Some("backup") {
         return Err(AegisError::PermissionDenied(
-            "Backup drives are read-only and cannot act as source/target (K4).".into(),
+            "Backup drives are read-only and cannot act as source/target.".into(),
         ));
     }
 
@@ -281,7 +281,7 @@ pub fn propose_version_quarantine_dupes(
         };
         if vol_role.as_deref() == Some("backup") {
             return Err(AegisError::PermissionDenied(
-                "Backup drives are read-only and never modified (K4).".into(),
+                "Backup drives are read-only and never modified.".into(),
             ));
         }
         if vol_status != "online" {

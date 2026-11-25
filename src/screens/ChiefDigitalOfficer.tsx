@@ -87,7 +87,7 @@ function renderProposalPreview(rec: CdoRecommendation) {
       return (
         <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] text-slate-300">
           <div className="font-medium text-indigo-300">
-            Folderless Rule Draft (`R6`): {p.draft.name}
+            Draft filing rule: {p.draft.name}
           </div>
           <div className="mt-1 text-slate-400">
             Destination: <code className="text-slate-200">{p.draft.dest_root}</code> · Template:{" "}
@@ -99,7 +99,7 @@ function renderProposalPreview(rec: CdoRecommendation) {
       return (
         <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] text-slate-300">
           <div className="font-medium text-amber-300">
-            Privacy Rule Draft (`R7`): {p.draft.name}
+            Draft privacy rule: {p.draft.name}
           </div>
           <div className="mt-1 text-slate-400">
             Scope: <code className="text-slate-200">{p.draft.path_prefix ?? "Any"}</code> ·
@@ -283,15 +283,15 @@ export function ChiefDigitalOfficer({
           <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-800/50 bg-emerald-950/40 px-2.5 py-0.5 text-emerald-300">
               <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-              R5/R11 Disk & Catalog Only
+              Reads files on disk only
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-0.5 text-slate-300">
-              K1 Ratify + Undo
+              You approve · one-click undo
             </span>
             {dashboard.excluded_sensitive_count > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full border border-amber-800/50 bg-amber-950/40 px-2.5 py-0.5 text-amber-300">
                 <Lock className="h-3 w-3" aria-hidden="true" />
-                {dashboard.excluded_sensitive_count} sensitive files masked (R7)
+                {dashboard.excluded_sensitive_count} sensitive files hidden
               </span>
             )}
           </div>
@@ -328,7 +328,7 @@ export function ChiefDigitalOfficer({
               className="inline-flex items-center gap-1.5 rounded-lg border border-amber-700/60 bg-amber-950/40 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-900/50"
             >
               <Unlock className="h-3.5 w-3.5" aria-hidden="true" />
-              Unlock Sensitive (R7)
+              Unlock sensitive files
             </button>
           ) : (
             <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-2.5 py-1.5 text-xs text-emerald-200">
@@ -450,7 +450,7 @@ export function ChiefDigitalOfficer({
         </label>
       </div>
 
-      {/* Tab 1: Strategic Recommendations + Ratification History (K1) */}
+      {/* Tab 1: Strategic Recommendations + Ratification History */}
       {subTab === "recommendations" && (
         <div className="space-y-4">
           {dashboard.recommendations.length === 0 ? (
@@ -501,7 +501,7 @@ export function ChiefDigitalOfficer({
                               className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
                             >
                               <CheckCircle2 className="h-3.5 w-3.5" />
-                              Ratify Proposal (K1)
+                              Approve proposal
                             </button>
                           )
                         )}
@@ -548,11 +548,11 @@ export function ChiefDigitalOfficer({
             </div>
           )}
 
-          {/* Recent Ratifications & Single-Click Undo (K1) */}
+          {/* Recent Ratifications & Single-Click Undo */}
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-200">
               <History className="h-4 w-4 text-indigo-400" aria-hidden="true" />
-              Recent Ratifications & Undo (K1)
+              Recently approved · undo
             </div>
             {dashboard.recent_ratifications.length === 0 ? (
               <p className="text-xs text-slate-500">
@@ -727,7 +727,7 @@ export function ChiefDigitalOfficer({
         </div>
       )}
 
-      {/* Tab 3: Grounded Executive Briefings (R4 / On-Demand Local LLM) */}
+      {/* Tab 3: Grounded Executive Briefings (on-demand local model) */}
       {subTab === "briefings" && (
         <div className="space-y-4">
           {(briefings.length > 0
@@ -742,8 +742,7 @@ export function ChiefDigitalOfficer({
                 No executive briefing saved yet
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                Click &ldquo;Synthesize Executive Briefing&rdquo; above to run the on-demand local
-                model (`R4`/`K5`) against your disk metrics and save a cited memo in your encrypted catalog.
+                Click &ldquo;Synthesize Executive Briefing&rdquo; above to run the local model (loaded only for this) against your disk metrics and save a cited memo in your encrypted catalog.
               </p>
             </div>
           ) : (

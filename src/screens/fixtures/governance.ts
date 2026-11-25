@@ -11,11 +11,11 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
     sensitive_unlocked: false,
     sensitive_expires_at: null,
     zero_network_status:
-      "Code-enforced offline engine: Cairn's engine, search-embedding and local-language-model components depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models` (R9).",
+      "Code-enforced offline engine: Cairn's engine, search-embedding and local-language-model components depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models`.",
     firewall_command:
       'New-NetFirewallRule -DisplayName "Cairn Guardian Block Outbound" -Direction Outbound -Program "$env:LOCALAPPDATA\\Cairn Guardian\\cairn-guardian.exe" -Action Block',
     shredding_policy:
-      "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.",
+      "Multi-pass shredding disabled: SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.",
     drives_encryption: [
       {
         mount_point: "C:\\",
@@ -30,7 +30,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
         protection_status: "unencrypted",
         encryption_method: "Unencrypted NTFS/exFAT",
         recommended_action:
-          "Enable BitLocker / Device Encryption in Windows Settings for at-rest protection (R8).",
+          "Enable BitLocker / Device Encryption in Windows Settings for at-rest protection.",
       },
     ],
     opt_in_audits: [
@@ -47,7 +47,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
         state: "permanently_disabled",
         rule_ref: "R11",
         detail:
-          "No keyboard hooks or clipboard capture; Librarian & Cross-Project read disk files only (R5).",
+          "No keyboard hooks or clipboard capture; Librarian & Cross-Project read disk files only.",
       },
       {
         id: "browser_history",
@@ -90,7 +90,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
       resolved_at: null,
       summary: "AWS Access Key ID exposed in plaintext (1 location(s))",
       recommended_action:
-        "Mark Secret (R7) or stage exposed copy to 30-day Quarantine (K1/K2); rotate token if shared.",
+        "Mark Secret or stage exposed copy to 30-day Quarantine; rotate token if shared.",
       locations: [
         {
           file_id: "f-env-1",
@@ -114,7 +114,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
       resolved_at: null,
       summary: "Luhn-validated payment card ending in 0366 (1 location(s))",
       recommended_action:
-        "Mark Confidential (R7) to mask previews and exclude from AI prompts while keeping searchable.",
+        "Mark Confidential to mask previews and exclude from AI prompts while keeping searchable.",
       locations: [
         {
           file_id: "f-tax-2",
@@ -138,7 +138,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
       resolved_at: Date.now() - 82_000_000,
       summary: "Government tax / SSN identifier detected (1 location(s))",
       recommended_action:
-        "Mark Confidential (R7) to mask previews and exclude from AI prompts while keeping searchable.",
+        "Mark Confidential to mask previews and exclude from AI prompts while keeping searchable.",
       locations: [
         {
           file_id: "f-id-3",
@@ -168,7 +168,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
   rules: [
     {
       id: "gov-rule-1",
-      name: "Lock Tax & Identity Folder (R7)",
+      name: "Lock Tax & Identity Folder",
       path_prefix: "C:\\Users\\Demo\\Documents\\Identity",
       filename_pattern: "*.pdf",
       rule_action: "auto_confidential",
@@ -192,7 +192,7 @@ export const PREVIEW_GOVERNANCE_DASHBOARD: GovernanceDashboard = {
       id: "gov-batch-001",
       target_sensitivity: "confidential",
       file_count: 1,
-      reason: "Manual R7 privacy protection",
+      reason: "Protected by you",
       status: "applied",
       created_at: Date.now() - 82_000_000,
       undone_at: null,

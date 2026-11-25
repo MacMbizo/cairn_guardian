@@ -215,7 +215,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
         limit_files: 200,
       });
       setNotice(
-        `Scanned ${rep.files_scanned} file(s) (${rep.files_skipped_unchanged} unchanged, ${rep.files_skipped_sensitive} sensitive skipped under R7): +${rep.proposals_created} new, ${rep.proposals_updated} updated.`
+        `Scanned ${rep.files_scanned} file(s) (${rep.files_skipped_unchanged} unchanged, ${rep.files_skipped_sensitive} sensitive skipped): +${rep.proposals_created} new, ${rep.proposals_updated} updated.`
       );
       await loadDashboard();
     } catch (err) {
@@ -364,7 +364,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
   const handleToggleAudioOptIn = async () => {
     if (!dashboard) return;
     if (!desktop) {
-      setNotice("Preview mode: K4 audio observation opt-in toggles in the desktop runtime.");
+      setNotice("Preview mode: the audio opt-in works in the desktop app.");
       return;
     }
     setBusy(true);
@@ -372,8 +372,8 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
       const next = await aegis.knowledge.setAudioOptIn(!dashboard.audio_observation_enabled);
       setNotice(
         next
-          ? "Audio & meeting recording observation enabled (K4). Companion .vtt/.srt transcripts paired below."
-          : "Audio observation turned OFF (K4)."
+          ? "Meeting recordings are now included. Matching .vtt/.srt transcripts are paired below."
+          : "Meeting recordings are no longer included."
       );
       await loadDashboard();
     } catch (err) {
@@ -421,12 +421,11 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
               <Brain className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-              Automatic Knowledge Extraction (`K1` Human-in-the-Loop Graph)
+              Knowledge Base
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
               Extracts typed People, Organizations, Projects, Decisions, and Action Items from
-              documents &amp; `.vtt`/`.srt` transcripts — merging incrementally on approval with full
-              undo (`K1`), `K4` opt-in audio control, and `R7` privacy masking.
+              documents &amp; `.vtt`/`.srt` transcripts — adding them only when you approve, with one-click undo. Meeting recordings stay off until you turn them on, and sensitive files stay hidden.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -441,7 +440,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               }`}
             >
               <Mic className="h-3.5 w-3.5" />
-              Audio observation (K4): {dashboard?.audio_observation_enabled ? "ON" : "OFF"}
+              Meeting recordings: {dashboard?.audio_observation_enabled ? "ON" : "OFF"}
             </button>
             <button
               type="button"
@@ -462,7 +461,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               <p className="mt-0.5 text-base font-semibold text-amber-300">
                 {dashboard.pending_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Awaiting K1 approval</p>
+              <p className="text-[11px] text-slate-500">Waiting for your approval</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <p className="text-[11px] text-slate-400">Canonical entities</p>
@@ -534,7 +533,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               }`}
             >
               <FileAudio2 className="h-3.5 w-3.5" />
-              Transcripts &amp; Audio (K4)
+              Transcripts &amp; Audio
             </button>
           </div>
 
@@ -614,7 +613,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
         </div>
       )}
 
-      {/* Sub-view 1: K1 Provisional Inbox */}
+      {/* Sub-view 1: Provisional Inbox */}
       {subView === "inbox" && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-2.5">
@@ -705,7 +704,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             {p.contains_sensitive && (
                               <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-300">
                                 <ShieldAlert className="h-2.5 w-2.5" />
-                                Sensitive (R7)
+                                Sensitive
                               </span>
                             )}
                           </div>
@@ -1010,7 +1009,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
 
               <div>
                 <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  Temporal Source Provenance (`K2` Live Files Only)
+                  Where this came from (live files only)
                 </h4>
                 {selectedEntity.provenance.length === 0 ? (
                   <p className="text-xs text-slate-500">
@@ -1060,14 +1059,14 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
         </div>
       )}
 
-      {/* Sub-view 3: K4 Opt-In Audio & Transcript Pairing */}
+      {/* Sub-view 3: Opt-In Audio & Transcript Pairing */}
       {subView === "audio" && (
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
           {!dashboard?.audio_observation_enabled ? (
             <div className="py-6 text-center">
               <Mic className="mx-auto h-7 w-7 text-slate-500" />
               <h3 className="mt-2 text-sm font-semibold text-slate-100">
-                Meeting Audio Observation Is Off (`K4`)
+                Meeting recordings are off
               </h3>
               <p className="mx-auto mt-1 max-w-lg text-xs text-slate-400">
                 By default, Cairn never inspects audio or video recordings beyond file catalog
@@ -1081,7 +1080,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
               >
                 <Mic className="h-3.5 w-3.5" />
-                Enable audio recording discovery (K4)
+                Include meeting recordings
               </button>
             </div>
           ) : dashboard.audio_recordings.length === 0 ? (

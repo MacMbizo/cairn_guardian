@@ -483,7 +483,7 @@ fn resolve_broken_link(
                     candidate_paths: Vec::new(),
                     sensitive: source.sensitive,
                     dismissed: is_dismissed,
-                    reason: "Target was moved into Cairn 30-day Quarantine; restore it instead of rewriting links (K2).".into(),
+                    reason: "Target was moved into Cairn 30-day Quarantine; restore it instead of rewriting links.".into(),
                 },
                 None,
             );
@@ -517,7 +517,7 @@ fn resolve_broken_link(
                             candidate_paths: Vec::new(),
                             sensitive: source.sensitive,
                             dismissed: is_dismissed,
-                            reason: "Moved file later entered Cairn 30-day Quarantine; restore it rather than rewriting links (K2).".into(),
+                            reason: "Moved file later entered Cairn 30-day Quarantine; restore it rather than rewriting links.".into(),
                         },
                         None,
                     );
@@ -831,7 +831,7 @@ fn analyze_workspace(
 ) -> Result<WorkspaceAnalysis> {
     if opts.include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before inspecting or healing sensitive notes (R7).".into(),
+            "Windows Hello / Windows user verification is required before inspecting or healing sensitive notes.".into(),
         ));
     }
 
@@ -1534,7 +1534,7 @@ pub fn heal_folderless_rule_path(
         let (mount, cs) = row?;
         if path_is_within(trimmed, &mount, cs) {
             return Err(AegisError::PermissionDenied(
-                "Healed rule path cannot target a backup volume (K4).".into(),
+                "Healed rule path cannot target a backup volume.".into(),
             ));
         }
     }

@@ -273,7 +273,7 @@ export function ForgottenAssets({
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
               <Compass className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-              Forgotten Asset Recovery (`K1` Non-Destructive Indexer)
+              Forgotten Assets
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
               Finds 80+ design, RAW photo, 3D, font, video, audio, and document formats buried in clutter, resting on unplugged drives, or stranded outside matching projects.

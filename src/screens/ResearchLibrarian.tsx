@@ -315,7 +315,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
               Autonomous Research Librarian
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
                 <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                Disk &amp; Catalog Only (R5 / R11)
+                Reads files on disk only
               </span>
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
@@ -521,7 +521,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                 </h3>
                 <p className="mt-1 text-[11px] text-slate-400">
                   Paste a working paragraph, question, or thesis intentionally here to find
-                  conceptual parallels and entity links across all saved projects (R5).
+                  conceptual parallels and entity links across all saved projects.
                 </p>
               </div>
               <textarea
@@ -610,7 +610,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
                 onChange={(e) => setIncludeSensitive(e.target.checked)}
                 className="rounded border-slate-700 bg-slate-950 text-amber-500"
               />
-              Include sensitive (R7 unlock)
+              Include sensitive files
             </label>
           </div>
 
@@ -640,8 +640,7 @@ export function ResearchLibrarian({ desktop }: { desktop: boolean }) {
             <div className="flex items-center gap-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
               <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
               <span>
-                {report.excluded_sensitive_count} sensitive document(s) excluded by privacy policy
-                R7 until Windows authentication is unlocked.
+                {report.excluded_sensitive_count} sensitive document(s) left out until you unlock sensitive files with Windows.
               </span>
             </div>
           )}

@@ -15,7 +15,7 @@ pub struct VaultPostureContext {
     pub sensitive_expires_at: Option<i64>,
 }
 
-const ZERO_NETWORK_STATUS: &str = "Code-enforced offline engine: Cairn's engine, search-embedding and local-language-model components depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models` (R9).";
+const ZERO_NETWORK_STATUS: &str = "Code-enforced offline engine: Cairn's engine, search-embedding and local-language-model components depend on zero networking crates, verified automatically by `r9_forbids_networking_crates_in_engine_and_models`.";
 /// A PowerShell rule blocking outbound traffic for the running Cairn executable.
 fn firewall_command() -> String {
     let exe = std::env::current_exe()
@@ -23,7 +23,7 @@ fn firewall_command() -> String {
         .unwrap_or_else(|_| r"$env:LOCALAPPDATA\Cairn Guardian\cairn-guardian.exe".into());
     format!(r#"New-NetFirewallRule -DisplayName "Cairn Guardian Block Outbound" -Direction Outbound -Program "{exe}" -Action Block"#)
 }
-const SHREDDING_POLICY: &str = "Multi-pass shredding disabled (R8): SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.";
+const SHREDDING_POLICY: &str = "Multi-pass shredding disabled: SSD wear-leveling prevents deterministic overwrites and breaks 30-day quarantine undo. Use Windows BitLocker for data at rest; Cairn purge performs clean normal OS unlinking.";
 
 /// Probes drive BitLocker protection status using Windows Shell non-admin properties (`R1`),
 /// gracefully falling back to `unknown_requires_admin` without requesting UAC elevation.
@@ -114,12 +114,12 @@ $out | ConvertTo-Json -Compress -Depth 3
             Some(0) => (
                 "unencrypted",
                 "Unencrypted NTFS/exFAT",
-                "Enable BitLocker / Device Encryption in Windows Settings for at-rest protection (R8).".into(),
+                "Enable BitLocker / Device Encryption in Windows Settings for at-rest protection.".into(),
             ),
             _ => (
                 "unknown_requires_admin",
                 "Standard OS volume (non-admin probe)",
-                "Check Windows Settings -> Privacy & security -> Device encryption to verify BitLocker (R1/R8).".into(),
+                "Check Windows Settings -> Privacy & security -> Device encryption to verify BitLocker.".into(),
             ),
         }
     };
@@ -163,9 +163,9 @@ fn fallback_drive_statuses(mounts: &[String]) -> Vec<DriveEncryptionStatus> {
             mount_point: m.clone(),
             label: String::new(),
             protection_status: "unknown_requires_admin".into(),
-            encryption_method: "Non-admin user check (R1)".into(),
+            encryption_method: "Non-admin user check".into(),
             recommended_action:
-                "Open Windows Settings -> Privacy & security -> Device encryption to verify BitLocker (R8).".into(),
+                "Open Windows Settings -> Privacy & security -> Device encryption to verify BitLocker.".into(),
         })
         .collect()
 }
@@ -262,7 +262,7 @@ pub fn build_privacy_posture_with_drives(
             label: "Keystroke / Clipboard Observation".into(),
             state: "permanently_disabled".into(),
             rule_ref: "R11".into(),
-            detail: "No keyboard hooks or clipboard capture; Librarian & Cross-Project read disk files only (R5).".into(),
+            detail: "No keyboard hooks or clipboard capture; Librarian & Cross-Project read disk files only.".into(),
         },
         OptInCapabilityAudit {
             id: "browser_history".into(),

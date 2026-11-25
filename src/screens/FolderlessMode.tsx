@@ -383,7 +383,7 @@ export function FolderlessMode({
               AI Folderless Mode
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
                 <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                Transparent Rules · Propose → Approve → Undo (R6 / K1)
+                Visible rules · you approve · one-click undo
               </span>
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
@@ -494,12 +494,12 @@ export function FolderlessMode({
           </div>
         )}
 
-        {/* Editable Compiled Rule Form (R6) */}
+        {/* Editable Compiled Rule Form */}
         <div className="space-y-3 border-t border-slate-800 pt-3">
           <div className="flex items-center justify-between">
             <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-300">
               <Edit3 className="h-3.5 w-3.5 text-emerald-400" />
-              2. Visible &amp; Editable Rule Definition (R6)
+              2. Check and edit the rule
             </h3>
             <span className="text-[11px] text-slate-400">
               Compiler: {draft.compiled_by ?? "manual"}
@@ -688,7 +688,7 @@ export function FolderlessMode({
                 onChange={(e) => setIncludeSensitive(e.target.checked)}
                 className="rounded border-slate-700 bg-slate-950 text-amber-500"
               />
-              Include sensitive files (requires R7 Windows unlock)
+              Include sensitive files (needs Windows unlock)
             </label>
             <div className="flex flex-wrap gap-2">
               <button
@@ -805,7 +805,7 @@ export function FolderlessMode({
             </p>
           )}
 
-          {/* Transactional Revert Feed (K1) */}
+          {/* Transactional Revert Feed */}
           <div className="border-t border-slate-800 pt-3">
             <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-300">
               <History className="h-3.5 w-3.5 text-emerald-400" />
@@ -847,7 +847,7 @@ export function FolderlessMode({
           </div>
         </aside>
 
-        {/* Right Pane: Dry-Run Match Preview & K1 Staging */}
+        {/* Right Pane: Dry-Run Match Preview & staging */}
         <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4 lg:col-span-8">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div>
@@ -890,8 +890,7 @@ export function FolderlessMode({
             <div className="flex items-center gap-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
               <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
               <span>
-                {preview.excluded_sensitive_count} sensitive document(s) excluded by privacy
-                policy R7 until Windows authentication is unlocked.
+                {preview.excluded_sensitive_count} sensitive document(s) left out until you unlock sensitive files with Windows.
               </span>
             </div>
           )}

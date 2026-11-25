@@ -97,7 +97,7 @@ pub fn estate_generate_shards(
         .and_then(|g| g.clone())
         .ok_or_else(|| {
             AegisError::VaultLocked(
-                "Vault key is not loaded in memory; unlock D1 vault first.".into(),
+                "Vault key is not loaded in memory; unlock Cairn first.".into(),
             )
             .to_ipc()
         })?;

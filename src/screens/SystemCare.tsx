@@ -255,7 +255,7 @@ export function SystemCare({
         age_days: f.age_days,
         reason: f.reason,
         file_id: null,
-        safety_note: "Moves only the leftover profile folder to 30-day quarantine (R3).",
+        safety_note: "Moves only the leftover profile folder to the 30-day quarantine.",
       };
       const batchId = await aegis.care.proposeCleanup([item]);
       setNotice(
@@ -302,7 +302,7 @@ export function SystemCare({
           </h2>
           <p className="mt-0.5 text-xs text-slate-400">
             Reclaim clutter via 30-day quarantine, uninstall apps with their own uninstallers,
-            check SMART drive health, and track disk growth — zero registry edits (R3).
+            check SMART drive health, and track disk growth. Cairn never edits the registry.
           </p>
         </div>
         <button
@@ -571,7 +571,7 @@ export function SystemCare({
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-800/50 bg-sky-950/20 px-4 py-2.5 text-xs text-sky-200">
             <span className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />
-              Cairn never cleans or edits the Windows Registry (R3). Uninstall launches each app&apos;s own Windows uninstaller; leftover folders go to 30-day quarantine.
+              Cairn never cleans or edits the Windows Registry. Uninstall launches each app&apos;s own Windows uninstaller; leftover folders go to 30-day quarantine.
             </span>
             <button
               type="button"
@@ -697,7 +697,7 @@ export function SystemCare({
                 Windows Startup Items ({startup.length}, read-only)
               </h3>
               <p className="text-xs text-slate-400">
-                Per Rule R3, Cairn lists startup entries and flags missing/orphaned targets without modifying the Windows Registry. Switch items off in Windows Settings.
+                Cairn lists startup entries and flags ones whose program is missing. It never changes the registry. Switch items off in Windows Settings.
               </p>
             </div>
             <button

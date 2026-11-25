@@ -252,7 +252,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               Cross-Project Intelligence
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
                 <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                Disk &amp; Catalog Only (R5 / R11)
+                Reads files on disk only
               </span>
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
@@ -428,7 +428,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               onChange={(e) => setIncludeSensitive(e.target.checked)}
               className="rounded border-slate-700 bg-slate-950 text-amber-500"
             />
-            Sensitive (R7)
+            Sensitive
           </label>
         </div>
       </div>
@@ -437,8 +437,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
         <div className="flex items-center gap-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
           <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
           <span>
-            {report.excluded_sensitive_count} sensitive project file(s) excluded by privacy policy
-            R7 until Windows authentication is unlocked.
+            {report.excluded_sensitive_count} sensitive project file(s) left out until you unlock sensitive files with Windows.
           </span>
         </div>
       )}

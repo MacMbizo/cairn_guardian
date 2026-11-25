@@ -64,7 +64,7 @@ function statusPill(status: BrokenLinkItem["status"]) {
     case "in_quarantine":
       return (
         <span className="inline-flex items-center gap-1 rounded bg-amber-950/60 px-2 py-0.5 text-[11px] text-amber-300 border border-amber-800/60">
-          <ArchiveRestore className="h-3 w-3" /> In Quarantine (K2)
+          <ArchiveRestore className="h-3 w-3" /> In Quarantine
         </span>
       );
     case "ambiguous":
@@ -258,7 +258,7 @@ export function SelfHealing({
         includeSensitive,
       });
       setNotice(
-        `Staged K1 self-healing batch ${batchId.slice(0, 8)} in the Action Simulator for review & approval.`
+        `Self-healing batch ${batchId.slice(0, 8)} is ready to review in the Simulator.`
       );
       setDiffs(null);
       await runScan();
@@ -388,7 +388,7 @@ export function SelfHealing({
             <Wrench className="h-5 w-5 text-emerald-400" />
             <h1 className="text-lg font-semibold">Self-Healing Workspace</h1>
             <span className="rounded bg-emerald-950/70 px-2 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-800/50">
-              USN + Catalog · K1 Approve/Undo
+              You approve every fix · one-click undo
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-400">
@@ -413,7 +413,7 @@ export function SelfHealing({
             ) : (
               <ShieldAlert className="h-3.5 w-3.5 text-slate-400" />
             )}
-            {includeSensitive ? "Sensitive Notes Unlocked (R7)" : "Include Sensitive (R7)"}
+            {includeSensitive ? "Sensitive notes unlocked" : "Include sensitive notes"}
           </button>
 
           <button
@@ -487,7 +487,7 @@ export function SelfHealing({
               {report.rule_path_issues_count} stale rule(s)
             </div>
             <div className="mt-0.5 text-[11px] text-slate-400">
-              {report.excluded_sensitive_count} sensitive note(s) gated (R7)
+              {report.excluded_sensitive_count} sensitive note(s) hidden until unlocked
             </div>
           </div>
         </div>
@@ -532,7 +532,7 @@ export function SelfHealing({
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
           >
             <Play className="h-3.5 w-3.5" />
-            {staging ? "Staging..." : "Stage in Simulator (K1)"}
+            {staging ? "Staging..." : "Review in Simulator"}
           </button>
 
           <button
@@ -551,7 +551,7 @@ export function SelfHealing({
         <div className="space-y-3 rounded-xl border border-sky-800/60 bg-slate-900/70 p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-sky-300">
-              Dry-Run Unified Diff Preview ({diffs.length} file(s), K1 zero writes yet)
+              Dry-Run Unified Diff Preview ({diffs.length} file(s), nothing written yet)
             </h2>
             <button
               type="button"

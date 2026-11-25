@@ -101,7 +101,7 @@ pub fn leftover_to_candidate(f: &LeftoverFolder) -> CleanupCandidate {
         age_days: f.age_days,
         reason: f.reason.clone(),
         file_id: None,
-        safety_note: "Moves only the stale profile folder into 30-day quarantine; never touches the Windows Registry (R3).".into(),
+        safety_note: "Moves only the stale profile folder into 30-day quarantine; never touches the Windows Registry.".into(),
     }
 }
 

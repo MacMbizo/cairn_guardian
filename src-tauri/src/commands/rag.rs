@@ -187,7 +187,7 @@ pub fn rag_ask(
         let active = state.llm.status().active;
         let msg = if ctx.excluded_sensitive_count > 0 {
             format!(
-                "No non-sensitive indexed file snippets matched your question ({} sensitive file(s) excluded by privacy policy R7).",
+                "No non-sensitive indexed file snippets matched your question ({} sensitive file(s) left out because they are marked sensitive).",
                 ctx.excluded_sensitive_count
             )
         } else {

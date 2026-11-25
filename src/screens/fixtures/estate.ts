@@ -14,14 +14,14 @@ export const PREVIEW_ESTATE_DASHBOARD: EstateDashboard = {
       grace_days: 14,
       last_checkin_at: Date.now() - 5 * 86_400_000,
       non_destructive_policy:
-        "Non-destructive policy (R10): A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
+        "Non-destructive policy: A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
     },
     state: "active",
     next_due_at: Date.now() + 25 * 86_400_000,
     grace_ends_at: Date.now() + 39 * 86_400_000,
     days_remaining: 25,
     r10_guarantee:
-      "Non-destructive policy (R10): A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
+      "Non-destructive policy: A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
   },
   trustees: [
     {
@@ -127,7 +127,7 @@ export const PREVIEW_ESTATE_DASHBOARD: EstateDashboard = {
     },
   ],
   r10_policy_summary:
-    "Non-destructive policy (R10): A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
+    "Non-destructive policy: A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.",
   r8_policy_summary:
-    "Multi-pass shredding disabled (R8): Cairn relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.",
+    "Multi-pass shredding disabled: Cairn relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.",
 };

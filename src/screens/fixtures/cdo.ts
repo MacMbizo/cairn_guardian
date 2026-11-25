@@ -68,7 +68,7 @@ export const PREVIEW_CDO_DASHBOARD: CdoDashboard = {
     active_privacy_rules: 1,
     open_security_findings: 2,
     observation_mode:
-      "Disk & encrypted catalog only (R5/R11: zero screen, keystroke, or active-window telemetry)",
+      "Files on disk and the encrypted catalog only: no screen, keystroke or active-window capture",
   },
   project_pulses: [
     {
@@ -135,7 +135,7 @@ export const PREVIEW_CDO_DASHBOARD: CdoDashboard = {
       rec_key: "cdo:folderless:invoice-automation",
       title: "Activate Folderless Rule: CDO Proposal: Auto-file Loose Invoices",
       rationale:
-        "Compiles a visible, reversible rule (R6) targeting Accounting Archives without moving anything until you review batches in Simulator (K1).",
+        "Compiles a visible, reversible rule targeting Accounting Archives without moving anything until you review batches in Simulator.",
       bottleneck_kind: "manual_filing_friction",
       severity: "medium",
       status: "open",

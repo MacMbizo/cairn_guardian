@@ -159,7 +159,7 @@ fn build_cdo_dashboard_inner(
 ) -> Result<CdoDashboard> {
     if opts.include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before viewing sensitive CDO evidence (R7)."
+            "Windows Hello / Windows user verification is required before viewing sensitive CDO evidence."
                 .into(),
         ));
     }
@@ -424,7 +424,7 @@ fn build_cdo_dashboard_inner(
             rec_key: "cdo:folderless:invoice-automation".into(),
             title: format!("Activate Folderless Rule: {}", draft.name),
             rationale: format!(
-                "Compiles a visible, reversible rule (`R6`) targeting `{}` without moving anything until you review batches in Simulator (`K1`).",
+                "Compiles a visible, reversible rule targeting `{}` without moving anything until you review batches in Simulator.",
                 draft.dest_root
             ),
             bottleneck_kind: CdoBottleneckKind::ManualFilingFriction,
@@ -450,7 +450,7 @@ fn build_cdo_dashboard_inner(
             kind: CdoBottleneckKind::SecurityExposureDebt,
             severity: sev,
             title: format!(
-                "{} open PII/secret exposure(s) require R7 vaulting or quarantine",
+                "{} open PII/secret exposure(s) need protecting or quarantining",
                 posture.open_findings_count
             ),
             diagnosis: format!(
@@ -474,7 +474,7 @@ fn build_cdo_dashboard_inner(
                 title: "Protect exposed inbox credential files with automatic `secret` privacy rule"
                     .into(),
                 rationale: format!(
-                    "Creates a visible Governance privacy rule covering `{dir}` (`*.env*`) so credential stores are masked and withheld from AI prompts (`R7`)."
+                    "Creates a visible Governance privacy rule covering `{dir}` (`*.env*`) so credential stores are masked and withheld from AI prompts."
                 ),
                 bottleneck_kind: CdoBottleneckKind::SecurityExposureDebt,
                 severity: sev,
@@ -497,7 +497,7 @@ fn build_cdo_dashboard_inner(
                 rec_key: "cdo:governance:triage-findings".into(),
                 title: "Triage or Vault open secret findings in Data Governance".into(),
                 rationale:
-                    "Review masked exposures and stage exposed copies for 30-day Quarantine (`K1`/`K2`)."
+                    "Review masked exposures and stage exposed copies for 30-day Quarantine."
                         .into(),
                 bottleneck_kind: CdoBottleneckKind::SecurityExposureDebt,
                 severity: sev,
@@ -539,7 +539,7 @@ fn build_cdo_dashboard_inner(
         });
         recommendations.push(CdoRecommendation {
             rec_key: "cdo:healing:review-patches".into(),
-            title: "Preview atomic Self-Healing repairs in Simulator (`K1`)".into(),
+            title: "Preview atomic Self-Healing repairs in Simulator".into(),
             rationale:
                 "Stage verified TOCTOU-guarded `PatchText` repairs so links stay intact after moves."
                     .into(),
@@ -618,7 +618,7 @@ fn build_cdo_dashboard_inner(
             rec_key: "cdo:schedule:weekly-digest-friday".into(),
             title: "Align Weekly Executive Digest to Friday afternoon (16:00)".into(),
             rationale:
-                "Sets `engine.note_day = 4` (Friday) so operational digests arrive before weekend shutdown; completely reversible via Undo (`K1`)."
+                "Sets `engine.note_day = 4` (Friday) so operational digests arrive before weekend shutdown; completely reversible via Undo."
                     .into(),
             bottleneck_kind: CdoBottleneckKind::PendingReviewQueue,
             severity: CdoSeverity::Low,
@@ -1020,7 +1020,7 @@ pub fn prepare_cdo_briefing_prompt(
 ) -> Result<PreparedCdoBriefing> {
     if include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before including sensitive files in executive briefings (R7)."
+            "Windows Hello / Windows user verification is required before including sensitive files in executive briefings."
                 .into(),
         ));
     }
@@ -1169,6 +1169,6 @@ mod tests {
         .unwrap();
         assert_eq!(dash.pillars.len(), 5);
         assert!(dash.executive_score >= 0.0 && dash.executive_score <= 100.0);
-        assert!(dash.velocity.observation_mode.contains("R5/R11"));
+        assert!(dash.velocity.observation_mode.contains("no screen, keystroke"));
     }
 }

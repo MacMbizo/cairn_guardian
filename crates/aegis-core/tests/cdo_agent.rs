@@ -580,7 +580,7 @@ fn prepares_grounded_executive_briefing_prompt_and_persists_snapshots_r4_r5_r11(
     assert!(prep.citations.iter().any(|c| c.source_kind == "bottleneck"));
     assert!(prep.citations.iter().any(|c| c.source_kind == "project_pulse"));
     assert!(prep.system_prompt.contains("K1"));
-    assert!(prep.user_prompt.contains("R5/R11"));
+    assert!(prep.user_prompt.contains("no screen, keystroke"));
 
     let snap = CdoExecutiveBriefing {
         id: aegis_core::new_id(),

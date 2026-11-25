@@ -132,13 +132,13 @@ fn load_diff_file(conn: &Connection, file_id: &str) -> Result<DiffFileRow> {
 
     if state == "quarantine" || state == "missing" {
         return Err(AegisError::InvalidInput(format!(
-            "Cannot compare `{}` because it is in quarantine or missing (K2).",
+            "Cannot compare `{}` because it is in quarantine or missing.",
             file.filename
         )));
     }
     if role.as_deref() == Some("backup") {
         return Err(AegisError::PermissionDenied(
-            "Backup drives are read-only and never inspected directly (K4).".into(),
+            "Backup drives are read-only and never inspected directly.".into(),
         ));
     }
 
@@ -324,7 +324,7 @@ pub fn diff_version_pair(
             removed_lines: 0,
             unchanged_lines: 0,
             semantic_similarity: None,
-            conceptual_badges: vec!["Sensitive content locked (R7)".into()],
+            conceptual_badges: vec!["Sensitive content locked".into()],
             deterministic_summary: "[Sensitive content hidden — unlock sensitive previews with Windows authentication to compare file revisions.]".into(),
             hunks: Vec::new(),
             cached_llm_summary: None,

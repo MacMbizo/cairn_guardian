@@ -711,7 +711,7 @@ pub fn propose_asset_recovery(store: &mut SqliteStore, items: &[AssetRecoverItem
         }
         if vol_role.as_deref() == Some("backup") {
             return Err(AegisError::PermissionDenied(
-                "Backup drives are read-only and never modified (K4).".into(),
+                "Backup drives are read-only and never modified.".into(),
             ));
         }
         if vol_status != "online" {

@@ -743,7 +743,7 @@ fn builds_honest_privacy_posture_report_r8_r9_r11_and_rag_ai_exclusion() {
     let p = &dash.posture;
     assert!(p.zero_network_status.contains("r9_forbids_networking_crates_in_engine_and_models"));
     assert!(!p.zero_network_status.to_ascii_lowercase().contains("mathematical"));
-    assert!(p.shredding_policy.contains("Multi-pass shredding disabled (R8)"));
+    assert!(p.shredding_policy.contains("Multi-pass shredding disabled"));
     assert!(p.shredding_policy.contains("BitLocker"));
     assert!(p.firewall_command.contains("New-NetFirewallRule"));
 

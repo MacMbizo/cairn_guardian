@@ -69,7 +69,7 @@ pub(crate) fn build_embed_status(conn: &rusqlite::Connection, state: &AppState) 
         pending_chunks,
         available_models: models,
         on_demand_policy:
-            "Loads local model weights on demand and unloads after indexing or 60s idle (K5 / R4)"
+            "Loads local model weights on demand and unloads after indexing or 60s idle"
                 .into(),
     })
 }

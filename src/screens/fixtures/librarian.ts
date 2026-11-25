@@ -121,7 +121,7 @@ export const PREVIEW_LIBRARIAN_REPORTS: Record<string, ResearchCompanionReport> 
         excerpt:
           "Sealed cryptographic enclaves decouple background daemon attestation from interactive user biometric elevation to thwart cold-boot dumps.",
         pinned: true,
-        pin_note: "Core cryptographic basis for R2 key separation",
+        pin_note: "Core cryptographic basis for key separation",
         dismissed: false,
       },
       {

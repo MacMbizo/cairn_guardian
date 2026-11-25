@@ -189,7 +189,7 @@ pub fn parse_smart_json(raw: &str, catalog_errors: &HashMap<String, usize>) -> V
         } else if bus_type.eq_ignore_ascii_case("USB") {
             Some("USB enclosure health only (bridge may not pass raw SMART attributes without admin).".into())
         } else {
-            Some("Windows Storage overall health active; raw vendor SMART counters unavailable in user mode (R1).".into())
+            Some("Windows Storage overall health active; raw vendor SMART counters unavailable in user mode.".into())
         };
 
         out.push(DriveHealthItem {

@@ -857,10 +857,10 @@ export function EngineSettings({
         )}
       </section>
 
-      <section aria-label="Local RAG Chat Model (R4 / K5)" className={card}>
+      <section aria-label="Local chat model" className={card}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <MessageSquareText className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Local RAG Chat Model (R4 / K5)
+            <MessageSquareText className="h-4 w-4 text-emerald-400" aria-hidden="true" /> Local chat model
           </h2>
           {localLlm && (
             <span
@@ -893,7 +893,7 @@ export function EngineSettings({
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <span className="text-slate-400">Memory &amp; unload policy (`K5`)</span>
+                <span className="text-slate-400">Memory &amp; unload policy</span>
                 <p className="text-slate-300">{localLlm.on_demand_policy}</p>
               </div>
             </div>

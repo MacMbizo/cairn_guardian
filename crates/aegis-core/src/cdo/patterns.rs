@@ -552,7 +552,7 @@ pub fn compute_velocity_snapshot(
             active_folderless_rules,
             active_privacy_rules,
             open_security_findings,
-            observation_mode: "Disk & encrypted catalog only (R5/R11: zero screen, keystroke, or active-window telemetry)".into(),
+            observation_mode: "Files on disk and the encrypted catalog only: no screen, keystroke or active-window capture".into(),
         },
         loose_invoice_paths,
         excluded_sensitive,
@@ -586,6 +586,6 @@ mod tests {
         assert_eq!(snap.filing_automation_ratio, 1.0);
         assert!(paths.is_empty());
         assert_eq!(excluded, 0);
-        assert!(snap.observation_mode.contains("R5/R11"));
+        assert!(snap.observation_mode.contains("no screen, keystroke"));
     }
 }

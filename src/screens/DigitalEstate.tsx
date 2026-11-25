@@ -65,7 +65,7 @@ function heartbeatPill(state: EstateDashboard["heartbeat"]["state"]) {
     case "ready_for_release":
       return (
         <span className="rounded-full border border-sky-700/70 bg-sky-950/60 px-2.5 py-0.5 text-[11px] font-medium text-sky-200">
-          Ready for Non-Destructive Release (R10)
+          Ready to release (nothing deleted)
         </span>
       );
     default:
@@ -251,7 +251,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
         intervalDays: hbInterval,
         graceDays: hbGrace,
       });
-      setFlash("Non-destructive inactivity heartbeat schedule updated (R10).");
+      setFlash("Check-in schedule updated.");
       await loadDashboard();
     } catch (ex) {
       setErr(errorMessage(ex));
@@ -294,7 +294,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
 
   return (
     <div className="space-y-5">
-      {/* Header + R10 Policy Guarantee */}
+      {/* Header + no-deletion guarantee */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -332,7 +332,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
               >
                 <Unlock className="h-3.5 w-3.5" />
-                Unlock Estate Secrets (R2/R7)
+                Unlock estate details
               </button>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-1.5 text-xs text-emerald-300">
@@ -355,11 +355,11 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
 
         <div className="grid gap-2.5 md:grid-cols-3 text-[11px]">
           <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 text-emerald-200">
-            <span className="font-semibold">R10 Non-Destructive Guarantee:</span>{" "}
+            <span className="font-semibold">Never deletes your data:</span>{" "}
             {dashboard.r10_policy_summary}
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-300">
-            <span className="font-semibold text-slate-200">R8 At-Rest Posture:</span>{" "}
+            <span className="font-semibold text-slate-200">Data at rest:</span>{" "}
             {dashboard.r8_policy_summary}
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-300 flex items-center justify-between">
@@ -389,7 +389,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
           [
             ["trustees", `Trustees & Shards (${dashboard.trustees.length})`, Users],
             ["packets", `Succession Packets (${dashboard.packets.length})`, KeyRound],
-            ["heartbeat", "Inactivity Heartbeat (R10)", HeartHandshake],
+            ["heartbeat", "Check-in heartbeat", HeartHandshake],
             ["export", "Continuity Kit Export", FolderOutput],
           ] as const
         ).map(([id, label, Icon]) => (
@@ -506,7 +506,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
               <div className="flex items-center justify-between gap-2">
                 <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-300">
                   <FileKey2 className="h-4 w-4 text-indigo-400" />
-                  K-of-N Shamir Key Shards (`D1`/`R2`)
+                  Recovery key shares (any K of N)
                 </h2>
                 <div className="flex items-center gap-2 text-xs">
                   <label className="text-slate-400">
@@ -695,7 +695,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
             className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3"
           >
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-              Create Sealed Succession Packet (`R2`/`R7`)
+              Create sealed succession packet
             </h2>
             <input
               value={pTitle}
@@ -763,13 +763,13 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
         </div>
       )}
 
-      {/* Tab 3: Inactivity Heartbeat (R10) */}
+      {/* Tab 3: Inactivity Heartbeat */}
       {subTab === "heartbeat" && (
         <div className="grid gap-5 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                Continuity Check-In Schedule (R10)
+                Check-in schedule
               </h2>
               {heartbeatPill(dashboard.heartbeat.state)}
             </div>
@@ -815,7 +815,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
                   checked={hbEnabled}
                   onChange={(e) => setHbEnabled(e.target.checked)}
                 />
-                Enable non-destructive inactivity heartbeat (`R10`)
+                Turn on check-in heartbeat (never deletes anything)
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="text-slate-400">
@@ -884,7 +884,7 @@ export function DigitalEstate({ desktop }: { desktop: boolean }) {
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-100">
-              Export Offline Trustee Continuity Kit (`R2`/`R7`/`R10`)
+              Export offline Continuity Kit for trustees
             </h2>
             <p className="mt-1 text-xs text-slate-400">
               Writes `README_TRUSTEE_RECOVERY.md`, sealed packet Markdown files, and `manifest.json`

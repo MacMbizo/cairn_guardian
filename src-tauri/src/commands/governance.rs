@@ -102,7 +102,7 @@ pub fn governance_apply_labels(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("Manual R7 privacy protection");
+        .unwrap_or("Protected by you");
     map_err(apply_sensitivity_labels(
         &mut store,
         &file_ids,

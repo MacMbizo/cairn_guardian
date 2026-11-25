@@ -28,8 +28,8 @@ use super::{
 pub const DAY_MS: i64 = 86_400_000;
 const HEARTBEAT_SETTING_KEY: &str = "estate.heartbeat_config";
 
-pub const R10_POLICY_SUMMARY: &str = "Non-destructive policy (R10): A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.";
-pub const R8_POLICY_SUMMARY: &str = "Multi-pass shredding disabled (R8): Cairn relies on SQLCipher D1 database encryption and Windows BitLocker for data at rest.";
+pub const R10_POLICY_SUMMARY: &str = "Non-destructive policy: A missed check-in transitions status so trustees can receive prepared continuity packets & recovery instructions, and NEVER shreds, deletes, quarantines, or locks your files or databases.";
+pub const R8_POLICY_SUMMARY: &str = "Multi-pass shredding disabled: Cairn relies on its encrypted catalog and Windows BitLocker for data at rest.";
 
 fn readiness_grade(score: f64) -> String {
     if score >= 90.0 {
@@ -387,7 +387,7 @@ pub fn save_estate_packet(
 ) -> Result<EstatePacket> {
     if !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before editing sealed succession packets (R2/R7)."
+            "Windows Hello / Windows user verification is required before editing sealed succession packets."
                 .into(),
         ));
     }
@@ -486,7 +486,7 @@ pub fn delete_estate_packet(
 ) -> Result<bool> {
     if !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before removing succession packets (R2/R7)."
+            "Windows Hello / Windows user verification is required before removing succession packets."
                 .into(),
         ));
     }
@@ -510,7 +510,7 @@ pub fn generate_estate_shard_set(
 ) -> Result<EstateShardSetBundle> {
     if !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before generating recovery key shards (R2/R7)."
+            "Windows Hello / Windows user verification is required before generating recovery key shards."
                 .into(),
         ));
     }
@@ -639,7 +639,7 @@ pub fn verify_estate_shard_quorum(
 ) -> Result<EstateShardVerifyResult> {
     if !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before testing recovery shards (R2/R7)."
+            "Windows Hello / Windows user verification is required before testing recovery shards."
                 .into(),
         ));
     }
@@ -838,7 +838,7 @@ pub fn export_estate_continuity_kit(
 ) -> Result<EstateContinuityExport> {
     if !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before exporting Continuity Kit packets (R2/R7)."
+            "Windows Hello / Windows user verification is required before exporting Continuity Kit packets."
                 .into(),
         ));
     }

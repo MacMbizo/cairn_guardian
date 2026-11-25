@@ -144,7 +144,7 @@ fn validate_rule_prefix(conn: &Connection, prefix: Option<&str>) -> Result<Optio
         let (mount, cs) = row?;
         if path_is_within(raw, &mount, cs) {
             return Err(AegisError::PermissionDenied(
-                "Privacy rules cannot target a backup volume (K4).".into(),
+                "Privacy rules cannot target a backup volume.".into(),
             ));
         }
     }
@@ -172,7 +172,7 @@ pub fn scan_personal_data(
 ) -> Result<GovernanceScanReport> {
     if opts.include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before scanning sensitive files (R7)."
+            "Windows Hello / Windows user verification is required before scanning sensitive files."
                 .into(),
         ));
     }
@@ -400,15 +400,15 @@ fn finding_summary_and_action(
     };
     let rec = match ft {
         GovernanceFindingType::PrivateKeyBlock | GovernanceFindingType::CloudApiKey => {
-            "Mark Secret (R7) or stage exposed copy to 30-day Quarantine (K1/K2); rotate token if shared."
+            "Mark Secret or stage exposed copy to 30-day Quarantine; rotate token if shared."
         }
         GovernanceFindingType::CredentialFile => {
-            "Classify Secret (R7) and exclude from AI prompts, keeping intact inside repositories."
+            "Classify Secret and exclude from AI prompts, keeping intact inside repositories."
         }
         GovernanceFindingType::PaymentCard
         | GovernanceFindingType::GovernmentId
         | GovernanceFindingType::BankAccountOrIban => {
-            "Mark Confidential (R7) to mask previews and exclude from AI prompts while keeping searchable."
+            "Mark Confidential to mask previews and exclude from AI prompts while keeping searchable."
         }
     };
     (format!("{base} ({loc_count} location(s))"), rec.into())
@@ -874,7 +874,7 @@ pub fn propose_governance_quarantine(
 ) -> Result<String> {
     if include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before quarantining sensitive files (R7)."
+            "Windows Hello / Windows user verification is required before quarantining sensitive files."
                 .into(),
         ));
     }
@@ -945,7 +945,7 @@ pub fn propose_governance_quarantine(
         }
         if is_sensitive(&sensitivity) && !allow_sens {
             return Err(AegisError::PermissionDenied(
-                "Unlock sensitive views via Windows authentication before quarantining sensitive files (R7)."
+                "Unlock sensitive views via Windows authentication before quarantining sensitive files."
                     .into(),
             ));
         }
@@ -976,7 +976,7 @@ pub fn propose_governance_quarantine(
             atomic_unit_id,
             from_path: path,
             to_path: None,
-            reason: "Exposed secret / credential file staged for reversible 30-day Quarantine (K1/K2/R8)"
+            reason: "Exposed secret / credential file staged for reversible 30-day Quarantine"
                 .into(),
             confidence: 0.96,
             evidence_json: serde_json::json!({ "source": "personal_governance" }).to_string(),
@@ -1042,7 +1042,7 @@ fn list_governance_dashboard_inner(
 ) -> Result<GovernanceDashboard> {
     if opts.include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Windows Hello / Windows user verification is required before viewing unmasked sensitive findings (R7)."
+            "Windows Hello / Windows user verification is required before viewing unmasked sensitive findings."
                 .into(),
         ));
     }

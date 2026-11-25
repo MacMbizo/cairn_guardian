@@ -503,7 +503,7 @@ export function VersionTracking({
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
               <GitBranch className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-              Semantic Version Tracking (`K1` Reversible Timelines &amp; Conceptual Diff)
+              Version Tracking
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
               Groups filename iterations (`_v1` / `_FINAL` / dates), project `Versions\` folders,
@@ -709,10 +709,10 @@ export function VersionTracking({
             })}
           </div>
 
-          {/* Right pane: timeline + K1 actions + semantic diff */}
+          {/* Right pane: timeline + reversible actions + semantic diff */}
           {selectedChain && (
             <div className="space-y-4">
-              {/* Header & K1 Actions */}
+              {/* Header & reversible actions */}
               <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -731,7 +731,7 @@ export function VersionTracking({
                       {selectedChain.has_sensitive && (
                         <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-2 py-0.5 text-[11px] text-rose-300">
                           <ShieldAlert className="h-3 w-3" />
-                          Contains sensitive file (R7)
+                          Contains a sensitive file
                         </span>
                       )}
                     </div>

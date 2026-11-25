@@ -113,7 +113,7 @@ fn ensure_not_backup_destination(conn: &Connection, dest_root: &str) -> Result<(
         let (mount, cs) = row?;
         if path_is_within(dest_root, &mount, cs) {
             return Err(AegisError::PermissionDenied(
-                "Destination root cannot target a backup volume (K4).".into(),
+                "Destination root cannot target a backup volume.".into(),
             ));
         }
     }
@@ -123,7 +123,7 @@ fn ensure_not_backup_destination(conn: &Connection, dest_root: &str) -> Result<(
 fn ensure_sensitive_allowed(include_sensitive: bool, reveal_sensitive: bool) -> Result<()> {
     if include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Unlock sensitive previews with Windows authentication before including confidential or secret files in Folderless rules (R7)."
+            "Unlock sensitive previews with Windows authentication before including confidential or secret files in Folderless rules."
                 .into(),
         ));
     }
@@ -999,12 +999,12 @@ pub fn propose_folderless_batch(
         };
         if fc.deleted_at.is_some() || fc.state == "quarantine" || fc.state == "missing" {
             return Err(AegisError::InvalidInput(
-                "Cannot move deleted or quarantined files (K2).".into(),
+                "Cannot move deleted or quarantined files.".into(),
             ));
         }
         if fc.vol_role.as_deref() == Some("backup") {
             return Err(AegisError::PermissionDenied(
-                "Backup volumes are read-only and never modified (K4).".into(),
+                "Backup volumes are read-only and never modified.".into(),
             ));
         }
         if fc.vol_status != "online" {
@@ -1014,7 +1014,7 @@ pub fn propose_folderless_batch(
         }
         if is_sensitive(&fc.sensitivity) && !(include_sensitive && reveal_sensitive) {
             return Err(AegisError::PermissionDenied(
-                "Unlock sensitive previews with Windows authentication before staging confidential/secret files (R7)."
+                "Unlock sensitive previews with Windows authentication before staging confidential/secret files."
                     .into(),
             ));
         }

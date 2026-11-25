@@ -342,7 +342,7 @@ export function AskFiles({
                   className="rounded border-slate-700 bg-slate-950 text-emerald-500"
                 />
                 <Lock className="h-3 w-3 text-slate-400" aria-hidden="true" />
-                Include sensitive files (`R7`)
+                Include sensitive files
               </label>
               {!sensitiveUnlocked && onOpenSettings && (
                 <button
@@ -461,7 +461,7 @@ export function AskFiles({
               {res && res.excluded_sensitive_count > 0 && (
                 <p className="flex items-center gap-1.5 rounded border border-amber-800/50 bg-amber-950/30 px-2.5 py-1.5 text-xs text-amber-200">
                   <ShieldAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  {res.excluded_sensitive_count} sensitive file(s) excluded by privacy policy (`R7`).
+                  {res.excluded_sensitive_count} sensitive file(s) left out because they are marked sensitive.
                 </p>
               )}
 

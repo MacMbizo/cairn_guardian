@@ -177,7 +177,7 @@ pub struct PreparedCrossProjectBrief {
 fn ensure_sensitive_allowed(include_sensitive: bool, reveal_sensitive: bool) -> Result<()> {
     if include_sensitive && !reveal_sensitive {
         return Err(AegisError::PermissionDenied(
-            "Unlock sensitive previews with Windows authentication before including confidential or secret project files in Cross-Project Intelligence (R7)."
+            "Unlock sensitive previews with Windows authentication before including confidential or secret project files in Cross-Project Intelligence."
                 .into(),
         ));
     }
