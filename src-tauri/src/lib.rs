@@ -360,6 +360,16 @@ pub fn run() {
             commands::healing::healing_update_rule_path,
             commands::healing::healing_recent_batches,
             commands::healing::healing_run_doctor_check,
+            commands::governance::governance_dashboard,
+            commands::governance::governance_scan,
+            commands::governance::governance_set_finding_status,
+            commands::governance::governance_apply_labels,
+            commands::governance::governance_undo_label_batch,
+            commands::governance::governance_propose_quarantine,
+            commands::governance::governance_list_rules,
+            commands::governance::governance_save_rule,
+            commands::governance::governance_delete_rule,
+            commands::governance::governance_apply_rule,
             #[cfg(debug_assertions)]
             commands::engine::engine_debug_raise,
         ])

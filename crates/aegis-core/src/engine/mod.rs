@@ -61,6 +61,7 @@ pub enum Screen {
     CrossProject,
     Folderless,
     Healing,
+    Governance,
 }
 
 /// What acting on a finding does.

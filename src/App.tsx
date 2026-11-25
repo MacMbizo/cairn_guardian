@@ -50,6 +50,7 @@ import { FilingScreen } from "./screens/Filing";
 import { FolderlessMode } from "./screens/FolderlessMode";
 import { ForgottenAssets } from "./screens/ForgottenAssets";
 import { KnowledgeBase } from "./screens/KnowledgeBase";
+import { DataGovernance } from "./screens/DataGovernance";
 import { ResearchLibrarian } from "./screens/ResearchLibrarian";
 import { SelfHealing } from "./screens/SelfHealing";
 import { SystemCare } from "./screens/SystemCare";
@@ -89,7 +90,7 @@ import {
   type VaultStatus,
 } from "./bindings/client";
 
-type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "care" | "rescue" | "simulator" | "doctor" | "settings";
+type TabId = "dashboard" | "week" | "drives" | "dupes" | "filing" | "search" | "ask" | "assets" | "versions" | "knowledge" | "librarian" | "cross_project" | "folderless" | "healing" | "governance" | "care" | "rescue" | "simulator" | "doctor" | "settings";
 
 /** App tab for a screen the backend asks for (tray, notification, search shortcut). */
 const TAB_FOR: Record<Screen, TabId> = {
@@ -105,6 +106,7 @@ const TAB_FOR: Record<Screen, TabId> = {
   cross_project: "cross_project",
   folderless: "folderless",
   healing: "healing",
+  governance: "governance",
   care: "care",
   rescue: "rescue",
   simulator: "simulator",
@@ -671,6 +673,7 @@ export default function App() {
     { id: "cross_project", label: "Cross-Project", icon: Network },
     { id: "folderless", label: "Folderless Rules", icon: Wand2 },
     { id: "healing", label: "Self-Healing", icon: Wrench },
+    { id: "governance", label: "Data Governance", icon: ShieldCheck },
     { id: "care", label: "System Care", icon: HeartPulse },
     { id: "rescue", label: "Disk Rescue & Quarantine", icon: Archive },
     { id: "simulator", label: "Simulator & Actions", icon: Sparkles },
@@ -897,6 +900,15 @@ export default function App() {
           )}
           {tab === "healing" && (
             <SelfHealing
+              desktop={desktop}
+              onReviewBatches={() => {
+                setTab("simulator");
+                void refreshAll();
+              }}
+            />
+          )}
+          {tab === "governance" && (
+            <DataGovernance
               desktop={desktop}
               onReviewBatches={() => {
                 setTab("simulator");

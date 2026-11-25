@@ -15,6 +15,7 @@ pub mod error;
 pub mod filing;
 pub mod fingerprint;
 pub mod folderless;
+pub mod governance;
 pub mod healing;
 pub mod knowledge;
 pub mod librarian;

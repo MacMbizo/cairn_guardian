@@ -522,5 +522,20 @@ pub fn rebase_volume_paths(
             )?;
         }
     }
+    let gov_rules: Vec<(String, String)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, path_prefix FROM governance_privacy_rules WHERE path_prefix IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (id, prefix) in gov_rules {
+        if let Some(np) = rebased(&prefix, old_mount, new_mount, case_sensitive) {
+            tx.execute(
+                "UPDATE governance_privacy_rules SET path_prefix = ?2 WHERE id = ?1",
+                params![id, np],
+            )?;
+        }
+    }
     Ok(changed)
 }

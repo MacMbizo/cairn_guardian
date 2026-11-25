@@ -62,6 +62,14 @@ import type {
   FolderlessPreviewReport,
   FolderlessRule,
   FolderlessRuleInput,
+  GovernanceDashboard,
+  GovernanceFindingStatus,
+  GovernanceLabelBatch,
+  GovernancePrivacyRule,
+  GovernancePrivacyRuleInput,
+  GovernanceQueryOptions,
+  GovernanceScanOptions,
+  GovernanceScanReport,
   HardwareProfile,
   HealBatchSummary,
   HealPatchPreviewFile,
@@ -656,6 +664,43 @@ export const aegis = {
       call<DoctorReport>("healing_run_doctor_check", {
         repair: repair ?? false,
       }),
+  },
+  governance: {
+    dashboard: (options?: GovernanceQueryOptions | null, liveProbeBitlocker?: boolean) =>
+      call<GovernanceDashboard>("governance_dashboard", {
+        options: options ?? null,
+        liveProbeBitlocker: liveProbeBitlocker ?? true,
+      }),
+    scan: (options?: GovernanceScanOptions | null) =>
+      call<GovernanceScanReport>("governance_scan", { options: options ?? null }),
+    setFindingStatus: (findingId: string, status: GovernanceFindingStatus) =>
+      call<void>("governance_set_finding_status", { findingId, status }),
+    applyLabels: (params: {
+      fileIds: string[];
+      targetSensitivity: string;
+      findingIds?: string[];
+      reason?: string;
+    }) =>
+      call<GovernanceLabelBatch>("governance_apply_labels", {
+        fileIds: params.fileIds,
+        targetSensitivity: params.targetSensitivity,
+        findingIds: params.findingIds ?? [],
+        reason: params.reason ?? null,
+      }),
+    undoLabelBatch: (batchId: string) =>
+      call<GovernanceLabelBatch>("governance_undo_label_batch", { batchId }),
+    proposeQuarantine: (fileIds: string[], includeSensitive?: boolean) =>
+      call<string>("governance_propose_quarantine", {
+        fileIds,
+        includeSensitive: includeSensitive ?? false,
+      }),
+    listRules: () => call<GovernancePrivacyRule[]>("governance_list_rules"),
+    saveRule: (input: GovernancePrivacyRuleInput) =>
+      call<GovernancePrivacyRule>("governance_save_rule", { input }),
+    deleteRule: (ruleId: string) =>
+      call<boolean>("governance_delete_rule", { ruleId }),
+    applyRule: (ruleId: string) =>
+      call<GovernanceLabelBatch>("governance_apply_rule", { ruleId }),
   },
   care: {
     scanCleanup: () => call<CleanupScanReport>("care_scan_cleanup"),

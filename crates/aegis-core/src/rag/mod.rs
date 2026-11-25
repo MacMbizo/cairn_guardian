@@ -212,7 +212,9 @@ pub fn retrieve_rag_context(
     let mut total_context_chars = 0usize;
 
     for hit in hits {
-        if !allow_sensitive && is_sensitive(&hit.sensitivity) {
+        if (!allow_sensitive && is_sensitive(&hit.sensitivity))
+            || crate::governance::is_path_excluded_from_ai(conn, &hit.path)
+        {
             excluded_sensitive_count += 1;
             continue;
         }

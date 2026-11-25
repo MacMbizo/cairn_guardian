@@ -9,6 +9,7 @@ pub mod embed;
 pub mod engine;
 pub mod filing;
 pub mod folderless;
+pub mod governance;
 pub mod healing;
 pub mod knowledge;
 pub mod librarian;
