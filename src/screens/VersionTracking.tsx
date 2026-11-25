@@ -498,7 +498,7 @@ export function VersionTracking({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -515,7 +515,7 @@ export function VersionTracking({
             type="button"
             disabled={loading || busy}
             onClick={() => void loadScan()}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? "Scanning…" : "Rescan chains"}
           </button>
@@ -524,34 +524,34 @@ export function VersionTracking({
         {report && (
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Version chains</p>
+              <p className="text-xs text-slate-400">Version chains</p>
               <p className="mt-0.5 text-base font-semibold text-slate-100">
                 {report.total_chains.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-xs text-slate-500">
                 {report.versions_folder_chains_count} use Versions\
               </p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Tracked revisions</p>
+              <p className="text-xs text-slate-400">Tracked revisions</p>
               <p className="mt-0.5 text-base font-semibold text-emerald-300">
                 {report.total_versions.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Across non-backup drives</p>
+              <p className="text-xs text-slate-500">Across non-backup drives</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Semantic chains</p>
+              <p className="text-xs text-slate-400">Semantic chains</p>
               <p className="mt-0.5 text-base font-semibold text-violet-300">
                 {report.semantic_chains_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">&gt;= 92% vector similarity</p>
+              <p className="text-xs text-slate-500">&gt;= 92% vector similarity</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Exact dupes in chains</p>
+              <p className="text-xs text-slate-400">Exact dupes in chains</p>
               <p className="mt-0.5 text-base font-semibold text-amber-300">
                 {report.chains_with_dupes.toLocaleString()} chains
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-xs text-slate-500">
                 {formatBytes(report.reclaimable_duplicate_bytes)} reclaimable (BLAKE3)
               </p>
             </div>
@@ -572,7 +572,7 @@ export function VersionTracking({
           <button
             type="submit"
             disabled={loading}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             Filter
           </button>
@@ -583,7 +583,7 @@ export function VersionTracking({
                 setQueryInput("");
                 setAppliedQuery("");
               }}
-              className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+              className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
             >
               Clear
             </button>
@@ -596,7 +596,7 @@ export function VersionTracking({
               key={sf.label}
               type="button"
               onClick={() => setSignalFilter(sf.id)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 signalFilter === sf.id
                   ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
                   : "bg-slate-800/80 text-slate-300 hover:bg-slate-800"
@@ -640,7 +640,7 @@ export function VersionTracking({
       )}
 
       {displayedChains.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-xs text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-xs text-slate-400">
           {loading
             ? "Scanning catalogued files for semantic version chains…"
             : "No multi-version file chains matched the current filters."}
@@ -659,47 +659,47 @@ export function VersionTracking({
                   className={`w-full rounded-xl border p-3 text-left transition ${
                     active
                       ? "border-emerald-500/50 bg-emerald-950/20"
-                      : "border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/70"
+                      : "border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900/60"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="truncate text-xs font-semibold text-slate-100">
                       {ch.title}
                     </span>
-                    <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-300">
+                    <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-xs font-medium text-slate-300">
                       {ch.version_count} rev
                     </span>
                   </div>
-                  <p className="mt-1 truncate text-[11px] text-slate-400">{ch.anchor_dir}</p>
+                  <p className="mt-1 truncate text-xs text-slate-400">{ch.anchor_dir}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {ch.collection_name && (
-                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-300">
                         {ch.collection_name}
                       </span>
                     )}
                     {!ch.drive_online && (
-                      <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
+                      <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">
                         <Usb className="h-2.5 w-2.5" />
                         Offline
                       </span>
                     )}
                     {ch.exact_duplicate_count > 0 && (
-                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300">
                         {ch.exact_duplicate_count} exact dup
                       </span>
                     )}
                     {ch.has_semantic_links && (
-                      <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
+                      <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-xs text-violet-300">
                         Semantic
                       </span>
                     )}
                     {ch.has_versions_folder && (
-                      <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
+                      <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">
                         Versions\
                       </span>
                     )}
                     {ch.has_file_history && (
-                      <span className="rounded bg-teal-500/15 px-1.5 py-0.5 text-[10px] text-teal-300">
+                      <span className="rounded bg-teal-500/15 px-1.5 py-0.5 text-xs text-teal-300">
                         History
                       </span>
                     )}
@@ -713,23 +713,23 @@ export function VersionTracking({
           {selectedChain && (
             <div className="space-y-4">
               {/* Header & reversible actions */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-semibold text-slate-100">
                         {selectedChain.title}
                       </h3>
-                      <span className="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
+                      <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                         {selectedChain.drive_label}
                       </span>
                       {!selectedChain.drive_online && (
-                        <span className="rounded bg-sky-500/15 px-2 py-0.5 text-[11px] text-sky-300">
+                        <span className="rounded bg-sky-500/15 px-2 py-0.5 text-xs text-sky-300">
                           Plug drive in to move or diff unindexed files
                         </span>
                       )}
                       {selectedChain.has_sensitive && (
-                        <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-2 py-0.5 text-[11px] text-rose-300">
+                        <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-2 py-0.5 text-xs text-rose-300">
                           <ShieldAlert className="h-3 w-3" />
                           Contains a sensitive file
                         </span>
@@ -742,7 +742,7 @@ export function VersionTracking({
                     type="button"
                     disabled={busy}
                     onClick={() => void handleDismissToggle(selectedChain)}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                   >
                     {selectedChain.dismissed ? (
                       <>
@@ -763,14 +763,14 @@ export function VersionTracking({
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <Archive className="h-3.5 w-3.5 text-emerald-400" />
                     <span className="text-slate-400">Archive destination:</span>
-                    <code className="max-w-[320px] truncate rounded bg-slate-900 px-2 py-0.5 text-[11px] text-slate-200">
+                    <code className="max-w-[320px] truncate rounded bg-slate-900 px-2 py-0.5 text-xs text-slate-200">
                       {customArchiveDir ?? selectedChain.suggested_versions_dir}
                     </code>
                     <button
                       type="button"
                       disabled={busy || !selectedChain.drive_online}
                       onClick={() => void handlePickArchiveDir()}
-                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                     >
                       <FolderOpen className="h-3 w-3" />
                       Choose folder…
@@ -782,7 +782,7 @@ export function VersionTracking({
                       type="button"
                       disabled={busy || selectedArchiveIds.size === 0 || !selectedChain.drive_online}
                       onClick={() => void handleProposeArchive()}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                     >
                       <Archive className="h-3.5 w-3.5" />
                       Archive older to Versions ({selectedArchiveIds.size})
@@ -801,7 +801,7 @@ export function VersionTracking({
                     )}
                   </div>
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">
+                <p className="mt-1.5 text-xs text-slate-500">
                   Safety rule (`FR-004.2`): Near-identical semantic revisions (`&gt;= 92%`) are
                   never auto-deleted. Only verified byte-identical `BLAKE3` duplicates can enter
                   30-day quarantine, preserving `MIN_COPIES = 2`.
@@ -809,7 +809,7 @@ export function VersionTracking({
               </div>
 
               {/* Chronological Version Timeline */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Version Timeline (oldest -&gt; newest)
                 </h4>
@@ -839,7 +839,7 @@ export function VersionTracking({
                                 className="mt-1 rounded border-slate-700 bg-slate-900"
                               />
                             ) : (
-                              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-slate-800 text-[10px] font-semibold text-slate-300">
+                              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-slate-800 text-xs font-semibold text-slate-300">
                                 {index + 1}
                               </span>
                             )}
@@ -848,42 +848,42 @@ export function VersionTracking({
                                 <span className="truncate text-xs font-semibold text-slate-100">
                                   {node.filename}
                                 </span>
-                                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                                   {node.version_label}
                                 </span>
                                 {node.is_latest && (
-                                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-xs font-semibold text-emerald-300">
                                     Latest
                                   </span>
                                 )}
                                 {node.is_pinned && (
-                                  <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-300">
+                                  <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-xs text-indigo-300">
                                     Pinned
                                   </span>
                                 )}
                                 {node.in_versions_folder && (
-                                  <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-300">
+                                  <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">
                                     In Versions\
                                   </span>
                                 )}
                                 {node.is_exact_duplicate && (
-                                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300">
                                     Exact copy (BLAKE3)
                                   </span>
                                 )}
                                 {node.semantic_similarity_prev !== null && (
-                                  <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
+                                  <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-xs text-violet-300">
                                     {Math.round(node.semantic_similarity_prev * 100)}% similar to
                                     prev
                                   </span>
                                 )}
                               </div>
 
-                              <p className="mt-1 truncate text-[11px] text-slate-400">
+                              <p className="mt-1 truncate text-xs text-slate-400">
                                 {node.path}
                               </p>
 
-                              <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
                                 <span>{formatBytes(node.size_bytes)}</span>
                                 {sizeDelta && <span className="text-slate-300">({sizeDelta})</span>}
                                 <span>{formatDateTime(node.mtime)}</span>
@@ -896,7 +896,7 @@ export function VersionTracking({
                               </div>
 
                               {node.former_paths.length > 0 && (
-                                <p className="mt-1 flex items-center gap-1 text-[11px] text-teal-300">
+                                <p className="mt-1 flex items-center gap-1 text-xs text-teal-300">
                                   <History className="h-3 w-3 shrink-0" />
                                   <span className="truncate">
                                     Moved from: {node.former_paths.join(" · ")}
@@ -913,7 +913,7 @@ export function VersionTracking({
                                 disabled={busy}
                                 onClick={() => void handlePinLatest(node)}
                                 title="Pin as Latest"
-                                className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                                className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                               >
                                 <Pin className="h-3 w-3" />
                                 Pin
@@ -922,7 +922,7 @@ export function VersionTracking({
                             <button
                               type="button"
                               onClick={() => void handleInspect(node)}
-                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                             >
                               <FileSearch className="h-3 w-3" />
                               Inspect
@@ -930,7 +930,7 @@ export function VersionTracking({
                             <button
                               type="button"
                               onClick={() => void handleCopyPath(node.path)}
-                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                             >
                               {copiedPath === node.path ? (
                                 <Check className="h-3 w-3 text-emerald-400" />
@@ -948,7 +948,7 @@ export function VersionTracking({
               </div>
 
               {/* Visual Semantic Diff & Conceptual Change Summary */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="font-semibold text-slate-200">Compare:</span>
@@ -980,7 +980,7 @@ export function VersionTracking({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className="inline-flex rounded-md border border-slate-700 bg-slate-950 p-0.5 text-[11px]">
+                    <div className="inline-flex rounded-md border border-slate-700 bg-slate-950 p-0.5 text-xs">
                       <button
                         type="button"
                         onClick={() => setDiffMode("side")}
@@ -1041,13 +1041,13 @@ export function VersionTracking({
                       {diffReport.conceptual_badges.map((badge) => (
                         <span
                           key={badge}
-                          className="rounded-full bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-200"
+                          className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-200"
                         >
                           {badge}
                         </span>
                       ))}
                       {diffReport.truncated && (
-                        <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] text-amber-300">
+                        <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs text-amber-300">
                           Diff truncated to 1,200 lines
                         </span>
                       )}
@@ -1060,12 +1060,12 @@ export function VersionTracking({
                       {llmSummary && (
                         <div className="mt-2.5 border-t border-slate-800 pt-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-300">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-violet-300">
                               <Sparkles className="h-3 w-3" />
                               Local LLM Summary ({llmSummary.model_name})
                             </span>
                             {llmSummary.cached && (
-                              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
                                 Cached
                               </span>
                             )}
@@ -1078,10 +1078,10 @@ export function VersionTracking({
                     </div>
 
                     {diffReport.hunks.length > 0 && (
-                      <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-800 bg-slate-950 font-mono text-[11px]">
+                      <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-800 bg-slate-950 font-mono text-xs">
                         {diffReport.hunks.map((hunk, hIdx) => (
                           <div key={hIdx} className="border-b border-slate-800 last:border-b-0">
-                            <div className="bg-slate-900/90 px-3 py-1 text-[10px] text-sky-300">
+                            <div className="bg-slate-900/90 px-3 py-1 text-xs text-sky-300">
                               @@ -{hunk.old_start},{hunk.old_count} +{hunk.new_start},
                               {hunk.new_count} @@
                             </div>

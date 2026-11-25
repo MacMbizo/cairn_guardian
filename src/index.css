@@ -31,3 +31,27 @@
     scroll-behavior: auto !important;
   }
 }
+
+@layer base {
+  /* One visible keyboard focus style for every control that doesn't set its own (D1, WCAG 2.2). */
+  :where(button, a[href], [role="tab"], [role="button"], input, select, textarea, summary):focus-visible {
+    outline: 2px solid #34d399;
+    outline-offset: 2px;
+  }
+
+  /* Clickable things look clickable. */
+  :where(button:not(:disabled), [role="button"], [role="tab"], summary, label[for]) {
+    cursor: pointer;
+  }
+
+  /* Keep focused rows clear of sticky headers (D1 focus-not-obscured). */
+  main {
+    scroll-padding-top: 4rem;
+  }
+
+  /* Numbers that change (sizes, counts) don't jiggle. */
+  .font-mono,
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

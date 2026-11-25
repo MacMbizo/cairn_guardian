@@ -1,3 +1,4 @@
+import { ui } from "../ui";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, CheckCircle2, FolderGit2, FolderTree, HardDrive, History, Laptop, ListChecks, Sparkles, Undo2 } from "lucide-react";
 import {
@@ -19,9 +20,9 @@ import { fixtureBatch, fixtureBlueprints, fixtureDestinations, fixtureRecent, fi
 import type { FilingData } from "./useFiling";
 import { ProjectsView } from "./Projects";
 
-const card = "rounded-xl border border-slate-800 bg-slate-900/50 p-4";
-const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
-const primary = "rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40";
+const card = ui.card;
+const btn = ui.btn;
+const primary = ui.primary;
 
 type View =
   | { kind: "overview" }
@@ -44,7 +45,7 @@ function shortFolder(p: string, keep = 4): string {
 function Pill({ c }: { c: number }) {
   const sure = c >= 0.9;
   return (
-    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${sure ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
+    <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${sure ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
       {sure ? "Sure" : "Likely"} · {Math.round(c * 100)}%
     </span>
   );

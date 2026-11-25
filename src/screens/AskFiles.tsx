@@ -245,7 +245,7 @@ export function AskFiles({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -288,7 +288,7 @@ export function AskFiles({
                 type="button"
                 disabled={!desktop || modelBusy || running || !localLlm.loaded}
                 onClick={() => void handleUnload()}
-                className="rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                className="rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 Unload
               </button>
@@ -319,7 +319,7 @@ export function AskFiles({
               <button
                 type="submit"
                 disabled={!question.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 <Send className="h-3.5 w-3.5" aria-hidden="true" />
                 Ask
@@ -433,12 +433,12 @@ export function AskFiles({
           return (
             <article
               key={turn.id}
-              className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+              className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4"
             >
               <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-2">
                 <h3 className="text-sm font-medium text-slate-100">{turn.question}</h3>
                 {res && (
-                  <span className="shrink-0 font-mono text-[11px] text-slate-400">
+                  <span className="shrink-0 font-mono text-xs text-slate-400">
                     {res.model_name} · {res.tokens_generated} tok · {(res.duration_ms / 1000).toFixed(1)}s
                     {res.cancelled ? " · stopped" : ""}
                   </span>
@@ -481,11 +481,11 @@ export function AskFiles({
                             <span className="font-semibold text-emerald-300">
                               [{c.ref_id}] {c.filename}
                             </span>
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                            <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-slate-300">
                               {c.matched_by}
                             </span>
                           </div>
-                          <p className="truncate font-mono text-[11px] text-slate-500" title={c.path}>
+                          <p className="truncate font-mono text-xs text-slate-500" title={c.path}>
                             {c.path}
                           </p>
                           <p className="line-clamp-3 text-slate-300">{c.snippet}</p>
@@ -496,14 +496,14 @@ export function AskFiles({
                             type="button"
                             disabled={inspectBusy}
                             onClick={() => void handleInspectCitation(c)}
-                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                           >
                             <FileSearch className="h-3 w-3" aria-hidden="true" /> Inspect
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleCopyPath(c.path)}
-                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                           >
                             {copiedPath === c.path ? (
                               <>

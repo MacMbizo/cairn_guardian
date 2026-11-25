@@ -1,3 +1,4 @@
+import { ui } from "../ui";
 import { useEffect, useState } from "react";
 import { Activity, BellRing, CheckCheck, Download, FolderGit2, HardDrive, ShieldCheck } from "lucide-react";
 import { aegis, errorMessage, type FindingAction, type Reminder, type Screen } from "../bindings/client";
@@ -5,7 +6,7 @@ import type { EngineData } from "./useEngine";
 
 export const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-const card = "rounded-xl border border-slate-800 bg-slate-900/50 p-4";
+const card = ui.card;
 
 export function screenFor(action: FindingAction): Screen {
   if (action.type === "open") return action.screen;
@@ -108,10 +109,10 @@ export function ThisWeek({
                   <span className="block text-xs text-slate-400">{r.detail}</span>
                 </span>
                 <span className="flex shrink-0 gap-2">
-                  <button type="button" onClick={() => showMe(r)} className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
+                  <button type="button" onClick={() => showMe(r)} className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors">
                     Show me
                   </button>
-                  <button type="button" onClick={() => notNow(r)} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800">
+                  <button type="button" onClick={() => notNow(r)} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 transition-colors">
                     Not now
                   </button>
                 </span>
@@ -159,7 +160,7 @@ export function ThisWeek({
         <Section icon={Download} title="Tidy-up found">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-slate-300">{note.tidy}</p>
-            <button type="button" onClick={() => onOpen("simulator")} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800">
+            <button type="button" onClick={() => onOpen("simulator")} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 transition-colors">
               Review
             </button>
           </div>
@@ -173,7 +174,7 @@ export function ThisWeek({
             <button
               type="button"
               onClick={() => (onOpenProjects ? onOpenProjects() : onOpen("filing"))}
-              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
             >
               Review
             </button>

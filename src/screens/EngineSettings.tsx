@@ -1,3 +1,4 @@
+import { ui } from "../ui";
 import { useCallback, useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { CheckCircle2, Copy, Eye, EyeOff, FolderOpen, KeyRound, Keyboard, Lock, MessageSquareText, MoonStar, Power, ShieldAlert, ShieldCheck, Sparkles, Undo2, Unlock } from "lucide-react";
@@ -5,8 +6,8 @@ import { aegis, errorMessage, type EmbedStatus, type LlmStatus, type RecoveryKey
 import { DAY_NAMES } from "./ThisWeek";
 import type { EngineData } from "./useEngine";
 
-const card = "rounded-xl border border-slate-800 bg-slate-900/50 p-4";
-const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
+const card = ui.card;
+const btn = ui.btn;
 const KIND_LABEL: Record<string, string> = {
   only_copy: "Files that exist only on this PC",
   quarantine_expiry: "Quarantine about to empty",
@@ -601,7 +602,7 @@ export function EngineSettings({
                         <button
                           type="submit"
                           disabled={vaultBusy || !spotWordA.trim() || !spotWordB.trim()}
-                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           Confirm offline backup
                         </button>
@@ -837,7 +838,7 @@ export function EngineSettings({
                   type="button"
                   disabled={embedBusy}
                   onClick={() => void handleSyncEmbeddings()}
-                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                 >
                   {embedBusy
                     ? "Indexing…"

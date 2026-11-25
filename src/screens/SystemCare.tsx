@@ -79,7 +79,7 @@ function VolumeSparkline({ points }: { points: { day: string; used_bytes: number
           points={coords.join(" ")}
         />
       </svg>
-      <div className="mt-1 flex justify-between text-[11px] text-slate-500">
+      <div className="mt-1 flex justify-between text-xs text-slate-500">
         <span>{points[0].day}</span>
         <span>{points[points.length - 1].day}</span>
       </div>
@@ -319,7 +319,7 @@ export function SystemCare({
               ]);
             })
           }
-          className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin text-emerald-400" : ""}`} />
           Refresh All
@@ -369,7 +369,7 @@ export function SystemCare({
               <div className="mt-1 text-xl font-semibold text-emerald-300">
                 {formatBytes(cleanup?.total_reclaimable_bytes ?? 0)}
               </div>
-              <div className="mt-1 text-[11px] text-slate-400">
+              <div className="mt-1 text-xs text-slate-400">
                 {allCandidates.length} items across {cleanup?.groups.length ?? 0} categories
               </div>
             </button>
@@ -383,7 +383,7 @@ export function SystemCare({
               <div className="mt-1 text-xl font-semibold text-slate-100">
                 {apps.length} apps
               </div>
-              <div className="mt-1 text-[11px] text-slate-400">
+              <div className="mt-1 text-xs text-slate-400">
                 {unusedCount} likely unused · {leftovers.length} leftover folder(s)
               </div>
             </button>
@@ -397,7 +397,7 @@ export function SystemCare({
               <div className="mt-1 text-xl font-semibold text-slate-100">
                 {startup.filter((s) => s.enabled).length} enabled
               </div>
-              <div className="mt-1 text-[11px] text-slate-400">
+              <div className="mt-1 text-xs text-slate-400">
                 {orphanedStartupCount > 0
                   ? `${orphanedStartupCount} orphaned entry(s) spotted`
                   : `${startup.length} total read-only entries`}
@@ -413,7 +413,7 @@ export function SystemCare({
               <div className="mt-1 text-xl font-semibold text-slate-100">
                 {drives.length} checked
               </div>
-              <div className="mt-1 text-[11px] text-slate-400">
+              <div className="mt-1 text-xs text-slate-400">
                 {drives.some((d) => d.health_status.toLowerCase() !== "healthy")
                   ? "Warning reported — inspect Drive Health"
                   : "All reported healthy"}
@@ -422,7 +422,7 @@ export function SystemCare({
           </div>
 
           {health && (
-            <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -459,7 +459,7 @@ export function SystemCare({
                         style={{ width: `${Math.max(4, Math.min(100, d.score))}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-400">
+                    <div className="mt-1 text-xs text-slate-400">
                       {d.offenders_count} item(s)
                     </div>
                   </div>
@@ -486,7 +486,7 @@ export function SystemCare({
                 type="button"
                 disabled={!desktop || busy}
                 onClick={() => void runTask(loadCleanup)}
-                className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 Re-scan
               </button>
@@ -494,7 +494,7 @@ export function SystemCare({
                 type="button"
                 disabled={!desktop || busy || selectedItems.length === 0}
                 onClick={handleProposeSelected}
-                className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 Propose Quarantine ({formatBytes(selectedBytes)})
@@ -503,7 +503,7 @@ export function SystemCare({
           </div>
 
           {!cleanup || cleanup.groups.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
               No aged temp files, caches, or untracked dead large files found right now.
             </div>
           ) : (
@@ -512,7 +512,7 @@ export function SystemCare({
               return (
                 <section
                   key={grp.category}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                  className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
                 >
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -528,7 +528,7 @@ export function SystemCare({
                     <button
                       type="button"
                       onClick={() => toggleGroup(grp.items)}
-                      className="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                      className="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                     >
                       {allChecked ? "Clear group" : "Select group"}
                     </button>
@@ -548,7 +548,7 @@ export function SystemCare({
                           />
                           <span>
                             <span className="block font-mono text-slate-200">{it.path}</span>
-                            <span className="block text-[11px] text-slate-400">
+                            <span className="block text-xs text-slate-400">
                               {it.reason} · {it.file_count} file(s)
                             </span>
                           </span>
@@ -583,7 +583,7 @@ export function SystemCare({
             </button>
           </div>
 
-          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-100">
                 Installed Applications ({filteredApps.length})
@@ -623,17 +623,17 @@ export function SystemCare({
                     <div className="flex flex-wrap items-center gap-2 font-medium text-slate-100">
                       <span>{app.name}</span>
                       {app.version && (
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
                           {app.version}
                         </span>
                       )}
                       {app.unused_likely && (
-                        <span className="rounded border border-amber-700/60 bg-amber-950/50 px-1.5 py-0.5 text-[11px] text-amber-200">
+                        <span className="rounded border border-amber-700/60 bg-amber-950/50 px-1.5 py-0.5 text-xs text-amber-200">
                           Unused ~{app.days_since_used}d
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-xs text-slate-400">
                       {app.publisher ?? "Unknown publisher"} · {app.scope}
                       {app.estimated_bytes > 0 ? ` · ${formatBytes(app.estimated_bytes)}` : ""}
                     </div>
@@ -651,7 +651,7 @@ export function SystemCare({
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100">
               <FolderX className="h-4 w-4 text-amber-300" aria-hidden="true" />
               Stale App Leftover Folders ({leftovers.length})
@@ -669,7 +669,7 @@ export function SystemCare({
                   >
                     <div>
                       <div className="font-mono text-slate-200">{lf.path}</div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-xs text-slate-400">
                         {lf.reason} · {lf.file_count} file(s) · {formatBytes(lf.bytes)}
                       </div>
                     </div>
@@ -690,7 +690,7 @@ export function SystemCare({
       )}
 
       {section === "startup" && (
-        <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-slate-100">
@@ -719,7 +719,7 @@ export function SystemCare({
                   <div className="flex flex-wrap items-center gap-2 font-medium text-slate-100">
                     <span>{s.name}</span>
                     <span
-                      className={`rounded px-1.5 py-0.5 text-[11px] ${
+                      className={`rounded px-1.5 py-0.5 text-xs ${
                         s.enabled
                           ? "bg-emerald-500/20 text-emerald-300"
                           : "bg-slate-800 text-slate-400"
@@ -728,16 +728,16 @@ export function SystemCare({
                       {s.enabled ? "Enabled" : "Disabled"}
                     </span>
                     {s.orphaned && (
-                      <span className="rounded border border-amber-700/60 bg-amber-950/60 px-1.5 py-0.5 text-[11px] text-amber-200">
+                      <span className="rounded border border-amber-700/60 bg-amber-950/60 px-1.5 py-0.5 text-xs text-amber-200">
                         Orphaned target missing
                       </span>
                     )}
-                    <span className="text-[11px] font-normal text-slate-400">{s.source}</span>
+                    <span className="text-xs font-normal text-slate-400">{s.source}</span>
                   </div>
-                  <p className="mt-1 truncate font-mono text-[11px] text-slate-400">
+                  <p className="mt-1 truncate font-mono text-xs text-slate-400">
                     {s.command}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-500">{s.impact_hint}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{s.impact_hint}</p>
                 </div>
               </div>
             ))}
@@ -908,7 +908,7 @@ export function SystemCare({
             })}
           </div>
 
-          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-100">
               Folder Growth ({trends?.roots.length ?? 0} tracked roots)
             </h3>
@@ -925,7 +925,7 @@ export function SystemCare({
                   >
                     <div>
                       <div className="font-medium text-slate-100">{r.name}</div>
-                      <div className="font-mono text-[11px] text-slate-400">{r.root}</div>
+                      <div className="font-mono text-xs text-slate-400">{r.root}</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-300">
                       <span>Now: {formatBytes(r.current_bytes)}</span>

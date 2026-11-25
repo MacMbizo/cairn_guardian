@@ -51,7 +51,7 @@ function GroupCard({
   };
 
   return (
-    <article className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+    <article className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
       <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold">
           <Kind.icon className="h-4 w-4 text-emerald-400" aria-hidden="true" />
@@ -72,8 +72,8 @@ function GroupCard({
                 <span className="min-w-0">
                   <span className="block text-sm font-medium">
                     {driveName(loc.volume_label, "PC")}
-                    {loc.is_backup && <span className="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300">Backup drive</span>}
-                    {kept && <span className="ml-2 text-[11px] text-emerald-300">keep this one</span>}
+                    {loc.is_backup && <span className="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">Backup drive</span>}
+                    {kept && <span className="ml-2 text-xs text-emerald-300">keep this one</span>}
                   </span>
                   <span className="block break-all font-mono text-xs text-slate-300">{loc.path}</span>
                   {!loc.online && <span className="block text-xs text-amber-300">on {driveName(loc.volume_label, "a drive")} (unplugged, last seen {formatDay(loc.last_seen)})</span>}
@@ -117,7 +117,7 @@ function GroupCard({
       )}
 
       <footer className="mt-3 flex flex-wrap items-center gap-3">
-        <button type="button" disabled={busy} onClick={() => void answer({ choice: "keep_both" })} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs hover:bg-slate-800 disabled:opacity-40">
+        <button type="button" disabled={busy} onClick={() => void answer({ choice: "keep_both" })} className="rounded-md border border-slate-700 px-2.5 py-1 text-xs hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors">
           Keep both
         </button>
         {!hasBackupDrive && <span className="text-xs text-slate-500">Deletes go to quarantine for 30 days, and Cairn always keeps at least two copies.</span>}

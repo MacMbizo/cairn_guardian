@@ -44,25 +44,25 @@ function severityBadge(sev: CdoSeverity) {
   switch (sev) {
     case "critical":
       return (
-        <span className="rounded border border-rose-800/60 bg-rose-950/60 px-2 py-0.5 text-[11px] font-medium text-rose-300">
+        <span className="rounded border border-rose-800/60 bg-rose-950/60 px-2 py-0.5 text-xs font-medium text-rose-300">
           Critical
         </span>
       );
     case "high":
       return (
-        <span className="rounded border border-amber-800/60 bg-amber-950/60 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+        <span className="rounded border border-amber-800/60 bg-amber-950/60 px-2 py-0.5 text-xs font-medium text-amber-300">
           High
         </span>
       );
     case "medium":
       return (
-        <span className="rounded border border-sky-800/60 bg-sky-950/60 px-2 py-0.5 text-[11px] font-medium text-sky-300">
+        <span className="rounded border border-sky-800/60 bg-sky-950/60 px-2 py-0.5 text-xs font-medium text-sky-300">
           Medium
         </span>
       );
     case "low":
       return (
-        <span className="rounded border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-[11px] font-medium text-slate-300">
+        <span className="rounded border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-xs font-medium text-slate-300">
           Low
         </span>
       );
@@ -85,7 +85,7 @@ function renderProposalPreview(rec: CdoRecommendation) {
   switch (p.type) {
     case "create_folderless_rule":
       return (
-        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] text-slate-300">
+        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-xs text-slate-300">
           <div className="font-medium text-indigo-300">
             Draft filing rule: {p.draft.name}
           </div>
@@ -97,7 +97,7 @@ function renderProposalPreview(rec: CdoRecommendation) {
       );
     case "create_privacy_rule":
       return (
-        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] text-slate-300">
+        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-xs text-slate-300">
           <div className="font-medium text-amber-300">
             Draft privacy rule: {p.draft.name}
           </div>
@@ -110,7 +110,7 @@ function renderProposalPreview(rec: CdoRecommendation) {
       );
     case "adjust_setting":
       return (
-        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-[11px] text-slate-300">
+        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-xs text-slate-300">
           <div className="font-medium text-sky-300">Setting Adjustment: {p.display_label}</div>
           <div className="mt-1 text-slate-400">
             Key: <code className="text-slate-200">{p.key}</code> ({p.scope}) ={" "}
@@ -280,7 +280,7 @@ export function ChiefDigitalOfficer({
               <p className="text-xs text-slate-400">{dashboard.posture_summary}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-400">
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-800/50 bg-emerald-950/40 px-2.5 py-0.5 text-emerald-300">
               <ShieldCheck className="h-3 w-3" aria-hidden="true" />
               Reads files on disk only
@@ -299,7 +299,7 @@ export function ChiefDigitalOfficer({
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-right">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">
+            <div className="text-xs uppercase tracking-wide text-slate-500">
               Executive Index
             </div>
             <div className="text-lg font-bold text-indigo-300">
@@ -386,17 +386,17 @@ export function ChiefDigitalOfficer({
               pillar.status
             )}`}
           >
-            <div className="flex items-center justify-between gap-2 text-[11px] font-medium">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium">
               <span className="truncate">{pillar.label}</span>
               <ArrowUpRight className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100" />
             </div>
             <div className="mt-1.5 text-xl font-bold text-slate-100">
               {pillar.score.toFixed(1)}
-              <span className="ml-1 text-[11px] font-normal text-slate-400">
+              <span className="ml-1 text-xs font-normal text-slate-400">
                 / 100 · {Math.round(pillar.weight * 100)}%
               </span>
             </div>
-            <div className="mt-1 line-clamp-2 text-[11px] text-slate-400">{pillar.detail}</div>
+            <div className="mt-1 line-clamp-2 text-xs text-slate-400">{pillar.detail}</div>
           </button>
         ))}
       </div>
@@ -454,7 +454,7 @@ export function ChiefDigitalOfficer({
       {subTab === "recommendations" && (
         <div className="space-y-4">
           {dashboard.recommendations.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-xs text-slate-400">
               No active CDO recommendations right now — all monitored pillars look balanced.
             </div>
           ) : (
@@ -464,13 +464,13 @@ export function ChiefDigitalOfficer({
                 return (
                   <div
                     key={rec.rec_key}
-                    className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                    className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1 flex-1 min-w-[260px]">
                         <div className="flex flex-wrap items-center gap-2">
                           {severityBadge(rec.severity)}
-                          <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-300">
+                          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs uppercase tracking-wider text-slate-300">
                             {rec.status}
                           </span>
                           <h3 className="text-sm font-semibold text-slate-100">{rec.title}</h3>
@@ -512,7 +512,7 @@ export function ChiefDigitalOfficer({
                               type="button"
                               disabled={!desktop || isBusy}
                               onClick={() => void handleTriage(rec.rec_key, "snoozed")}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                             >
                               <Clock className="h-3.5 w-3.5" />
                               Snooze
@@ -521,7 +521,7 @@ export function ChiefDigitalOfficer({
                               type="button"
                               disabled={!desktop || isBusy}
                               onClick={() => void handleTriage(rec.rec_key, "dismissed")}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-800 transition-colors"
                             >
                               <EyeOff className="h-3.5 w-3.5" />
                               Dismiss
@@ -534,7 +534,7 @@ export function ChiefDigitalOfficer({
                             type="button"
                             disabled={!desktop || isBusy}
                             onClick={() => void handleTriage(rec.rec_key, "open")}
-                            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
                           >
                             <RotateCcw className="h-3.5 w-3.5" />
                             Reopen
@@ -549,7 +549,7 @@ export function ChiefDigitalOfficer({
           )}
 
           {/* Recent Ratifications & Single-Click Undo */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-200">
               <History className="h-4 w-4 text-indigo-400" aria-hidden="true" />
               Recently approved · undo
@@ -568,7 +568,7 @@ export function ChiefDigitalOfficer({
                   >
                     <div>
                       <div className="font-medium text-slate-200">{r.applied_summary}</div>
-                      <div className="text-[11px] text-slate-500">
+                      <div className="text-xs text-slate-500">
                         {r.action_kind} · {formatDateTime(r.created_at)} · Status: {r.status}
                       </div>
                     </div>
@@ -583,7 +583,7 @@ export function ChiefDigitalOfficer({
                         Undo
                       </button>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                         <XCircle className="h-3 w-3" /> Undone {formatDateTime(r.undone_at)}
                       </span>
                     )}
@@ -599,26 +599,26 @@ export function ChiefDigitalOfficer({
       {subTab === "bottlenecks" && (
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3.5">
-              <div className="text-[11px] text-slate-400">Files Touched (7d / Window)</div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
+              <div className="text-xs text-slate-400">Files Touched (7d / Window)</div>
               <div className="mt-1 text-lg font-semibold text-slate-100">
                 {dashboard.velocity.files_touched_7d} / {dashboard.velocity.files_touched_30d}
               </div>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3.5">
-              <div className="text-[11px] text-slate-400">Automation Ratio</div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
+              <div className="text-xs text-slate-400">Automation Ratio</div>
               <div className="mt-1 text-lg font-semibold text-indigo-300">
                 {Math.round(dashboard.velocity.filing_automation_ratio * 100)}%
               </div>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3.5">
-              <div className="text-[11px] text-slate-400">Loose Inbox / Invoices</div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
+              <div className="text-xs text-slate-400">Loose Inbox / Invoices</div>
               <div className="mt-1 text-lg font-semibold text-amber-300">
                 {dashboard.velocity.loose_inbox_files} / {dashboard.velocity.loose_invoice_docs}
               </div>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3.5">
-              <div className="text-[11px] text-slate-400">Open Action Items / Proposals</div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5">
+              <div className="text-xs text-slate-400">Open Action Items / Proposals</div>
               <div className="mt-1 text-lg font-semibold text-slate-100">
                 {dashboard.velocity.open_action_items} /{" "}
                 {dashboard.velocity.pending_knowledge_proposals}
@@ -632,14 +632,14 @@ export function ChiefDigitalOfficer({
               Diagnosed Workflow Bottlenecks
             </h2>
             {dashboard.bottlenecks.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-xs text-slate-400">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-xs text-slate-400">
                 No workflow bottlenecks detected across the current horizon.
               </div>
             ) : (
               dashboard.bottlenecks.map((bn) => (
                 <div
                   key={bn.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                  className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="space-y-1">
@@ -653,7 +653,7 @@ export function ChiefDigitalOfficer({
                           {bn.evidence_paths.slice(0, 4).map((p) => (
                             <code
                               key={p}
-                              className="rounded bg-slate-950 px-2 py-0.5 text-[10px] text-slate-400"
+                              className="rounded bg-slate-950 px-2 py-0.5 text-xs text-slate-400"
                             >
                               {p}
                             </code>
@@ -664,7 +664,7 @@ export function ChiefDigitalOfficer({
                     <button
                       type="button"
                       onClick={() => onNavigate(bn.recommended_screen)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
                     >
                       Inspect <ArrowUpRight className="h-3.5 w-3.5" />
                     </button>
@@ -674,7 +674,7 @@ export function ChiefDigitalOfficer({
             )}
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
               <Activity className="h-3.5 w-3.5 text-indigo-400" />
               Project Code vs Documentation Pulse
@@ -684,7 +684,7 @@ export function ChiefDigitalOfficer({
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="border-b border-slate-800 text-[11px] text-slate-400">
+                  <thead className="border-b border-slate-800 text-xs text-slate-400">
                     <tr>
                       <th className="pb-2 pr-3">Project</th>
                       <th className="pb-2 pr-3">Code</th>
@@ -706,7 +706,7 @@ export function ChiefDigitalOfficer({
                         <td className="py-2 pr-3">{p.open_action_items}</td>
                         <td className="py-2">
                           <span
-                            className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                            className={`rounded px-2 py-0.5 text-xs font-medium ${
                               p.health_flag === "doc_lagging"
                                 ? "bg-amber-950/60 text-amber-300 border border-amber-800/50"
                                 : p.health_flag === "aligned"
@@ -736,7 +736,7 @@ export function ChiefDigitalOfficer({
             ? [dashboard.latest_briefing]
             : []
           ).length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
               <FileText className="mx-auto h-7 w-7 text-slate-500" />
               <div className="mt-2 text-sm font-medium text-slate-200">
                 No executive briefing saved yet
@@ -754,12 +754,12 @@ export function ChiefDigitalOfficer({
             ).map((b) => (
               <div
                 key={b.id}
-                className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 space-y-3"
+                className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-100">{b.headline}</h3>
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-xs text-slate-400">
                       {formatDateTime(b.created_at)} · Horizon {b.horizon_days}d · {b.model_name}{" "}
                       ({b.backend})
                     </div>
@@ -773,14 +773,14 @@ export function ChiefDigitalOfficer({
                 </pre>
                 {b.citations.length > 0 && (
                   <div className="space-y-1">
-                    <div className="text-[11px] font-medium text-slate-400">
+                    <div className="text-xs font-medium text-slate-400">
                       Grounded Citations
                     </div>
                     <div className="grid gap-1.5 md:grid-cols-2">
                       {b.citations.map((c) => (
                         <div
                           key={c.ref_id}
-                          className="rounded border border-slate-800/80 bg-slate-950/40 px-2.5 py-1.5 text-[11px] text-slate-300"
+                          className="rounded border border-slate-800/80 bg-slate-950/40 px-2.5 py-1.5 text-xs text-slate-300"
                         >
                           <span className="font-semibold text-indigo-300">[{c.ref_id}]</span>{" "}
                           <span className="font-medium text-slate-200">{c.title}</span> —{" "}

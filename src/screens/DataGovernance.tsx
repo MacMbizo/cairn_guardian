@@ -50,25 +50,25 @@ function severityPill(sev: GovernanceSeverity) {
   switch (sev) {
     case "critical":
       return (
-        <span className="rounded border border-rose-800/60 bg-rose-950/60 px-2 py-0.5 text-[11px] font-medium text-rose-300">
+        <span className="rounded border border-rose-800/60 bg-rose-950/60 px-2 py-0.5 text-xs font-medium text-rose-300">
           Critical
         </span>
       );
     case "high":
       return (
-        <span className="rounded border border-amber-800/60 bg-amber-950/60 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+        <span className="rounded border border-amber-800/60 bg-amber-950/60 px-2 py-0.5 text-xs font-medium text-amber-300">
           High
         </span>
       );
     case "medium":
       return (
-        <span className="rounded border border-sky-800/60 bg-sky-950/60 px-2 py-0.5 text-[11px] font-medium text-sky-300">
+        <span className="rounded border border-sky-800/60 bg-sky-950/60 px-2 py-0.5 text-xs font-medium text-sky-300">
           Medium
         </span>
       );
     default:
       return (
-        <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
+        <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
           Low
         </span>
       );
@@ -360,7 +360,7 @@ export function DataGovernance({
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-emerald-400" />
             <h1 className="text-lg font-semibold">Personal Data Governance</h1>
-            <span className="rounded border border-emerald-800/50 bg-emerald-950/70 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+            <span className="rounded border border-emerald-800/50 bg-emerald-950/70 px-2 py-0.5 text-xs font-medium text-emerald-300">
               Encrypted catalog · Windows unlock · BitLocker · Offline
             </span>
           </div>
@@ -379,7 +379,7 @@ export function DataGovernance({
               includeSensitive
                 ? "border-amber-600/70 bg-amber-950/40 text-amber-200"
                 : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-            }`}
+            } transition-colors`}
           >
             {includeSensitive ? (
               <Unlock className="h-3.5 w-3.5 text-amber-400" />
@@ -395,7 +395,7 @@ export function DataGovernance({
             type="button"
             disabled={scanning}
             onClick={() => void handleScan()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
             {scanning ? "Scanning Files..." : "Scan PII & Secrets"}
@@ -418,51 +418,51 @@ export function DataGovernance({
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-400">
             Privacy Posture
           </div>
           <div className="mt-1 text-xl font-semibold text-emerald-300">
             {dash.posture.privacy_score.toFixed(1)}%
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-400">
+          <div className="mt-0.5 text-xs text-slate-400">
             {dash.posture.db_encrypted ? "SQLCipher AES-256 active" : "Unencrypted"}
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-400">
             Open Secret Findings
           </div>
           <div className="mt-1 text-xl font-semibold text-rose-300">
             {dash.posture.open_findings_count}
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-400">
+          <div className="mt-0.5 text-xs text-slate-400">
             {dash.posture.vaulted_findings_count} protected / vaulted
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-400">
             Protected Files
           </div>
           <div className="mt-1 text-xl font-semibold text-amber-300">
             {dash.posture.confidential_files_count + dash.posture.secret_files_count}
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-400">
+          <div className="mt-0.5 text-xs text-slate-400">
             {dash.posture.confidential_files_count} confidential ·{" "}
             {dash.posture.secret_files_count} secret
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-400">
             AI &amp; Net Guardrails
           </div>
           <div className="mt-1 text-xl font-semibold text-sky-300">
             {dash.posture.active_rules_count} rule(s)
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-400">
+          <div className="mt-0.5 text-xs text-slate-400">
             Offline · no screen or keystroke capture
           </div>
         </div>
@@ -548,7 +548,7 @@ export function DataGovernance({
           </div>
 
           {filteredFindings.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
               No governance findings match the active filter.
             </div>
           ) : (
@@ -557,7 +557,7 @@ export function DataGovernance({
               return (
                 <div
                   key={f.id}
-                  className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                  className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
@@ -566,10 +566,10 @@ export function DataGovernance({
                         <span className="font-semibold text-sm text-slate-100">
                           {f.summary}
                         </span>
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-slate-300">
                           {f.finding_type} · risk {(f.context_risk_score * 100).toFixed(0)}%
                         </span>
-                        <span className="rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-300">
+                        <span className="rounded bg-slate-800/80 px-1.5 py-0.5 text-xs text-slate-300">
                           {f.status}
                         </span>
                       </div>
@@ -638,16 +638,16 @@ export function DataGovernance({
                                 L{loc.line_number}
                               </span>
                             )}
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                               {loc.sensitivity}
                             </span>
                             {loc.in_atomic_unit && (
-                              <span className="rounded border border-sky-800/50 bg-sky-950/50 px-1.5 py-0.5 text-[10px] text-sky-300">
+                              <span className="rounded border border-sky-800/50 bg-sky-950/50 px-1.5 py-0.5 text-xs text-sky-300">
                                 inside code repo
                               </span>
                             )}
                           </div>
-                          <div className="font-mono text-[11px] text-amber-300">
+                          <div className="font-mono text-xs text-amber-300">
                             {loc.redacted_snippet}
                           </div>
                         </div>
@@ -656,7 +656,7 @@ export function DataGovernance({
                           type="button"
                           disabled={!desktop}
                           onClick={() => void handleInspectFile(loc.file_id)}
-                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] hover:bg-slate-800 disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           <FileSearch className="h-3 w-3" /> Inspect
                         </button>
@@ -676,7 +676,7 @@ export function DataGovernance({
           {/* Privacy Rules Composer */}
           <form
             onSubmit={(e) => void handleSaveRule(e)}
-            className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+            className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4"
           >
             <h2 className="text-sm font-semibold">
               Privacy &amp; AI exclusion rules
@@ -718,7 +718,7 @@ export function DataGovernance({
                 <button
                   type="submit"
                   disabled={busyId === "save_rule"}
-                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 font-semibold text-white hover:bg-emerald-500"
+                  className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors"
                 >
                   <Plus className="h-3.5 w-3.5" /> Add
                 </button>
@@ -735,11 +735,11 @@ export function DataGovernance({
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-slate-100">{r.name}</span>
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-emerald-300">
                           {r.rule_action}
                         </span>
                       </div>
-                      <div className="mt-0.5 font-mono text-[11px] text-slate-400">
+                      <div className="mt-0.5 font-mono text-xs text-slate-400">
                         {r.path_prefix ? `path: ${r.path_prefix}` : "any path"} ·{" "}
                         {r.filename_pattern
                           ? `pattern: ${r.filename_pattern}`
@@ -773,7 +773,7 @@ export function DataGovernance({
           </form>
 
           {/* Sensitive Files Inventory */}
-          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="text-sm font-semibold">
               Protected Sensitive Files (Searchable by Owner, Previews Masked Until CredUI)
             </h2>
@@ -791,14 +791,14 @@ export function DataGovernance({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-slate-100">{sf.name}</span>
-                        <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-[10px] text-amber-300 border border-amber-800/50">
+                        <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-xs text-amber-300 border border-amber-800/50">
                           {sf.sensitivity}
                         </span>
                         <span className="text-slate-400">
                           {formatBytes(sf.size_bytes)} · {sf.drive_label}
                         </span>
                       </div>
-                      <div className="truncate font-mono text-[11px] text-slate-400">
+                      <div className="truncate font-mono text-xs text-slate-400">
                         {sf.path}
                       </div>
                     </div>
@@ -806,7 +806,7 @@ export function DataGovernance({
                       type="button"
                       disabled={!desktop}
                       onClick={() => void handleInspectFile(sf.file_id)}
-                      className="rounded border border-slate-700 px-2 py-1 text-[11px] hover:bg-slate-800 disabled:opacity-40"
+                      className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                     >
                       Inspect
                     </button>
@@ -817,7 +817,7 @@ export function DataGovernance({
           </div>
 
           {/* Reversible Classification Batches */}
-          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <History className="h-4 w-4 text-amber-400" />
               Label history · undo
@@ -835,7 +835,7 @@ export function DataGovernance({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-slate-200">{b.reason}</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                      <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-slate-300">
                         {b.target_sensitivity} · {b.status}
                       </span>
                     </div>
@@ -864,7 +864,7 @@ export function DataGovernance({
       {subTab === "posture" && (
         <div className="space-y-4">
           {/* Drive BitLocker Status */}
-          <div className="space-y-2.5 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <div className="space-y-2.5 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <div className="flex items-center gap-2">
               <HardDrive className="h-4 w-4 text-emerald-400" />
               <h2 className="text-sm font-semibold">
@@ -883,7 +883,7 @@ export function DataGovernance({
                       {d.mount_point} ({d.label})
                     </span>
                     <span
-                      className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                      className={`rounded px-2 py-0.5 text-xs font-medium ${
                         d.protection_status === "protected"
                           ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800/50"
                           : "bg-amber-950/60 text-amber-300 border border-amber-800/50"
@@ -893,7 +893,7 @@ export function DataGovernance({
                     </span>
                   </div>
                   <div className="mt-1 text-slate-300">{d.encryption_method}</div>
-                  <div className="mt-0.5 text-[11px] text-slate-400">
+                  <div className="mt-0.5 text-xs text-slate-400">
                     {d.recommended_action}
                   </div>
                 </div>
@@ -902,7 +902,7 @@ export function DataGovernance({
           </div>
 
           {/* Zero-Network & Firewall Hardening */}
-          <div className="space-y-2.5 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <div className="space-y-2.5 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -913,19 +913,19 @@ export function DataGovernance({
               <button
                 type="button"
                 onClick={() => void handleCopyFirewall()}
-                className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
               >
                 <Copy className="h-3 w-3" /> Copy Firewall Command
               </button>
             </div>
             <p className="text-xs text-slate-300">{dash.posture.zero_network_status}</p>
-            <pre className="overflow-x-auto rounded-lg bg-slate-950 p-2.5 font-mono text-[11px] text-slate-300">
+            <pre className="overflow-x-auto rounded-lg bg-slate-950 p-2.5 font-mono text-xs text-slate-300">
               {dash.posture.firewall_command}
             </pre>
           </div>
 
           {/* Opt-In Observation Matrix */}
-          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="text-sm font-semibold">
               What Cairn observes (all opt-in)
             </h2>
@@ -939,10 +939,10 @@ export function DataGovernance({
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-slate-200">{a.label}</span>
                     </div>
-                    <div className="text-[11px] text-slate-400">{a.detail}</div>
+                    <div className="text-xs text-slate-400">{a.detail}</div>
                   </div>
                   <span
-                    className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+                    className={`rounded px-2 py-0.5 text-xs font-medium ${
                       a.state === "opted_in"
                         ? "bg-amber-950/60 text-amber-300 border border-amber-800/50"
                         : "bg-emerald-950/60 text-emerald-300 border border-emerald-800/50"
@@ -971,10 +971,10 @@ export function DataGovernance({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="break-all font-mono text-[11px] text-slate-400">
+            <div className="break-all font-mono text-xs text-slate-400">
               {inspected.path} · {formatBytes(inspected.size)} · {inspected.sensitivity}
             </div>
-            <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-[11px] text-slate-300">
+            <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-300">
               {inspected.chunks_preview.length > 0
                 ? inspected.chunks_preview.join("\n---\n")
                 : "(No indexed chunks preview)"}

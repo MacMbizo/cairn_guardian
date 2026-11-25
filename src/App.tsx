@@ -781,7 +781,7 @@ export default function App() {
             <button
               type="submit"
               disabled={recoveryBusy || !recoveryInput.trim()}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+              className="w-full rounded-md bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
             >
               {recoveryBusy ? "Unlocking vault…" : "Unlock Vault & Seal for This Account"}
             </button>
@@ -811,7 +811,7 @@ export default function App() {
         <nav aria-label="Sections" className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
           {navGroups.map((group) => (
             <div key={group.title} className="mb-3">
-              <h2 className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <h2 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 {group.title}
               </h2>
               <ul className="space-y-0.5">
@@ -833,7 +833,7 @@ export default function App() {
                         <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                         <span className="flex-1 truncate">{item.label}</span>
                         {item.id === "search" && (
-                          <kbd className="rounded border border-slate-700 px-1 font-mono text-[10px] text-slate-500">Ctrl K</kbd>
+                          <kbd className="rounded border border-slate-700 px-1 font-mono text-xs text-slate-500">Ctrl K</kbd>
                         )}
                       </button>
                     </li>
@@ -881,7 +881,7 @@ export default function App() {
               type="button"
               disabled={!desktop || busy}
               onClick={() => void refreshAll()}
-              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
             >
               Refresh
             </button>
@@ -889,7 +889,7 @@ export default function App() {
               type="button"
               disabled={!desktop || busy || roots.length === 0}
               onClick={() => void handleStartScan()}
-              className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
             >
               <Play className="h-3.5 w-3.5" aria-hidden="true" />
               Scan now
@@ -1058,7 +1058,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => void handleOpenCoverage()}
-                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
+                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800 transition-colors"
                     >
                       View Coverage Report
                     </button>
@@ -1077,7 +1077,7 @@ export default function App() {
               </p>
 
               {/* Roots Manager */}
-              <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h2 className="text-sm font-semibold">Folders Cairn looks after</h2>
                 <p className="mb-3 mt-0.5 text-xs text-slate-400">
                   Cairn catalogues these folders and watches them for changes. Nothing is moved without your approval.
@@ -1222,7 +1222,7 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={!desktop || busy}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                 >
                   Search
                 </button>
@@ -1231,11 +1231,11 @@ export default function App() {
                     type="button"
                     disabled={busy}
                     onClick={() => void handleToggleSensitivePreviews()}
-                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-40 ${
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-45 ${
                       vaultStatus?.sensitive_unlocked
                         ? "border-emerald-700/70 bg-emerald-950/50 text-emerald-200 hover:bg-emerald-900/50"
                         : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-                    }`}
+                    } disabled:cursor-not-allowed transition-colors`}
                   >
                     {vaultStatus?.sensitive_unlocked ? (
                       <>
@@ -1382,7 +1382,7 @@ export default function App() {
                 </button>
               </div>
 
-              <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+              <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
                   <FolderGit2 className="h-4 w-4 text-emerald-400" aria-hidden="true" />
                   Detected Build Caches (safe_build_cache carve-out)
@@ -1417,7 +1417,7 @@ export default function App() {
                 )}
               </section>
 
-              <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+              <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h3 className="mb-3 text-sm font-semibold">
                   Exact Duplicates (Hardlink-Adjusted)
                 </h3>
@@ -1458,7 +1458,7 @@ export default function App() {
                 )}
               </section>
 
-              <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+              <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <h3 className="mb-3 text-sm font-semibold">Active Quarantine Items</h3>
                 {quarantineEntries.length ? (
                   <div className="space-y-2 text-xs">
@@ -1557,7 +1557,7 @@ export default function App() {
                     return (
                       <div
                         key={batchId}
-                        className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                        className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
                       >
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-mono text-xs text-slate-300">
@@ -1577,7 +1577,7 @@ export default function App() {
                                 type="button"
                                 disabled={busy}
                                 onClick={() => void handleApprove(batchId, sel)}
-                                className={`${btn} bg-emerald-700 text-white hover:bg-emerald-600`}
+                                className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors`}
                               >
                                 Approve selected ({sel.length})
                               </button>
@@ -1587,7 +1587,7 @@ export default function App() {
                                 disabled={busy || proposed === 0}
                                 title={proposed === 0 ? "Nothing awaiting approval" : undefined}
                                 onClick={() => void handleApprove(batchId)}
-                                className={`${btn} bg-emerald-700 text-white hover:bg-emerald-600`}
+                                className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors`}
                               >
                                 Approve all
                               </button>
@@ -1605,7 +1605,7 @@ export default function App() {
                               disabled={busy || approved === 0}
                               title={approved === 0 ? "Approve actions first" : undefined}
                               onClick={() => void handleExecute(batchId)}
-                              className={`${btn} bg-emerald-600 font-semibold text-white hover:bg-emerald-500`}
+                              className={`${btn} bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors`}
                             >
                               Execute{approved > 0 ? ` (${approved})` : ""}
                             </button>
@@ -1684,7 +1684,7 @@ export default function App() {
                     type="button"
                     disabled={!desktop || busy}
                     onClick={() => void handleRunDoctor(false)}
-                    className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium hover:bg-slate-800 disabled:opacity-40"
+                    className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                   >
                     Run Diagnostics
                   </button>
@@ -1692,7 +1692,7 @@ export default function App() {
                     type="button"
                     disabled={!desktop || busy}
                     onClick={() => void handleRunDoctor(true)}
-                    className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                    className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                   >
                     Auto-Repair Safe Drift
                   </button>

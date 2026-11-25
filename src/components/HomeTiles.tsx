@@ -63,7 +63,7 @@ export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: Dri
                   <span className="flex min-w-0 items-center gap-2">
                     <span className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-emerald-400" : "bg-slate-600"}`} aria-hidden="true" />
                     <span className="truncate">{driveName(d.label, d.mount_point)}</span>
-                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${ROLE_CHIP[d.role] ?? ROLE_CHIP.unassigned}`}>
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${ROLE_CHIP[d.role] ?? ROLE_CHIP.unassigned}`}>
                       {ROLE_LABEL[d.role] ?? d.role}
                     </span>
                   </span>
@@ -87,7 +87,7 @@ export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: Dri
           <h2 className="text-sm font-semibold">Needs you</h2>
           <span className="flex items-center gap-2">
             {pausedUntil != null && (
-              <span className="flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+              <span className="flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                 <PauseCircle className="h-3 w-3" aria-hidden="true" />
                 Paused until {new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 <button
@@ -120,7 +120,7 @@ export function HomeTiles({ data, engine, filingReady = 0, onOpen }: { data: Dri
                   <button
                     type="button"
                     onClick={() => onOpen(n.tab)}
-                    className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-xs hover:bg-slate-800"
+                    className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-xs hover:bg-slate-800 transition-colors"
                   >
                     {n.action}
                   </button>

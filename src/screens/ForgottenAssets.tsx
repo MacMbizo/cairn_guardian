@@ -268,7 +268,7 @@ export function ForgottenAssets({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -283,7 +283,7 @@ export function ForgottenAssets({
             type="button"
             disabled={loading || busy}
             onClick={() => void loadScan()}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? "Scanning…" : "Rescan catalog"}
           </button>
@@ -292,39 +292,39 @@ export function ForgottenAssets({
         {report && (
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-5">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Forgotten assets</p>
+              <p className="text-xs text-slate-400">Forgotten assets</p>
               <p className="mt-0.5 text-base font-semibold text-slate-100">
                 {report.total_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">{formatBytes(report.total_bytes)}</p>
+              <p className="text-xs text-slate-500">{formatBytes(report.total_bytes)}</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Matches project/set</p>
+              <p className="text-xs text-slate-400">Matches project/set</p>
               <p className="mt-0.5 text-base font-semibold text-emerald-300">
                 {report.stranded_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">One-click recovery</p>
+              <p className="text-xs text-slate-500">One-click recovery</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Buried in clutter</p>
+              <p className="text-xs text-slate-400">Buried in clutter</p>
               <p className="mt-0.5 text-base font-semibold text-amber-300">
                 {report.buried_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Downloads / Old copies</p>
+              <p className="text-xs text-slate-500">Downloads / Old copies</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">On unplugged drives</p>
+              <p className="text-xs text-slate-400">On unplugged drives</p>
               <p className="mt-0.5 text-base font-semibold text-sky-300">
                 {report.offline_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Plug in to move</p>
+              <p className="text-xs text-slate-500">Plug in to move</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Only known copy</p>
+              <p className="text-xs text-slate-400">Only known copy</p>
               <p className="mt-0.5 text-base font-semibold text-rose-300">
                 {report.only_copy_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Needs safe placement</p>
+              <p className="text-xs text-slate-500">Needs safe placement</p>
             </div>
           </div>
         )}
@@ -343,7 +343,7 @@ export function ForgottenAssets({
           <button
             type="submit"
             disabled={loading}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             Search assets
           </button>
@@ -354,7 +354,7 @@ export function ForgottenAssets({
                 setQueryInput("");
                 setAppliedQuery("");
               }}
-              className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+              className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
             >
               Clear query
             </button>
@@ -422,7 +422,7 @@ export function ForgottenAssets({
                 familyFilter === null
                   ? "bg-emerald-600 font-semibold text-white"
                   : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-              }`}
+              } transition-colors`}
             >
               All formats ({report.total_count})
             </button>
@@ -435,7 +435,7 @@ export function ForgottenAssets({
                   familyFilter === f.family
                     ? "bg-emerald-600 font-semibold text-white"
                     : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                }`}
+                } transition-colors`}
               >
                 {f.label} ({f.count} · {formatBytes(f.total_bytes)})
               </button>
@@ -469,7 +469,7 @@ export function ForgottenAssets({
                     }))
                   )
                 }
-                className="inline-flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                 Recover {selectedMatchedItems.length} to matched projects
@@ -522,7 +522,7 @@ export function ForgottenAssets({
       )}
 
       {displayedItems.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
           {loading
             ? "Scanning catalog for forgotten assets…"
             : "No forgotten assets match the current filters."}
@@ -534,7 +534,7 @@ export function ForgottenAssets({
             return (
               <article
                 key={item.file_id}
-                className="rounded-xl border border-slate-800 bg-slate-900/50 p-3.5 text-xs"
+                className="rounded-xl border border-slate-800 bg-slate-900/60 p-3.5 text-xs"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 flex-1 items-start gap-2.5">
@@ -548,12 +548,12 @@ export function ForgottenAssets({
                     />
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-emerald-300">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs uppercase text-emerald-300">
                           {item.ext || item.family}
                         </span>
                         {item.dominant_color && (
                           <span
-                            className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-300"
+                            className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 font-mono text-xs text-slate-300"
                             title={`Dominant accent ${item.dominant_color}`}
                           >
                             <span
@@ -568,7 +568,7 @@ export function ForgottenAssets({
                         <span className="text-slate-500">· {item.age_days}d untouched</span>
                       </div>
 
-                      <p className="truncate font-mono text-[11px] text-slate-500" title={item.path}>
+                      <p className="truncate font-mono text-xs text-slate-500" title={item.path}>
                         {item.path}
                       </p>
 
@@ -576,7 +576,7 @@ export function ForgottenAssets({
 
                       <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                         <span
-                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${
+                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${
                             item.drive_online
                               ? "border border-emerald-800/60 bg-emerald-950/50 text-emerald-300"
                               : "border border-sky-800/60 bg-sky-950/50 text-sky-300"
@@ -592,39 +592,39 @@ export function ForgottenAssets({
                         </span>
 
                         {item.only_copy && (
-                          <span className="rounded border border-rose-800/60 bg-rose-950/50 px-1.5 py-0.5 text-[10px] text-rose-200">
+                          <span className="rounded border border-rose-800/60 bg-rose-950/50 px-1.5 py-0.5 text-xs text-rose-200">
                             Only copy
                           </span>
                         )}
 
                         {item.matched_collection_name && (
-                          <span className="rounded border border-emerald-800/60 bg-emerald-950/40 px-1.5 py-0.5 text-[10px] text-emerald-200">
+                          <span className="rounded border border-emerald-800/60 bg-emerald-950/40 px-1.5 py-0.5 text-xs text-emerald-200">
                             Matches {item.matched_collection_name}
                           </span>
                         )}
 
                         {item.width && item.height && (
-                          <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                          <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-slate-300">
                             {item.width}x{item.height}
                             {item.aspect_label ? ` (${item.aspect_label})` : ""}
                           </span>
                         )}
 
                         {item.camera && (
-                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                             {item.camera}
                           </span>
                         )}
 
                         {(item.artist || item.album) && (
-                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                             {[item.artist, item.album].filter(Boolean).join(" — ")}
                           </span>
                         )}
                       </div>
 
                       {item.snippet && (
-                        <p className="line-clamp-2 rounded border border-slate-800/80 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-400">
+                        <p className="line-clamp-2 rounded border border-slate-800/80 bg-slate-950/60 px-2 py-1 text-xs text-slate-400">
                           {item.snippet}
                         </p>
                       )}
@@ -647,7 +647,7 @@ export function ForgottenAssets({
                                 },
                               ])
                             }
-                            className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                            className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                           >
                             <ArchiveRestore className="h-3 w-3" aria-hidden="true" />
                             Recover to {item.matched_collection_name ?? "project"}
@@ -658,7 +658,7 @@ export function ForgottenAssets({
                             type="button"
                             disabled={busy}
                             onClick={() => void handleMoveToPicker([item])}
-                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                           >
                             <FolderInput className="h-3 w-3" aria-hidden="true" />
                             Move to folder…
@@ -666,7 +666,7 @@ export function ForgottenAssets({
                         )}
                       </>
                     ) : (
-                      <span className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-[11px] text-sky-300">
+                      <span className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-xs text-sky-300">
                         Plug in {item.drive_label} to move
                       </span>
                     )}
@@ -674,7 +674,7 @@ export function ForgottenAssets({
                     <button
                       type="button"
                       onClick={() => void handleInspect(item)}
-                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                     >
                       <FileSearch className="h-3 w-3" aria-hidden="true" /> Inspect
                     </button>
@@ -682,7 +682,7 @@ export function ForgottenAssets({
                     <button
                       type="button"
                       onClick={() => void handleCopyPath(item.path)}
-                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                     >
                       {copiedPath === item.path ? (
                         <>
@@ -699,7 +699,7 @@ export function ForgottenAssets({
                       type="button"
                       disabled={busy}
                       onClick={() => void handleDismiss(item, item.dismissed)}
-                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-40"
+                      className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                     >
                       {item.dismissed ? (
                         <>

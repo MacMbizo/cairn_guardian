@@ -1,3 +1,4 @@
+import { ui } from "../ui";
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { DatabaseBackup, FolderPlus, HardDrive, History, Pin, PinOff, RefreshCw, RotateCcw, ShieldAlert, Undo2, Usb } from "lucide-react";
@@ -11,9 +12,9 @@ const ROLES: { value: DriveRole; label: string }[] = [
   { value: "unassigned", label: "Unassigned" },
 ];
 
-const card = "rounded-xl border border-slate-800 bg-slate-900/50 p-4";
-const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
-const primary = "rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40";
+const card = ui.card;
+const btn = ui.btn;
+const primary = ui.primary;
 
 export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onReviewBatches: () => void }) {
   const { drives, plan, coverage, sources, decisions, versions, topupPlan, standing, cataloguing, preview, reload } = data;
@@ -282,7 +283,7 @@ export function DrivesScreen({ data, onReviewBatches }: { data: DrivesData; onRe
               <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                 <span className="min-w-0">
                   <span className="font-mono text-xs text-slate-200">{s.folder}</span>
-                  {s.pinned && <span className="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300">Always back up</span>}
+                  {s.pinned && <span className="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">Always back up</span>}
                 </span>
                 <span className="flex gap-2">
                   <button type="button" disabled={busy} className={btn} onClick={() => void act(async () => { await aegis.backup.addSource(s.folder, !s.pinned); })}>

@@ -49,35 +49,35 @@ function TypeBadge({ type }: { type: EntityType }) {
   switch (type) {
     case "person":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+        <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs font-medium text-sky-300">
           <User className="h-2.5 w-2.5" />
           Person
         </span>
       );
     case "organization":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-300">
+        <span className="inline-flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-xs font-medium text-indigo-300">
           <Building2 className="h-2.5 w-2.5" />
           Org
         </span>
       );
     case "project":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs font-medium text-emerald-300">
           <FolderKanban className="h-2.5 w-2.5" />
           Project
         </span>
       );
     case "decision":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
+        <span className="inline-flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-xs font-medium text-violet-300">
           <Gavel className="h-2.5 w-2.5" />
           Decision
         </span>
       );
     case "action_item":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+        <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-300">
           <ClipboardList className="h-2.5 w-2.5" />
           Action
         </span>
@@ -416,7 +416,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
   return (
     <div className="space-y-4">
       {/* Header & KPI Strip */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -446,7 +446,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               type="button"
               disabled={scanning || loading}
               onClick={() => void handleScanExtract(false)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
             >
               <Sparkles className="h-3.5 w-3.5" />
               {scanning ? "Extracting…" : "Scan & Extract"}
@@ -457,39 +457,39 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
         {dashboard && (
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-5">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Pending review</p>
+              <p className="text-xs text-slate-400">Pending review</p>
               <p className="mt-0.5 text-base font-semibold text-amber-300">
                 {dashboard.pending_count.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Waiting for your approval</p>
+              <p className="text-xs text-slate-500">Waiting for your approval</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Canonical entities</p>
+              <p className="text-xs text-slate-400">Canonical entities</p>
               <p className="mt-0.5 text-base font-semibold text-emerald-300">
                 {dashboard.total_entities.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Deduplicated in vault</p>
+              <p className="text-xs text-slate-500">Deduplicated in vault</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Decisions</p>
+              <p className="text-xs text-slate-400">Decisions</p>
               <p className="mt-0.5 text-base font-semibold text-violet-300">
                 {decisionCount.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Committed records</p>
+              <p className="text-xs text-slate-500">Committed records</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">Action items</p>
+              <p className="text-xs text-slate-400">Action items</p>
               <p className="mt-0.5 text-base font-semibold text-sky-300">
                 {actionCount.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">Tracked commitments</p>
+              <p className="text-xs text-slate-500">Tracked commitments</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-[11px] text-slate-400">People &amp; Orgs</p>
+              <p className="text-xs text-slate-400">People &amp; Orgs</p>
               <p className="mt-0.5 text-base font-semibold text-slate-100">
                 {peopleOrgCount.toLocaleString()}
               </p>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-xs text-slate-500">
                 {dashboard.dismissed_count} dismissed proposals
               </p>
             </div>
@@ -550,7 +550,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
             </div>
             <button
               type="submit"
-              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
             >
               Filter
             </button>
@@ -561,7 +561,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                   setQueryInput("");
                   setAppliedQuery("");
                 }}
-                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
+                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 transition-colors"
               >
                 Clear
               </button>
@@ -574,7 +574,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
             <button
               type="button"
               onClick={() => setTypeFilter(null)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                 typeFilter === null
                   ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
                   : "bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -587,7 +587,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 key={t.id}
                 type="button"
                 onClick={() => setTypeFilter(t.id)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                   typeFilter === t.id
                     ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
                     : "bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -616,7 +616,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
       {/* Sub-view 1: Provisional Inbox */}
       {subView === "inbox" && (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2.5">
             <div className="flex items-center gap-2 text-xs">
               {(["pending", "approved", "dismissed"] as ProposalStatus[]).map((st) => (
                 <button
@@ -640,7 +640,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                   type="button"
                   disabled={busy}
                   onClick={() => void handleApproveSelected()}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
                   Approve selected ({selectedProposalIds.size})
@@ -650,7 +650,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 type="button"
                 disabled={scanning || !desktop}
                 onClick={() => void handleScanExtract(true)}
-                className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 Force rescan all
               </button>
@@ -658,7 +658,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
           </div>
 
           {displayedProposals.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-xs text-slate-400">
               {loading
                 ? "Loading knowledge proposals…"
                 : `No ${inboxStatus} suggestions matched. Click "Scan & Extract" to parse indexed documents and transcripts.`}
@@ -670,7 +670,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 return (
                   <div
                     key={p.id}
-                    className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+                    className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-start gap-2.5">
@@ -688,21 +688,21 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             <TypeBadge type={p.entity_type} />
                             <span className="text-xs font-semibold text-slate-100">{p.name}</span>
                             {p.matched_entity_name ? (
-                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-300">
                                 Merges into: {p.matched_entity_name}
                               </span>
                             ) : (
                               p.status === "pending" && (
-                                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
                                   New entity
                                 </span>
                               )
                             )}
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
                               {Math.round(p.confidence * 100)}% · {p.extractor}
                             </span>
                             {p.contains_sensitive && (
-                              <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-300">
+                              <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-xs text-rose-300">
                                 <ShieldAlert className="h-2.5 w-2.5" />
                                 Sensitive
                               </span>
@@ -713,9 +713,9 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             <p className="mt-1 text-xs text-slate-300">{p.summary}</p>
                           )}
 
-                          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
                             <span>Source: {p.source_filename}</span>
-                            <span className="rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px]">
+                            <span className="rounded bg-slate-800/80 px-1.5 py-0.5 text-xs">
                               {p.source_kind}
                             </span>
                             {p.assignee && <span>Assignee: {p.assignee}</span>}
@@ -723,7 +723,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             {p.project_hint && <span>Project: {p.project_hint}</span>}
                           </div>
 
-                          <p className="mt-1.5 rounded border border-slate-800/80 bg-slate-950/60 px-2.5 py-1.5 font-mono text-[11px] text-slate-400">
+                          <p className="mt-1.5 rounded border border-slate-800/80 bg-slate-950/60 px-2.5 py-1.5 font-mono text-xs text-slate-400">
                             “{p.evidence_quote}”
                           </p>
                         </div>
@@ -736,7 +736,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             <button
                               type="button"
                               onClick={() => void handleInspectFile(p.source_file_id)}
-                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                             >
                               <FileSearch className="h-3 w-3" />
                               Inspect
@@ -746,7 +746,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                                 type="button"
                                 disabled={llmFileBusy === p.source_file_id}
                                 onClick={() => void handleExtractFileLlm(p.source_file_id!)}
-                                className="inline-flex items-center gap-1 rounded border border-violet-700/60 bg-violet-950/40 px-2 py-1 text-[11px] text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
+                                className="inline-flex items-center gap-1 rounded border border-violet-700/60 bg-violet-950/40 px-2 py-1 text-xs text-violet-200 hover:bg-violet-900/50 disabled:opacity-40"
                               >
                                 <Sparkles className="h-3 w-3" />
                                 {llmFileBusy === p.source_file_id ? "LLM…" : "Deep LLM"}
@@ -761,7 +761,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                               type="button"
                               disabled={busy}
                               onClick={() => void handleApprove(p, false)}
-                              className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                              className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                             >
                               <Check className="h-3 w-3" />
                               Approve
@@ -770,7 +770,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                               type="button"
                               disabled={busy}
                               onClick={() => (isEditing ? setEditingId(null) : beginEdit(p))}
-                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                             >
                               <Edit3 className="h-3 w-3" />
                               Edit
@@ -779,7 +779,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                               type="button"
                               disabled={busy}
                               onClick={() => void handleDismiss(p, false)}
-                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                              className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                             >
                               <EyeOff className="h-3 w-3" />
                               Dismiss
@@ -792,7 +792,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             type="button"
                             disabled={busy}
                             onClick={() => void handleUndo(p)}
-                            className="inline-flex items-center gap-1 rounded border border-amber-700/70 bg-amber-950/40 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-900/50 disabled:opacity-40"
+                            className="inline-flex items-center gap-1 rounded border border-amber-700/70 bg-amber-950/40 px-2.5 py-1 text-xs font-medium text-amber-200 hover:bg-amber-900/50 disabled:opacity-40"
                           >
                             <RotateCcw className="h-3 w-3" />
                             Undo commit
@@ -804,7 +804,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             type="button"
                             disabled={busy}
                             onClick={() => void handleDismiss(p, true)}
-                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                           >
                             <RotateCcw className="h-3 w-3" />
                             Reopen
@@ -817,7 +817,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                       <div className="mt-3 space-y-2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs">
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <label className="block">
-                            <span className="text-[11px] text-slate-400">Name</span>
+                            <span className="text-xs text-slate-400">Name</span>
                             <input
                               type="text"
                               value={editName}
@@ -826,7 +826,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             />
                           </label>
                           <label className="block">
-                            <span className="text-[11px] text-slate-400">Type</span>
+                            <span className="text-xs text-slate-400">Type</span>
                             <select
                               value={editType}
                               onChange={(e) => setEditType(e.target.value as EntityType)}
@@ -840,7 +840,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             </select>
                           </label>
                           <label className="block">
-                            <span className="text-[11px] text-slate-400">Project hint</span>
+                            <span className="text-xs text-slate-400">Project hint</span>
                             <input
                               type="text"
                               value={editProject}
@@ -849,7 +849,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             />
                           </label>
                           <label className="block">
-                            <span className="text-[11px] text-slate-400">Assignee</span>
+                            <span className="text-xs text-slate-400">Assignee</span>
                             <input
                               type="text"
                               value={editAssignee}
@@ -858,7 +858,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             />
                           </label>
                           <label className="block">
-                            <span className="text-[11px] text-slate-400">Due date</span>
+                            <span className="text-xs text-slate-400">Due date</span>
                             <input
                               type="text"
                               value={editDueDate}
@@ -867,7 +867,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             />
                           </label>
                           <label className="block sm:col-span-3">
-                            <span className="text-[11px] text-slate-400">Summary</span>
+                            <span className="text-xs text-slate-400">Summary</span>
                             <input
                               type="text"
                               value={editSummary}
@@ -888,7 +888,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             type="button"
                             disabled={busy}
                             onClick={() => void handleApprove(p, true)}
-                            className="rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                            className="rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                           >
                             Save edits &amp; Approve
                           </button>
@@ -908,7 +908,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
           <div className="space-y-2 lg:max-h-[720px] lg:overflow-y-auto lg:pr-1">
             {displayedEntities.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
                 No approved entities yet. Approve items in the Review Inbox to grow the graph.
               </div>
             ) : (
@@ -922,18 +922,18 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                     className={`w-full rounded-xl border p-3 text-left transition ${
                       active
                         ? "border-emerald-500/50 bg-emerald-950/20"
-                        : "border-slate-800 bg-slate-900/40 hover:border-slate-700"
+                        : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <TypeBadge type={ent.entity_type} />
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-xs text-slate-400">
                         {ent.mention_count} mention{ent.mention_count === 1 ? "" : "s"}
                       </span>
                     </div>
                     <p className="mt-1.5 text-xs font-semibold text-slate-100">{ent.name}</p>
                     {ent.summary && (
-                      <p className="mt-1 line-clamp-2 text-[11px] text-slate-400">{ent.summary}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-400">{ent.summary}</p>
                     )}
                   </button>
                 );
@@ -942,14 +942,14 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
           </div>
 
           {selectedEntity && (
-            <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+            <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <TypeBadge type={selectedEntity.entity_type} />
                     <h3 className="text-sm font-semibold text-slate-100">{selectedEntity.name}</h3>
                     {selectedEntity.status_tag && (
-                      <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] uppercase text-slate-300">
+                      <span className="rounded bg-slate-800 px-2 py-0.5 text-xs uppercase text-slate-300">
                         {selectedEntity.status_tag}
                       </span>
                     )}
@@ -966,7 +966,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                     type="button"
                     disabled={busy || !desktop}
                     onClick={() => void handleToggleEntityStatus(selectedEntity)}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                     {selectedEntity.status_tag === "done" ? "Reopen action" : "Mark done"}
@@ -987,7 +987,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
 
               {selectedEntity.related_entities.length > 0 && (
                 <div>
-                  <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Connected Entities
                   </h4>
                   <div className="flex flex-wrap gap-2">
@@ -1000,7 +1000,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                       >
                         <TypeBadge type={link.other_entity_type} />
                         <span>{link.other_entity_name}</span>
-                        <span className="text-[10px] text-slate-500">({link.rel_type})</span>
+                        <span className="text-xs text-slate-500">({link.rel_type})</span>
                       </button>
                     ))}
                   </div>
@@ -1008,7 +1008,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
               )}
 
               <div>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Where this came from (live files only)
                 </h4>
                 {selectedEntity.provenance.length === 0 ? (
@@ -1027,16 +1027,16 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                             <span className="text-xs font-medium text-slate-100">
                               {prov.filename}
                             </span>
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
                               {prov.rel_type}
                             </span>
-                            <span className="text-[10px] text-slate-500">
+                            <span className="text-xs text-slate-500">
                               {formatDateTime(prov.recorded_at)}
                             </span>
                           </div>
-                          <p className="mt-0.5 truncate text-[11px] text-slate-500">{prov.path}</p>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">{prov.path}</p>
                           {prov.quote && (
-                            <p className="mt-1 font-mono text-[11px] text-slate-300">
+                            <p className="mt-1 font-mono text-xs text-slate-300">
                               “{prov.quote}”
                             </p>
                           )}
@@ -1044,7 +1044,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                         <button
                           type="button"
                           onClick={() => void handleInspectFile(prov.file_id)}
-                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                         >
                           <FileSearch className="h-3 w-3" />
                           Inspect
@@ -1061,7 +1061,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
 
       {/* Sub-view 3: Opt-In Audio & Transcript Pairing */}
       {subView === "audio" && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           {!dashboard?.audio_observation_enabled ? (
             <div className="py-6 text-center">
               <Mic className="mx-auto h-7 w-7 text-slate-500" />
@@ -1077,7 +1077,7 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                 type="button"
                 disabled={busy}
                 onClick={() => void handleToggleAudioOptIn()}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
                 <Mic className="h-3.5 w-3.5" />
                 Include meeting recordings
@@ -1103,25 +1103,25 @@ export function KnowledgeBase({ desktop }: { desktop: boolean }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-slate-100">{rec.filename}</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                         {formatBytes(rec.size_bytes)} · {rec.drive_label}
                       </span>
                       {rec.companion_transcript_name ? (
-                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-300">
                           Paired: {rec.companion_transcript_name}
                         </span>
                       ) : (
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
                           No companion .vtt/.srt transcript yet
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 truncate text-[11px] text-slate-500">{rec.path}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">{rec.path}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => void handleInspectFile(rec.file_id)}
-                    className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                    className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                   >
                     <FileSearch className="h-3 w-3" />
                     Inspect

@@ -57,25 +57,25 @@ function statusPill(status: BrokenLinkItem["status"]) {
   switch (status) {
     case "resolved":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-emerald-950/60 px-2 py-0.5 text-[11px] text-emerald-300 border border-emerald-800/60">
+        <span className="inline-flex items-center gap-1 rounded bg-emerald-950/60 px-2 py-0.5 text-xs text-emerald-300 border border-emerald-800/60">
           <CheckCircle2 className="h-3 w-3" /> Resolved
         </span>
       );
     case "in_quarantine":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-amber-950/60 px-2 py-0.5 text-[11px] text-amber-300 border border-amber-800/60">
+        <span className="inline-flex items-center gap-1 rounded bg-amber-950/60 px-2 py-0.5 text-xs text-amber-300 border border-amber-800/60">
           <ArchiveRestore className="h-3 w-3" /> In Quarantine
         </span>
       );
     case "ambiguous":
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-orange-950/60 px-2 py-0.5 text-[11px] text-orange-300 border border-orange-800/60">
+        <span className="inline-flex items-center gap-1 rounded bg-orange-950/60 px-2 py-0.5 text-xs text-orange-300 border border-orange-800/60">
           <AlertTriangle className="h-3 w-3" /> Ambiguous
         </span>
       );
     default:
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300 border border-slate-700">
+        <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300 border border-slate-700">
           Unresolved
         </span>
       );
@@ -387,7 +387,7 @@ export function SelfHealing({
           <div className="flex items-center gap-2">
             <Wrench className="h-5 w-5 text-emerald-400" />
             <h1 className="text-lg font-semibold">Self-Healing Workspace</h1>
-            <span className="rounded bg-emerald-950/70 px-2 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-800/50">
+            <span className="rounded bg-emerald-950/70 px-2 py-0.5 text-xs font-medium text-emerald-300 border border-emerald-800/50">
               You approve every fix · one-click undo
             </span>
           </div>
@@ -406,7 +406,7 @@ export function SelfHealing({
               includeSensitive
                 ? "border-amber-600/70 bg-amber-950/40 text-amber-200"
                 : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-            }`}
+            } transition-colors`}
           >
             {includeSensitive ? (
               <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
@@ -420,7 +420,7 @@ export function SelfHealing({
             type="button"
             disabled={scanning}
             onClick={() => void runScan()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} />
             {scanning ? "Scanning..." : "Scan Workspace"}
@@ -443,50 +443,50 @@ export function SelfHealing({
 
       {report && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-400">
               Relational Integrity
             </div>
             <div className="mt-1 text-xl font-semibold text-emerald-300">
               {report.relational_integrity_score.toFixed(1)}%
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-400">
+            <div className="mt-0.5 text-xs text-slate-400">
               {report.links_checked} links across {report.notes_scanned} notes
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-400">
               Healable Broken Links
             </div>
             <div className="mt-1 text-xl font-semibold text-sky-300">
               {report.healable_links_count} / {report.broken_links_count}
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-400">
+            <div className="mt-0.5 text-xs text-slate-400">
               {report.move_log_entries} USN/scanner moves tracked
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-400">
               Taxonomic Hygiene
             </div>
             <div className="mt-1 text-xl font-semibold text-violet-300">
               {report.taxonomic_hygiene_score.toFixed(1)}%
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-400">
+            <div className="mt-0.5 text-xs text-slate-400">
               {report.tag_weeds_count} tag weed occurrence(s)
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-400">
               Rules &amp; Privacy Gate
             </div>
             <div className="mt-1 text-xl font-semibold text-amber-300">
               {report.rule_path_issues_count} stale rule(s)
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-400">
+            <div className="mt-0.5 text-xs text-slate-400">
               {report.excluded_sensitive_count} sensitive note(s) hidden until unlocked
             </div>
           </div>
@@ -494,7 +494,7 @@ export function SelfHealing({
       )}
 
       {/* Filter & Action Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="text"
@@ -519,7 +519,7 @@ export function SelfHealing({
             type="button"
             disabled={previewing || healableLinkCount + patchableTagClusterCount === 0}
             onClick={() => void handlePreviewDiffs()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             <Eye className="h-3.5 w-3.5" />
             {previewing ? "Building Diffs..." : `Dry-Run Diff (${healableLinkCount + patchableTagClusterCount})`}
@@ -529,7 +529,7 @@ export function SelfHealing({
             type="button"
             disabled={staging || healableLinkCount + patchableTagClusterCount === 0}
             onClick={() => void handleStageBatch()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
           >
             <Play className="h-3.5 w-3.5" />
             {staging ? "Staging..." : "Review in Simulator"}
@@ -582,7 +582,7 @@ export function SelfHealing({
                       )}
                     </div>
                   </div>
-                  <pre className="mt-2 overflow-x-auto rounded bg-slate-900/80 p-2.5 font-mono text-[11px] leading-relaxed text-slate-300">
+                  <pre className="mt-2 overflow-x-auto rounded bg-slate-900/80 p-2.5 font-mono text-xs leading-relaxed text-slate-300">
                     {f.diff_preview}
                   </pre>
                 </div>
@@ -640,7 +640,7 @@ export function SelfHealing({
       {subTab === "links" && (
         <div className="space-y-3">
           {!report || report.broken_links.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
               All scanned internal Markdown links and wikilinks point cleanly to live files.
             </div>
           ) : (
@@ -650,7 +650,7 @@ export function SelfHealing({
               return (
                 <div
                   key={item.issue_key}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2"
+                  className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="flex items-start gap-2.5 min-w-0">
@@ -667,22 +667,22 @@ export function SelfHealing({
                           <span className="font-medium text-sm text-slate-100">
                             {item.source_name}
                           </span>
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-xs text-slate-400">
                             line {item.line_number} · {item.drive_label}
                           </span>
                           {statusPill(item.status)}
                           {item.resolution_source && (
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
+                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs font-mono text-slate-300">
                               {item.resolution_source}
                             </span>
                           )}
                           {selectable && (
-                            <span className="text-[11px] text-emerald-300">
+                            <span className="text-xs text-emerald-300">
                               {(item.confidence * 100).toFixed(0)}% match
                             </span>
                           )}
                         </div>
-                        <div className="truncate font-mono text-[11px] text-slate-400">
+                        <div className="truncate font-mono text-xs text-slate-400">
                           {item.source_path}
                         </div>
                       </div>
@@ -721,13 +721,13 @@ export function SelfHealing({
 
                   <div className="grid gap-2 sm:grid-cols-2 text-xs">
                     <div className="rounded-lg border border-rose-900/40 bg-rose-950/20 p-2">
-                      <div className="text-[10px] uppercase text-rose-300">Broken Target</div>
+                      <div className="text-xs uppercase text-rose-300">Broken Target</div>
                       <div className="mt-0.5 break-all font-mono text-rose-200">
                         {item.raw_syntax}
                       </div>
                     </div>
                     <div className="rounded-lg border border-emerald-900/40 bg-emerald-950/20 p-2">
-                      <div className="text-[10px] uppercase text-emerald-300">
+                      <div className="text-xs uppercase text-emerald-300">
                         {item.replacement_syntax ? "Healed Target" : "Resolution Guidance"}
                       </div>
                       <div className="mt-0.5 break-all font-mono text-emerald-200">
@@ -737,7 +737,7 @@ export function SelfHealing({
                   </div>
 
                   {item.candidate_paths.length > 1 && (
-                    <div className="rounded-lg bg-slate-950/60 p-2 text-[11px] text-slate-300">
+                    <div className="rounded-lg bg-slate-950/60 p-2 text-xs text-slate-300">
                       <span className="font-medium text-orange-300">Candidates found: </span>
                       {item.candidate_paths.join(" · ")}
                     </div>
@@ -753,7 +753,7 @@ export function SelfHealing({
       {subTab === "tags" && (
         <div className="space-y-3">
           {!report || report.tag_clusters.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
               No casing discrepancies, near-duplicate typos, or hex color false positives found.
             </div>
           ) : (
@@ -763,7 +763,7 @@ export function SelfHealing({
               return (
                 <div
                   key={cluster.issue_key}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2.5"
+                  className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2.5"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="flex items-start gap-2.5">
@@ -783,10 +783,10 @@ export function SelfHealing({
                               ? `${cluster.canonical_tag} (Hex Color False Positive)`
                               : `Consolidate -> ${cluster.canonical_tag}`}
                           </span>
-                          <span className="rounded bg-violet-950/60 px-2 py-0.5 text-[11px] text-violet-300 border border-violet-800/50">
+                          <span className="rounded bg-violet-950/60 px-2 py-0.5 text-xs text-violet-300 border border-violet-800/50">
                             {cluster.kind}
                           </span>
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-xs text-slate-400">
                             {cluster.patchable_count}/{cluster.total_occurrences} auto-patchable
                           </span>
                         </div>
@@ -802,7 +802,7 @@ export function SelfHealing({
                           ? handleUndismiss(cluster.issue_key)
                           : handleDismiss(cluster.issue_key, "tag_weed"))
                       }
-                      className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                      className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
                     >
                       {cluster.dismissed ? "Restore" : "Dismiss"}
                     </button>
@@ -818,7 +818,7 @@ export function SelfHealing({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-slate-200">{occ.file_name}</span>
                             <span className="text-slate-400">L{occ.line_number}</span>
-                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                               {occ.in_frontmatter ? "YAML frontmatter" : "Markdown body"}
                             </span>
                             <span className="font-mono text-amber-300">{occ.raw_tag}</span>
@@ -828,12 +828,12 @@ export function SelfHealing({
                               </span>
                             )}
                             {!occ.patchable && (
-                              <span className="text-[11px] text-slate-400">
+                              <span className="text-xs text-slate-400">
                                 (advisory only to preserve prose)
                               </span>
                             )}
                           </div>
-                          <div className="truncate font-mono text-[11px] text-slate-400">
+                          <div className="truncate font-mono text-xs text-slate-400">
                             {occ.snippet}
                           </div>
                         </div>
@@ -841,7 +841,7 @@ export function SelfHealing({
                           type="button"
                           disabled={!desktop}
                           onClick={() => void handleInspectFile(occ.file_id)}
-                          className="rounded border border-slate-700 px-2 py-1 text-[11px] hover:bg-slate-800 disabled:opacity-40"
+                          className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           Inspect
                         </button>
@@ -861,14 +861,14 @@ export function SelfHealing({
           <div className="space-y-3">
             <h2 className="text-sm font-semibold">Folderless Rule Path Audits</h2>
             {!report || report.rule_issues.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-xs text-slate-400">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400">
                 All enabled Folderless Rule scope &amp; destination paths are valid.
               </div>
             ) : (
               report.rule_issues.map((issue) => (
                 <div
                   key={issue.issue_key}
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2.5"
+                  className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2.5"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -876,7 +876,7 @@ export function SelfHealing({
                         <span className="font-medium text-sm text-slate-100">
                           {issue.rule_name}
                         </span>
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-slate-300">
                           {issue.field}
                         </span>
                         {statusPill(issue.status)}
@@ -887,13 +887,13 @@ export function SelfHealing({
 
                   <div className="grid gap-2 sm:grid-cols-2 text-xs">
                     <div>
-                      <div className="mb-1 text-[10px] uppercase text-slate-400">Stale Path</div>
+                      <div className="mb-1 text-xs uppercase text-slate-400">Stale Path</div>
                       <div className="rounded bg-slate-950 px-2.5 py-1.5 font-mono text-rose-300 break-all">
                         {issue.current_path}
                       </div>
                     </div>
                     <div>
-                      <div className="mb-1 text-[10px] uppercase text-slate-400">
+                      <div className="mb-1 text-xs uppercase text-slate-400">
                         Updated Path
                       </div>
                       <div className="flex gap-2">
@@ -913,7 +913,7 @@ export function SelfHealing({
                           type="button"
                           disabled={busyId === issue.issue_key}
                           onClick={() => void handleApplyRuleFix(issue)}
-                          className="rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                          className="rounded bg-emerald-600 px-3 py-1 font-semibold text-white hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           Update Rule
                         </button>
@@ -926,7 +926,7 @@ export function SelfHealing({
           </div>
 
           {/* Transaction / Journal Verification Card */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Stethoscope className="h-4 w-4 text-emerald-400" />
@@ -973,7 +973,7 @@ export function SelfHealing({
                         {c.passed ? "PASS" : "FAIL"}
                       </span>
                     </div>
-                    <div className="mt-1 font-mono text-[11px] text-slate-400">{c.details}</div>
+                    <div className="mt-1 font-mono text-xs text-slate-400">{c.details}</div>
                   </div>
                 ))}
               </div>
@@ -986,19 +986,19 @@ export function SelfHealing({
       {subTab === "batches" && (
         <div className="space-y-2.5">
           {batches.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-xs text-slate-400">
               No self-healing batches staged or executed yet.
             </div>
           ) : (
             batches.map((b) => (
               <div
                 key={b.batch_id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-xs"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs"
               >
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-slate-100">{b.summary_label}</span>
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-slate-300">
                       {b.status}
                     </span>
                   </div>
@@ -1037,10 +1037,10 @@ export function SelfHealing({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="font-mono text-[11px] text-slate-400 break-all">
+            <div className="font-mono text-xs text-slate-400 break-all">
               {inspected.path} · {formatBytes(inspected.size)}
             </div>
-            <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-[11px] text-slate-300">
+            <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-300">
               {inspected.chunks_preview.length > 0
                 ? inspected.chunks_preview.join("\n---\n")
                 : "(No indexed chunks preview)"}

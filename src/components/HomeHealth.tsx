@@ -36,7 +36,7 @@ export function StorageClarity({
           Storage &amp; quarantine
         </h2>
         {quotaWarning && (
-          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[11px] text-amber-200">
+          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-xs text-amber-200">
             Quarantine is over 10% of a drive
           </span>
         )}
@@ -80,17 +80,17 @@ export function StorageClarity({
         <div className="flex gap-6">
           <div>
             <div className="font-mono text-xl text-amber-300">{formatBytes(staged)}</div>
-            <div className="text-[11px] text-slate-400">Waiting in quarantine</div>
+            <div className="text-xs text-slate-400">Waiting in quarantine</div>
           </div>
           <div>
             <div className="font-mono text-xl text-emerald-400">{formatBytes(freed)}</div>
-            <div className="text-[11px] text-slate-400">Actually freed on disk</div>
+            <div className="text-xs text-slate-400">Actually freed on disk</div>
           </div>
         </div>
         <button
           type="button"
           onClick={() => onOpen("rescue")}
-          className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 transition-colors"
         >
           Review quarantine
         </button>

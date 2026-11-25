@@ -204,7 +204,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
       <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5 text-xs">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <span className="text-[10px] uppercase tracking-wide text-slate-400">
+            <span className="text-xs uppercase tracking-wide text-slate-400">
               {label} · {rf.collection_name}
             </span>
             <div className="truncate font-semibold text-slate-100">{rf.filename}</div>
@@ -213,7 +213,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
             <button
               type="button"
               onClick={() => void handleInspect(rf.file_id)}
-              className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-200 hover:bg-slate-800"
+              className="rounded border border-slate-700 px-1.5 py-0.5 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
             >
               <FileSearch className="mr-0.5 inline h-2.5 w-2.5" />
               Inspect
@@ -221,7 +221,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
             <button
               type="button"
               onClick={() => void handleCopyPath(rf)}
-              className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-200 hover:bg-slate-800"
+              className="rounded border border-slate-700 px-1.5 py-0.5 text-xs text-slate-200 hover:bg-slate-800 transition-colors"
             >
               {copiedId === rf.file_id ? (
                 <Check className="h-2.5 w-2.5 text-emerald-400" />
@@ -231,9 +231,9 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
             </button>
           </div>
         </div>
-        <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{rf.path}</div>
+        <div className="mt-1 truncate font-mono text-xs text-slate-400">{rf.path}</div>
         {rf.excerpt && (
-          <p className="mt-1.5 line-clamp-2 border-l-2 border-slate-700 pl-2 text-[11px] text-slate-300">
+          <p className="mt-1.5 line-clamp-2 border-l-2 border-slate-700 pl-2 text-xs text-slate-300">
             {rf.excerpt}
           </p>
         )}
@@ -250,7 +250,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
             <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
               <Network className="h-4 w-4 text-emerald-400" aria-hidden="true" />
               Cross-Project Intelligence
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-xs font-medium text-emerald-200">
                 <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                 Reads files on disk only
               </span>
@@ -266,7 +266,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               type="button"
               disabled={loading}
               onClick={() => void runScan()}
-              className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               Rescan Projects
@@ -304,42 +304,42 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] text-slate-400">Mapped Projects</div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs text-slate-400">Mapped Projects</div>
           <div className="mt-1 text-xl font-bold text-slate-100">
             {report?.total_projects ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-xs text-slate-400">
             {report?.used_vectors ? "Vectors + Manifests + Graph" : "Lexical + Manifests + Graph"}
           </div>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] text-slate-400">Duplicate Effort</div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs text-slate-400">Duplicate Effort</div>
           <div className="mt-1 text-xl font-bold text-amber-300">
             {report?.duplicate_effort_count ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400">Cross-project overlap alerts</div>
+          <div className="text-xs text-slate-400">Cross-project overlap alerts</div>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] text-slate-400">Conflicts &amp; Drift</div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs text-slate-400">Conflicts &amp; Drift</div>
           <div className="mt-1 text-xl font-bold text-rose-300">
             {report?.conflict_count ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400">Decisions &amp; major versions</div>
+          <div className="text-xs text-slate-400">Decisions &amp; major versions</div>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
-          <div className="text-[11px] text-slate-400">Dependency Links</div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+          <div className="text-xs text-slate-400">Dependency Links</div>
           <div className="mt-1 text-xl font-bold text-emerald-300">
             {report?.dependency_edge_count ?? 0}
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-xs text-slate-400">
             {report ? `Scanned in ${report.took_ms} ms` : "Awaiting scan"}
           </div>
         </div>
       </div>
 
       {/* Filters & Sub-tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
         <div className="inline-flex rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-xs">
           <button
             type="button"
@@ -450,7 +450,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               <Sparkles className="h-3.5 w-3.5 text-violet-400" />
               {brief.title}
             </h3>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-xs text-slate-400">
               {brief.model_name} ({brief.backend}) · {brief.duration_ms} ms
             </span>
           </div>
@@ -463,7 +463,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                 key={c.file_id}
                 type="button"
                 onClick={() => void handleInspect(c.file_id)}
-                className="rounded border border-slate-700 bg-slate-950/80 px-2 py-1 text-[11px] text-slate-200 hover:border-violet-500"
+                className="rounded border border-slate-700 bg-slate-950/80 px-2 py-1 text-xs text-slate-200 hover:border-violet-500"
               >
                 [{c.ref_id}] {c.filename} ({c.project_name})
               </button>
@@ -485,7 +485,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                     f.status === "dismissed"
                       ? "border-slate-800/60 bg-slate-950/40 opacity-65"
                       : f.severity === "high"
-                        ? "border-rose-800/50 bg-slate-900/70"
+                        ? "border-rose-800/50 bg-slate-900/60"
                         : "border-slate-800 bg-slate-900/60"
                   }`}
                 >
@@ -493,7 +493,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
-                          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold ${
+                          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
                             f.kind === "conflicting_decision"
                               ? "bg-rose-500/20 text-rose-300"
                               : f.kind === "version_divergence"
@@ -508,10 +508,10 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                           )}
                           {findingKindLabel(f.kind)}
                         </span>
-                        <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                        <span className="rounded bg-slate-800 px-2 py-0.5 text-xs font-medium text-emerald-300">
                           {f.project_a_name} ↔ {f.project_b_name}
                         </span>
-                        <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] uppercase text-slate-300">
+                        <span className="rounded bg-slate-800 px-2 py-0.5 text-xs uppercase text-slate-300">
                           {f.severity} · {f.status}
                         </span>
                       </div>
@@ -525,7 +525,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                           type="button"
                           disabled={isBusy}
                           onClick={() => void handleTriage(f, "acknowledged")}
-                          className="rounded border border-slate-700 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+                          className="rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           Acknowledge
                         </button>
@@ -535,7 +535,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                           type="button"
                           disabled={isBusy}
                           onClick={() => void handleTriage(f, "resolved")}
-                          className="inline-flex items-center gap-1 rounded border border-emerald-700/60 bg-emerald-950/40 px-2.5 py-1 text-[11px] text-emerald-200 hover:bg-emerald-900/50 disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded border border-emerald-700/60 bg-emerald-950/40 px-2.5 py-1 text-xs text-emerald-200 hover:bg-emerald-900/50 disabled:opacity-40"
                         >
                           <CheckCircle2 className="h-3 w-3" />
                           Resolve
@@ -546,7 +546,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                           type="button"
                           disabled={isBusy}
                           onClick={() => void handleTriage(f, "open")}
-                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           <RotateCcw className="h-3 w-3" />
                           Reopen
@@ -557,7 +557,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                           type="button"
                           disabled={isBusy}
                           onClick={() => void handleTriage(f, "dismissed")}
-                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-[11px] text-slate-400 hover:bg-slate-800 disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded border border-slate-700 px-2.5 py-1 text-xs text-slate-400 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                         >
                           <EyeOff className="h-3 w-3" />
                           Dismiss
@@ -567,7 +567,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                   </div>
 
                   {f.note && (
-                    <p className="mt-2 rounded bg-slate-950/70 px-2.5 py-1 text-[11px] text-amber-200">
+                    <p className="mt-2 rounded bg-slate-950/70 px-2.5 py-1 text-xs text-amber-200">
                       Note: {f.note}
                     </p>
                   )}
@@ -580,7 +580,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                   )}
 
                   {f.shared_terms.length > 0 && (
-                    <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px]">
+                    <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
                       {f.shared_terms.map((t) => (
                         <span
                           key={t}
@@ -613,7 +613,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-300">
+                    <span className="rounded bg-sky-500/15 px-2 py-0.5 text-xs font-semibold text-sky-300">
                       {dependencyKindLabel(e.kind)}
                     </span>
                     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-100">
@@ -626,13 +626,13 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                       {e.to_project_name}
                     </span>
                   </div>
-                  <span className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                  <span className="rounded bg-slate-800 px-2 py-0.5 text-xs font-medium text-emerald-300">
                     Strength {Math.round(e.strength * 100)}%
                   </span>
                 </div>
                 <p className="mt-1.5 text-xs text-slate-300">{e.summary}</p>
                 {e.shared_labels.length > 0 && (
-                  <div className="mt-2.5 flex flex-wrap gap-1.5 text-[11px]">
+                  <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
                     {e.shared_labels.map((lbl) => (
                       <span
                         key={lbl}
@@ -669,38 +669,38 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                         <FolderGit2 className="h-4 w-4 text-emerald-400" />
                         {p.name}
                       </h3>
-                      <p className="mt-0.5 text-[11px] text-slate-400">
+                      <p className="mt-0.5 text-xs text-slate-400">
                         {p.project_kind ?? p.kind} · {p.file_count} files ·{" "}
                         {formatBytes(p.total_bytes)}
                       </p>
                     </div>
                     {p.finding_count > 0 && (
-                      <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                      <span className="rounded bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">
                         {p.finding_count} alerts
                       </span>
                     )}
                   </div>
                   {p.root_paths[0] && (
-                    <p className="mt-1.5 truncate font-mono text-[10px] text-slate-500">
+                    <p className="mt-1.5 truncate font-mono text-xs text-slate-500">
                       {p.root_paths[0]}
                     </p>
                   )}
-                  <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-center text-[11px]">
+                  <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-center text-xs">
                     <div>
                       <div className="font-semibold text-slate-100">{p.related_project_count}</div>
-                      <div className="text-[10px] text-slate-400">Links</div>
+                      <div className="text-xs text-slate-400">Links</div>
                     </div>
                     <div>
                       <div className="font-semibold text-slate-100">{p.decision_count}</div>
-                      <div className="text-[10px] text-slate-400">Decisions</div>
+                      <div className="text-xs text-slate-400">Decisions</div>
                     </div>
                     <div>
                       <div className="font-semibold text-slate-100">{p.open_action_count}</div>
-                      <div className="text-[10px] text-slate-400">Open Actions</div>
+                      <div className="text-xs text-slate-400">Open Actions</div>
                     </div>
                   </div>
                   {p.top_terms.length > 0 && (
-                    <div className="mt-2.5 flex flex-wrap gap-1 text-[10px]">
+                    <div className="mt-2.5 flex flex-wrap gap-1 text-xs">
                       {p.top_terms.slice(0, 6).map((t) => (
                         <span
                           key={t}
@@ -712,7 +712,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
                     </div>
                   )}
                 </div>
-                <div className="mt-3 flex items-center justify-between border-t border-slate-800 pt-2.5 text-[11px] text-slate-400">
+                <div className="mt-3 flex items-center justify-between border-t border-slate-800 pt-2.5 text-xs text-slate-400">
                   <span>Active {formatShortDate(p.last_activity_at)}</span>
                   <button
                     type="button"
@@ -756,7 +756,7 @@ export function CrossProject({ desktop }: { desktop: boolean }) {
               </button>
             </div>
             <div className="mt-3 space-y-2 text-xs text-slate-300">
-              <div className="font-mono text-[11px] text-slate-400">{inspected.path}</div>
+              <div className="font-mono text-xs text-slate-400">{inspected.path}</div>
               <div>
                 State: <strong>{inspected.state}</strong> · Sensitivity:{" "}
                 <strong>{inspected.sensitivity}</strong> · Size:{" "}

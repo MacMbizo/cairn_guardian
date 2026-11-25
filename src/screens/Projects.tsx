@@ -1,3 +1,4 @@
+import { ui } from "../ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Archive, ArrowLeft, ArrowRight, BookOpen, CircleCheck, Code2, Copy, FileText, Folder, GitBranch, HardDrive, History, House, Layers, Loader2, Palette, RefreshCw, SearchCheck } from "lucide-react";
 import {
@@ -16,9 +17,9 @@ import {
 } from "../bindings/client";
 import { fixturePlans, fixtureProjects, fixtureReunitePlans } from "./fixtures/projects";
 
-const card = "rounded-xl border border-slate-800 bg-slate-900/50";
-const btn = "rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40";
-const primary = "rounded-md bg-emerald-700 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-40";
+const card = ui.card.replace(" p-4", "");
+const btn = ui.btn;
+const primary = ui.primary;
 
 const SURE = 0.8;
 const SEP = /[\\/]/;
@@ -94,7 +95,7 @@ function KindSelect({ c, ans }: { c: Collection; ans: Answering }) {
       value={val}
       disabled={ans.busy}
       onChange={(e) => void ans.send(c, { kind: "set_kind", project_kind: e.target.value as ProjectKind })}
-      className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[11px] font-medium text-slate-200 hover:border-slate-500 disabled:opacity-40"
+      className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-xs font-medium text-slate-200 hover:border-slate-500 disabled:opacity-40"
     >
       {KIND_ORDER.map((k) => (
         <option key={k} value={k}>
@@ -213,7 +214,7 @@ interface Planning {
 }
 
 function Chip({ children, tone }: { children: ReactNode; tone: string }) {
-  return <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>{children}</span>;
+  return <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>{children}</span>;
 }
 
 function SureChip({ c }: { c: Collection }) {
@@ -253,13 +254,13 @@ function PlaceRow({ c, l, ans, plan, choosing, onPicked }: { c: Collection; l: L
             {home && <span className="text-slate-400"> · {l.files.toLocaleString()} files</span>}
           </span>
           {!l.online && (
-            <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
+            <span className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
               <HardDrive className="h-3 w-3" aria-hidden="true" /> On a drive that is unplugged
             </span>
           )}
           {step && !settled && (
             <span
-              className="mt-0.5 flex items-start gap-1 text-[11px] text-slate-200"
+              className="mt-0.5 flex items-start gap-1 text-xs text-slate-200"
               title={step.fallback ? `${step.reason} If anything in it isn't in the main copy, it is kept as a version instead.` : step.reason}
             >
               <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />
@@ -267,11 +268,11 @@ function PlaceRow({ c, l, ans, plan, choosing, onPicked }: { c: Collection; l: L
             </span>
           )}
           {step && !settled && step.warnings.map((w) => (
-            <span key={w} className="mt-0.5 block text-[11px] text-amber-300">
+            <span key={w} className="mt-0.5 block text-xs text-amber-300">
               {w}
             </span>
           ))}
-          {kept && !settled && <span className="mt-0.5 block text-[11px] text-slate-400">→ {kept}</span>}
+          {kept && !settled && <span className="mt-0.5 block text-xs text-slate-400">→ {kept}</span>}
         </span>
       </span>
       {!home && !settled && (
@@ -355,7 +356,7 @@ function PlanFooter({ c, plan, pl, ans, choosing, setChoosing }: {
           </button>
         )}
       </div>
-      {choosing && <p className="text-[11px] text-slate-400">Pick the folder that should be the main copy.</p>}
+      {choosing && <p className="text-xs text-slate-400">Pick the folder that should be the main copy.</p>}
     </div>
   );
 }
@@ -483,7 +484,7 @@ function ProjectCard({
         </div>
       </div>
       <div className="flex flex-col gap-2 p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Where it lives</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Where it lives</p>
         <ul className="flex flex-col gap-1">
           {home && <PlaceRow c={c} l={home} ans={ans} plan={pl.outcomes[c.id]?.done ? undefined : planOn(pl.plans, c, home.volume_id)} choosing={choosing} onPicked={() => setChoosing(false)} />}
           {others.map((l) => (
@@ -638,7 +639,7 @@ function ReuniteSection({
                   <span className="font-semibold text-slate-100">{p.collection_name}</span>
                   <span className="text-slate-300">· {p.summary}</span>
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   {p.split_batches
                     .map(
                       (b) =>
@@ -647,7 +648,7 @@ function ReuniteSection({
                     .join(" · ")}
                 </p>
                 {!out?.done && (
-                  <ul className="space-y-0.5 text-[11px] text-slate-400">
+                  <ul className="space-y-0.5 text-xs text-slate-400">
                     {p.items.slice(0, 3).map((it) => (
                       <li key={it.file_id} className="flex flex-wrap items-center gap-1">
                         <span title={it.from}>{shortPath(it.from, 3)}</span>
@@ -662,18 +663,18 @@ function ReuniteSection({
                     )}
                   </ul>
                 )}
-                {p.waits_for && <p className="text-[11px] text-amber-300">The plan waits: {p.waits_for}</p>}
+                {p.waits_for && <p className="text-xs text-amber-300">The plan waits: {p.waits_for}</p>}
                 {out?.done && (
-                  <p role="status" className="flex items-center gap-1 text-[11px] text-emerald-200">
+                  <p role="status" className="flex items-center gap-1 text-xs text-emerald-200">
                     <CircleCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     Put {out.moved_files.toLocaleString()} {out.moved_files === 1 ? "file" : "files"} back in {p.target_dir}.
                   </p>
                 )}
                 {out && !out.done && (
                   out.undone ? (
-                    <p className="text-[11px] text-slate-300">Undone: files are back where they were.</p>
+                    <p className="text-xs text-slate-300">Undone: files are back where they were.</p>
                   ) : (
-                    <p className="text-[11px] text-rose-300">{out.reason}</p>
+                    <p className="text-xs text-rose-300">{out.reason}</p>
                   )
                 )}
               </div>
@@ -973,7 +974,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                 : "border-slate-700 text-slate-300 hover:bg-slate-800"
             }`}
           >
-            All <span className="text-[11px] opacity-80">{list.length}</span>
+            All <span className="text-xs opacity-80">{list.length}</span>
           </button>
           {KIND_ORDER.filter((k) => kindCounts[k] > 0 || kindFilter === k).map((k) => {
             const m = KIND_META[k];
@@ -991,7 +992,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
               >
                 {m.icon}
                 {m.label}
-                <span className="text-[11px] opacity-80">{kindCounts[k]}</span>
+                <span className="text-xs opacity-80">{kindCounts[k]}</span>
               </button>
             );
           })}
@@ -1009,7 +1010,7 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
             >
               <Archive className="h-3 w-3 shrink-0" aria-hidden="true" />
               Old copies
-              <span className="text-[11px] opacity-80">{oldCopyCount}</span>
+              <span className="text-xs opacity-80">{oldCopyCount}</span>
             </button>
           )}
         </div>
@@ -1073,23 +1074,23 @@ export function ProjectsView({ preview, onBack }: { preview: boolean; onBack: ()
                       <SureChip c={c} />
                     </span>
                     {p?.waits_for && (
-                      <span className="mt-0.5 block text-[11px] text-amber-300">
+                      <span className="mt-0.5 block text-xs text-amber-300">
                         {c.evidence.filter((e) => !e.startsWith("also at ")).slice(0, 1).join("")}
                         {" · "}The plan waits: {p.waits_for}
                       </span>
                     )}
                     {move && !out?.done && (
-                      <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-200" title={move.reason}>
+                      <span className="mt-0.5 flex items-center gap-1 text-xs text-slate-200" title={move.reason}>
                         <ArrowRight className="h-3 w-3 shrink-0 text-emerald-300" aria-hidden="true" />{" "}
                         {lineOf(move)}
                       </span>
                     )}
                     {out?.done && (
-                      <span role="status" className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-200">
+                      <span role="status" className="mt-0.5 flex items-center gap-1 text-xs text-emerald-200">
                         <CircleCheck className="h-3 w-3" aria-hidden="true" /> Moved to {p?.home_after ?? "your projects home"}
                       </span>
                     )}
-                    {out && !out.done && (out.undone ? <span className="mt-0.5 block text-[11px] text-slate-300">Undone: it is back where it was.</span> : <span className="mt-0.5 block text-[11px] text-rose-300">{out.reason}</span>)}
+                    {out && !out.done && (out.undone ? <span className="mt-0.5 block text-xs text-slate-300">Undone: it is back where it was.</span> : <span className="mt-0.5 block text-xs text-rose-300">{out.reason}</span>)}
                   </span>
                   <span className="flex flex-wrap items-center gap-2">
                     <KindSelect c={c} ans={ans} />
