@@ -62,6 +62,7 @@ import { VersionTracking } from "./screens/VersionTracking";
 import { NO_NARROWING, SearchFilterBar, type SearchNarrowing } from "./components/SearchFilterBar";
 import { useFiling } from "./screens/useFiling";
 import { ThisWeek } from "./screens/ThisWeek";
+import { CairnMark } from "./components/CairnMark";
 import { useEngine } from "./screens/useEngine";
 import { useDrives } from "./screens/useDrives";
 import {
@@ -741,7 +742,7 @@ export default function App() {
         className="flex w-64 flex-col border-r border-slate-800 bg-slate-900/70 p-4"
       >
         <div className="mb-6 flex items-center gap-2.5 px-2">
-          <ShieldCheck className="h-6 w-6 text-emerald-400" aria-hidden="true" />
+          <CairnMark className="h-8 w-8 shrink-0" />
           <div>
             <h1 className="text-sm font-semibold tracking-wide text-slate-50">
               CAIRN GUARDIAN
