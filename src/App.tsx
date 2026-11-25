@@ -48,7 +48,10 @@ import {
 import { HomeTiles } from "./components/HomeTiles";
 import { HealthBars, StorageClarity } from "./components/HomeHealth";
 import { CommandPalette, type Command } from "./components/CommandPalette";
-import { PageHeader } from "./ui";
+import { Button, EmptyState, Notice, PageHeader } from "./ui";
+import { SimulatorBatch } from "./components/SimulatorBatch";
+import { ConflictResolver } from "./components/ConflictResolver";
+import { PREVIEW_ACTIONS } from "./screens/fixtures/actions";
 import { PlugBanner } from "./components/PlugBanner";
 import { AskFiles } from "./screens/AskFiles";
 import { ChiefDigitalOfficer } from "./screens/ChiefDigitalOfficer";
@@ -96,7 +99,6 @@ import {
   type Screen,
   type SearchMode,
   type SearchPage,
-  type Simulation,
   type EmbedStatus,
   type LlmStatus,
   type VaultStatus,
@@ -221,15 +223,14 @@ export default function App() {
   const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
 
   // Simulator & Actions
-  const [actions, setActions] = useState<ActionItem[]>([]);
-  const [simulation, setSimulation] = useState<Simulation | null>(null);
+  const [actions, setActions] = useState<ActionItem[]>(() => (isTauriRuntime() ? [] : PREVIEW_ACTIONS));
+  const [lastApplied, setLastApplied] = useState<{ batchId: string; text: string } | null>(null);
   const [conflicts, setConflicts] = useState<RollbackConflictItem[]>([]);
   const [conflictChoices, setConflictChoices] = useState<
     Record<string, ConflictResolutionChoice>
   >({});
 
   // Per-batch selection of proposed actions for partial approval
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
 
   // Doctor
   const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
@@ -581,8 +582,7 @@ export default function App() {
   };
 
   /** Simulates a freshly proposed batch and opens it in the Simulator tab. */
-  const openInSimulator = async (batchId: string) => {
-    setSimulation(await aegis.actions.simulate(batchId));
+  const openInSimulator = async (_batchId: string) => {
     setTab("simulator");
   };
 
@@ -634,34 +634,20 @@ export default function App() {
       return `Restored ${entry.original_path} from quarantine.`;
     });
 
-  const handleSimulate = (batchId: string) =>
-    run(
-      "Simulate",
-      async () => {
-        setSimulation(await aegis.actions.simulate(batchId));
-      },
-      false
-    );
-
-  const handleApprove = (batchId: string, selection?: string[]) =>
-    run("Approve", async () => {
-      await aegis.actions.approve(batchId, selection);
-      setSelected((prev) => ({ ...prev, [batchId]: [] }));
-      return selection
-        ? `Approved ${selection.length} selected action(s) in batch ${batchId.slice(0, 8)}.`
-        : `Approved batch ${batchId.slice(0, 8)}.`;
+  /** D1: one explicit confirmation approves and applies the ticked changes of a batch. */
+  const handleApplyBatch = (batchId: string, ids: string[]) =>
+    run("Apply", async () => {
+      await aegis.actions.approve(batchId, ids);
+      const r = await aegis.actions.execute(batchId);
+      const text = `Applied ${r.executed_count} change(s)${r.failed_count ? `, ${r.failed_count} failed` : ""}${r.skipped_count ? `, ${r.skipped_count} skipped` : ""}.`;
+      setLastApplied({ batchId, text });
+      return text;
     });
 
   const handleReject = (batchId: string) =>
     run("Reject", async () => {
       await aegis.actions.reject(batchId);
       return `Rejected pending actions in batch ${batchId.slice(0, 8)}.`;
-    });
-
-  const handleExecute = (batchId: string) =>
-    run("Execute", async () => {
-      const r = await aegis.actions.execute(batchId);
-      return `Executed ${r.executed_count} action(s), ${r.failed_count} failed, ${r.skipped_count} skipped.`;
     });
 
   const describeRollback = (res: RollbackResult) =>
@@ -1543,179 +1529,42 @@ export default function App() {
           )}
 
           {tab === "simulator" && (
-            <div className="space-y-5">
-              {simulation && (
-                <section className="rounded-xl border border-emerald-500/30 bg-emerald-950/15 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h2 className="text-sm font-semibold">
-                      Preview: {simulation.batch_id.slice(0, 8)}
-                    </h2>
-                    <span className="text-xs text-slate-300">
-                      Ready: {simulation.ready_count} · Review: {simulation.review_count} ·
-                      Blocked: {simulation.blocked_count}
-                    </span>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    {simulation.items.map((item) => (
-                      <div
-                        key={item.action_id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950/70 p-2.5 text-xs"
-                      >
-                        <div>
-                          <div className="font-mono text-slate-200">
-                            {item.from_path} → {item.effective_to_path ?? "(quarantine)"}
-                          </div>
-                          <div className="text-slate-400">{item.reason}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {item.atomic_unit_protected && (
-                            <span className="flex items-center gap-1 rounded bg-rose-950 px-2 py-0.5 text-rose-300">
-                              <Lock className="h-3 w-3" /> Kept whole (project or repo)
-                            </span>
-                          )}
-                          <span
-                            className={`rounded px-2 py-0.5 font-semibold ${
-                              item.confidence >= 0.9
-                                ? "bg-emerald-500/20 text-emerald-300"
-                                : item.confidence >= 0.6
-                                  ? "bg-amber-500/20 text-amber-300"
-                                  : "bg-slate-800 text-slate-400"
-                            }`}
-                          >
-                            {(item.confidence * 100).toFixed(0)}% · {item.policy_verdict}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+            <div className="space-y-4">
+              {lastApplied && (
+                <Notice
+                  tone="success"
+                  icon={CheckCircle2}
+                  title={lastApplied.text}
+                  actions={
+                    <>
+                      <Button icon={RotateCcw} disabled={busy} onClick={() => { void handleRollbackBatch(lastApplied.batchId); setLastApplied(null); }}>
+                        Undo
+                      </Button>
+                      <Button variant="ghost" onClick={() => setLastApplied(null)}>Dismiss</Button>
+                    </>
+                  }
+                >
+                  You can also undo it later from this screen.
+                </Notice>
               )}
-
-              <section className="space-y-3">
-                <h2 className="text-sm font-semibold">Action Batches</h2>
-                {groupedBatches.length === 0 ? (
-                  <p className="text-xs text-slate-400">No proposed or executed batches.</p>
-                ) : (
-                  groupedBatches.map(([batchId, items]) => {
-                    const count = (s: ActionItem["status"]) =>
-                      items.filter((a) => a.status === s).length;
-                    const proposed = count("proposed");
-                    const approved = count("approved");
-                    const executed = count("executed");
-                    const sel = selected[batchId] ?? [];
-                    const btn =
-                      "rounded px-2.5 py-1 disabled:cursor-not-allowed disabled:opacity-35";
-                    return (
-                      <div
-                        key={batchId}
-                        className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
-                      >
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-mono text-xs text-slate-300">
-                            Batch {batchId.slice(0, 8)} ({items.length} action(s))
-                          </span>
-                          <div className="flex flex-wrap gap-2 text-xs">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void handleSimulate(batchId)}
-                              className={`${btn} bg-slate-800 hover:bg-slate-700`}
-                            >
-                              Simulate
-                            </button>
-                            {sel.length > 0 ? (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void handleApprove(batchId, sel)}
-                                className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors`}
-                              >
-                                Approve selected ({sel.length})
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={busy || proposed === 0}
-                                title={proposed === 0 ? "Nothing awaiting approval" : undefined}
-                                onClick={() => void handleApprove(batchId)}
-                                className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors`}
-                              >
-                                Approve all
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              disabled={busy || proposed + approved === 0}
-                              onClick={() => void handleReject(batchId)}
-                              className={`${btn} border border-slate-700 hover:bg-slate-800`}
-                            >
-                              Reject
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy || approved === 0}
-                              title={approved === 0 ? "Approve actions first" : undefined}
-                              onClick={() => void handleExecute(batchId)}
-                              className={`${btn} bg-emerald-600 font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed transition-colors`}
-                            >
-                              Execute{approved > 0 ? ` (${approved})` : ""}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy || executed === 0}
-                              onClick={() => void handleRollbackBatch(batchId)}
-                              className={`${btn} bg-amber-700 text-white hover:bg-amber-600`}
-                            >
-                              Rollback
-                            </button>
-                          </div>
-                        </div>
-                        <ul className="space-y-1.5 text-xs">
-                          {items.map((a) => (
-                            <li
-                              key={a.id}
-                              className="rounded bg-slate-950/60 px-3 py-2"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <label className="flex min-w-0 items-center gap-2">
-                                  {a.status === "proposed" && (
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`Select ${a.from_path}`}
-                                      checked={sel.includes(a.id)}
-                                      onChange={(e) =>
-                                        setSelected((prev) => {
-                                          const cur = prev[batchId] ?? [];
-                                          return {
-                                            ...prev,
-                                            [batchId]: e.target.checked
-                                              ? [...cur, a.id]
-                                              : cur.filter((x) => x !== a.id),
-                                          };
-                                        })
-                                      }
-                                      className="rounded border-slate-700 bg-slate-900"
-                                    />
-                                  )}
-                                  <span className="truncate font-mono text-slate-300">
-                                    [{a.action_type}] {a.from_path}
-                                  </span>
-                                </label>
-                                <span className="ml-2 shrink-0 rounded bg-slate-800 px-2 py-0.5 text-slate-200">
-                                  {a.status}
-                                </span>
-                              </div>
-                              {a.error_message && (
-                                <div className="mt-1 text-rose-300">{a.error_message}</div>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                  })
-                )}
-              </section>
+              {groupedBatches.length === 0 ? (
+                <EmptyState icon={Sparkles} title="Nothing waiting for approval">
+                  When Cairn proposes changes (filing, duplicates, clean-up), they appear here first. Nothing changes on disk until you approve.
+                </EmptyState>
+              ) : (
+                groupedBatches.map(([batchId, items]) => (
+                  <SimulatorBatch
+                    key={batchId}
+                    batchId={batchId}
+                    items={items}
+                    desktop={desktop}
+                    busy={busy}
+                    onApply={(id, ids) => handleApplyBatch(id, ids)}
+                    onReject={(id) => void handleReject(id)}
+                    onUndo={(id) => void handleRollbackBatch(id)}
+                  />
+                ))
+              )}
             </div>
           )}
 
@@ -1888,106 +1737,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Pre-Rollback 3-Way Conflict Dialog (`D3 §4`, `C1 v1.2`) */}
-      {conflicts.length > 0 && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
-        >
-          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-amber-500/40 bg-slate-900 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-amber-300">
-                  Cannot cleanly revert {conflicts.length} file(s) — external changes
-                  detected
-                </h2>
-                <p className="mt-1 text-xs text-slate-400">
-                  Unaffected items stay where they are until every conflict below is
-                  resolved; then the rest of the batch is rolled back automatically.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeConflicts}
-                className="shrink-0 text-xs text-slate-400 hover:text-white"
-              >
-                Close (Esc)
-              </button>
-            </div>
-            <div className="mt-4 space-y-3">
-              {conflicts.map((c) => {
-                const options: { value: ConflictResolutionChoice; label: string }[] =
-                  c.conflict === "modified"
-                    ? [
-                        {
-                          value: "copy_back_keeping_both",
-                          label: "Copy edited file back & keep both",
-                        },
-                        {
-                          value: "revert_keeping_edits",
-                          label: "Move edited file back to original path",
-                        },
-                        { value: "skip", label: "Skip this file" },
-                        { value: "abort_batch", label: "Abort entire rollback" },
-                      ]
-                    : c.conflict === "collision"
-                      ? [
-                          {
-                            value: "restore_as_rename",
-                            label: "Restore as renamed copy (.restored-<ts>)",
-                          },
-                          { value: "skip", label: "Skip this file" },
-                          { value: "abort_batch", label: "Abort entire rollback" },
-                        ]
-                      : [
-                          {
-                            value: "skip",
-                            label: "Skip (mark as missing)",
-                          },
-                          { value: "abort_batch", label: "Abort entire rollback" },
-                        ];
-                return (
-                  <div
-                    key={c.action_id}
-                    className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-xs"
-                  >
-                    <div className="font-mono text-slate-200">{c.from_path}</div>
-                    <div className="mt-0.5 text-amber-300">{c.detail}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <select
-                        value={conflictChoices[c.action_id] ?? c.recommended_choice}
-                        onChange={(e) =>
-                          setConflictChoices((prev) => ({
-                            ...prev,
-                            [c.action_id]: e.target
-                              .value as ConflictResolutionChoice,
-                          }))
-                        }
-                        className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100"
-                      >
-                        {options.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => handleResolveConflict(c.action_id)}
-                        className="rounded bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      <ConflictResolver
+        conflicts={conflicts}
+        choices={conflictChoices}
+        onChoose={(id, choice) => setConflictChoices((prev) => ({ ...prev, [id]: choice }))}
+        onApply={(id) => handleResolveConflict(id)}
+        onClose={closeConflicts}
+        busy={busy}
+      />
     </div>
   );
 }
