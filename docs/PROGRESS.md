@@ -192,16 +192,7 @@ It was rehearsed on copies of the real forexTrader and DrivingSchool (117,044 fi
 
 ### Vision (north-star order, each with its own short design)
 
-1. ~~Embeddings + hybrid search (FTS5 + vectors, after D1).~~ **Done** (Plan 6A & Plan 6B merged 2026-11-24).
-2. Local RAG over it (models on demand only) — **next vision capability**.
-3. ~~Dead files and workspace health score.~~ **Done** (merged 2026-11-24 in Project 4 System care).
-4. Forgotten asset recovery.
-5. Semantic version tracking (builds on the `Versions` folders).
-6. Knowledge extraction.
-7. Research librarian and cross-project intelligence (work from files on disk, not the screen).
-8. Folderless mode: plain-language requests become visible filing rules.
-9. Self-healing workspace.
-10. Chief Digital Officer agent and digital estate (no destructive dead-man's switch).
+All done (2026-11-24 to 2026-11-25): embeddings + hybrid search, local RAG, dead files and workspace health score, forgotten asset recovery, semantic version tracking, knowledge extraction, research librarian, cross-project intelligence, folderless mode, self-healing workspace, Chief Digital Officer agent, and digital estate. What remains is listed in `HANDOFF.md` under "NEXT CHAT: do this first".
 
 ## 5. Known issues and follow-ups
 

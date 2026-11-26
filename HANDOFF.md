@@ -33,10 +33,42 @@ Current state:
 
 ## NEXT CHAT: do this first
 
-**All 15 North-Star roadmap capabilities (`docs/superpowers/specs/2026-11-23-local-intelligence-north-star.md` §2.2) are built, and the Cairn rebrand is pushed.**
-1. Check the GitHub CI run on `master` is green (badge in README). Fix if not.
-2. Owner: quit any running old Aegis build, run `target\release\cairn-guardian.exe` once (release build replaces the stale "Aegis Guardian" sign-in entry).
-3. **Project 5:** live-PC checks (installer via `pnpm dlx @tauri-apps/cli build`, Windows CredUI, BitLocker, notifications under "Cairn Guardian"), then UI visual polish using the parked `canonical/D1_Design_System_v1.0.md` + `canonical/D3_Critical_UX_Flows_v1.0.md`. The app icon is still a plain green placeholder square: design a real Cairn icon (owner dislikes generic icons; show options first).
+Updated 2026-11-26. **All 15 North-Star capabilities are built. The Cairn rebrand, README, CI (green), app icon and the UI consistency pass are done and pushed (`master` = `origin/master` at `9671f9a`).** The installer was rebuilt on 2026-11-26 with all UI work: `target\release\bundle\nsis\Cairn Guardian_0.1.0_x64-setup.exe` (and `...\bundle\msi\Cairn Guardian_0.1.0_x64_en-US.msi`).
+
+Note: closing the window only hides Cairn to the tray. Quit from the tray (or end `cairn-guardian.exe`) before rebuilding, or the build fails because the exe is locked.
+
+The owner was asked to start with list 1. Their results decide what comes next. Otherwise, the owner picks between lists 3 and 4.
+
+**1. Owner checks on the installed build (waiting on the owner)**
+- Install the NSIS setup. The cairn icon shows in the Start menu, taskbar and tray.
+- Ctrl+K in the app opens the command bar.
+- Notifications show under "Cairn Guardian", and clicking one opens the right screen, also from Action Center.
+- Ctrl+Shift+Space opens Search from any app.
+- After a reboot, Cairn starts in the tray with no window.
+- With the window closed, background memory is 350 MB or less.
+- Windows CredUI sign-in prompts and BitLocker behave on the real PC.
+
+**2. Real-data checks with drive D: plugged in (owner + Claude)**
+- Filing dry run on a `VACUUM INTO` copy of `aegis.db` (`examples/filing_dry_run.rs`): report sample renames and the to-sort share, and fix misclassifications test-first.
+- Try Filing for real with the Fresh structure, then undo one batch.
+- Phase 1 numbers: catalog time, fingerprint time, file count, duplicate groups, re-plug refresh mode and time.
+
+**3. Remaining UI work**
+- In-screen tab bars are still hand-built: they look the same but have no arrow-key navigation. Move them to `Tabs` in `src/ui/index.tsx`.
+- D1 simulator spec §3–§4: "Why this destination?" evidence popover, and "Create rule" after applying.
+- Screen-reader pass with NVDA.
+- Real list virtualisation (`@tanstack/react-virtual`) only if real lists prove slow (`.cv-row` is in place now).
+
+**4. Small deferred issues** (details under "Deferred minor issues" and "Small follow-ups" below)
+- The pending navigation slot is set even when the window exists, so "Open Cairn" can land on an old screen.
+- Saving an invalid shortcut unregisters the working one, and the tray label hard-codes "Ctrl+Shift+Space".
+- The installer-name matcher accepts a first-word-only match for 3+ word names (can wrongly say "already installed").
+- Copy fixes: "Paused until 07:00" has no day, the janitor title is fixed, and the only-copy title has no location.
+- Search filters only apply to a typed query, and changing a filter needs another press of Search.
+
+**5. Housekeeping**
+- Re-run `cargo test --workspace` and clippy after the last UI commits. Only `pnpm build` was verified after them; the last full run was 770 passed.
+- `docs/PROGRESS.md` §4 "Vision" list was corrected on 2026-11-26 (all capabilities done).
 
 - Digital Estate Management doc: `docs/superpowers/plans/2026-11-25-digital-estate.md`.
 - AI Chief Digital Officer Agent doc: `docs/superpowers/plans/2026-11-25-cdo-agent.md`.
